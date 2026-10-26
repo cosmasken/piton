@@ -18,7 +18,7 @@ function expiry(ts) {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-export default function OpenOrders({ provider, signer, account, callContract, putContract }) {
+export default function OpenOrders({ provider, signer, account, callContract, putContract, onRefresh, tick }) {
   const [callOrders, setCallOrders] = useState([]);
   const [putOrders,  setPutOrders]  = useState([]);
   const [selected,   setSelected]   = useState('call');
@@ -65,7 +65,7 @@ export default function OpenOrders({ provider, signer, account, callContract, pu
         setLoading(false);
       }
     })();
-  }, [callContract, putContract]);
+  }, [callContract, putContract, tick]);
 
   const getMusd = async () => {
     const { chainId } = await provider.getNetwork();
@@ -81,7 +81,7 @@ export default function OpenOrders({ provider, signer, account, callContract, pu
       const musd = await getMusd();
       await (await musd.approve(await callContract.getAddress(), o.cost)).wait();
       await (await callContract.buyToOpen(o.id)).wait();
-      window.location.reload();
+      onRefresh();
     } catch (e) { console.error(e); setBtnLoad(false); }
   };
 
@@ -98,7 +98,7 @@ export default function OpenOrders({ provider, signer, account, callContract, pu
       } else {
         await (await callContract.sellToOpen(o.id, 0, 0, { value: o.quantity })).wait();
       }
-      window.location.reload();
+      onRefresh();
     } catch (e) { console.error(e); setBtnLoad(false); }
   };
 
@@ -109,7 +109,7 @@ export default function OpenOrders({ provider, signer, account, callContract, pu
       const musd = await getMusd();
       await (await musd.approve(await putContract.getAddress(), o.cost)).wait();
       await (await putContract.buyToOpen(o.id, modal.settlType)).wait();
-      window.location.reload();
+      onRefresh();
     } catch (e) { console.error(e); setBtnLoad(false); }
   };
 
@@ -120,7 +120,7 @@ export default function OpenOrders({ provider, signer, account, callContract, pu
       const musd = await getMusd();
       await (await musd.approve(await putContract.getAddress(), o.strikePrice)).wait();
       await (await putContract.sellToOpen(o.id, o.strikePrice)).wait();
-      window.location.reload();
+      onRefresh();
     } catch (e) { console.error(e); setBtnLoad(false); }
   };
 

@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
-import { useNavigate } from 'react-router-dom';
 import { Spinner } from 'react-bootstrap';
 
 import getProvider from './getWeb3';
@@ -27,8 +26,8 @@ const MEZO_CHAIN_ID = 31611;
 
 export default function Dashboard() {
   const [state, setState] = useState({ provider: null, signer: null, account: null, chainId: null, loading: true });
-  const navigate = useNavigate();
-  void navigate; // used via onClick below
+  const [tick, setTick] = useState(0);
+  const refresh = () => setTick(t => t + 1);
 
   useEffect(() => {
     (async () => {
@@ -63,7 +62,7 @@ export default function Dashboard() {
   const callContract = new ethers.Contract(addrs.call, CallOptionABI.abi, state.signer);
   const putContract  = new ethers.Contract(addrs.put,  PutOptionABI.abi,  state.signer);
 
-  const shared = { provider: state.provider, signer: state.signer, account: state.account, callContract, putContract };
+  const shared = { provider: state.provider, signer: state.signer, account: state.account, callContract, putContract, onRefresh: refresh, tick };
 
   return (
     <div className='custom-row-main'>

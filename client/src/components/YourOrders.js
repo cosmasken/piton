@@ -18,7 +18,7 @@ function expiry(ts) {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-export default function YourOrders({ provider, signer, account, callContract, putContract }) {
+export default function YourOrders({ provider, signer, account, callContract, putContract, onRefresh, tick }) {
   const [callOrders, setCallOrders] = useState([]);
   const [putOrders,  setPutOrders]  = useState([]);
   const [selected,   setSelected]   = useState('call');
@@ -66,7 +66,7 @@ export default function YourOrders({ provider, signer, account, callContract, pu
         setLoading(false);
       }
     })();
-  }, [account, callContract, putContract]);
+  }, [account, callContract, putContract, tick]);
 
   const getMusd = async () => {
     const { chainId } = await provider.getNetwork();
@@ -75,13 +75,13 @@ export default function YourOrders({ provider, signer, account, callContract, pu
 
   const closeCall = async () => {
     setBtnLoad(true);
-    try { await (await callContract.closeOption(modal.order.id)).wait(); window.location.reload(); }
+    try { await (await callContract.closeOption(modal.order.id)).wait(); onRefresh(); }
     catch (e) { console.error(e); setBtnLoad(false); }
   };
 
   const refundCall = async () => {
     setBtnLoad(true);
-    try { await (await callContract.refundExpired(modal.order.id)).wait(); window.location.reload(); }
+    try { await (await callContract.refundExpired(modal.order.id)).wait(); onRefresh(); }
     catch (e) { console.error(e); setBtnLoad(false); }
   };
 
@@ -94,19 +94,19 @@ export default function YourOrders({ provider, signer, account, callContract, pu
         await (await musd.approve(await callContract.getAddress(), o.strikePrice)).wait();
       }
       await (await callContract.settleOption(o.id)).wait();
-      window.location.reload();
+      onRefresh();
     } catch (e) { console.error(e); setBtnLoad(false); }
   };
 
   const closePut = async () => {
     setBtnLoad(true);
-    try { await (await putContract.closeOption(modal.order.id)).wait(); window.location.reload(); }
+    try { await (await putContract.closeOption(modal.order.id)).wait(); onRefresh(); }
     catch (e) { console.error(e); setBtnLoad(false); }
   };
 
   const refundPut = async () => {
     setBtnLoad(true);
-    try { await (await putContract.refundExpired(modal.order.id)).wait(); window.location.reload(); }
+    try { await (await putContract.refundExpired(modal.order.id)).wait(); onRefresh(); }
     catch (e) { console.error(e); setBtnLoad(false); }
   };
 
@@ -116,7 +116,7 @@ export default function YourOrders({ provider, signer, account, callContract, pu
       const o = modal.order;
       const value = Number(o.settlementType) === 0 ? o.quantity : 0n;
       await (await putContract.settleOption(o.id, { value })).wait();
-      window.location.reload();
+      onRefresh();
     } catch (e) { console.error(e); setBtnLoad(false); }
   };
 

@@ -8,7 +8,7 @@ const MUSD_ADDRESSES = {
   31612: '0xdD468A1DDc392dcdbEf6db6e34E89AA338F9F186',
 };
 
-export default function NewOrder({ provider, signer, account, callContract, putContract }) {
+export default function NewOrder({ provider, signer, account, callContract, putContract, onRefresh }) {
   const [position, setPosition]   = useState('long');
   const [optionType, setOptionType] = useState('call');
   const [strike, setStrike]       = useState('');
@@ -67,7 +67,7 @@ export default function NewOrder({ provider, signer, account, callContract, putC
         await (await putContract.createNewOptionShort(sp, c, q, sp)).wait();
       }
 
-      window.location.reload();
+      onRefresh();
     } catch (err) {
       console.error(err);
     } finally {
