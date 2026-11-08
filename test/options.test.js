@@ -24,22 +24,30 @@ const E18 = (n) => ethers.parseUnits(String(n), 18);
 async function deploy(btcUsdPrice, stale = false) {
   const [owner, long, short] = await ethers.getSigners();
 
-  // Mock MUSD
   const MUSD = await ethers.getContractFactory('MockERC20');
   const musd = await MUSD.deploy('MUSD', 'MUSD');
 
-  // Mock oracle
   const Oracle = await ethers.getContractFactory('MockSkipOracle');
   const oracle = await Oracle.deploy(btcUsdPrice, stale);
 
-  // Deploy options contracts pointing at mock oracle via env override
+  // Minimal Trove mocks — not used by these tests but required by constructor
+  const TM = await ethers.getContractFactory('MockTroveManager');
+  const tm = await TM.deploy();
+  const BOS = await ethers.getContractFactory('MockBorrowerOpsSigs');
+  const bos = await BOS.deploy(await musd.getAddress());
+
   const CallOption = await ethers.getContractFactory('CallOptionTest');
-  const call = await CallOption.deploy(await musd.getAddress(), await oracle.getAddress());
+  const call = await CallOption.deploy(
+    await musd.getAddress(), await oracle.getAddress(),
+    await tm.getAddress(),   await bos.getAddress()
+  );
 
   const PutOption = await ethers.getContractFactory('PutOptionTest');
-  const put = await PutOption.deploy(await musd.getAddress(), await oracle.getAddress());
+  const put = await PutOption.deploy(
+    await musd.getAddress(), await oracle.getAddress(),
+    await tm.getAddress(),   await bos.getAddress()
+  );
 
-  // Mint MUSD to long and short
   await musd.mint(long.address,  E18(1_000_000));
   await musd.mint(short.address, E18(1_000_000));
 
@@ -66,7 +74,7 @@ describe('CallOption — HIGH-1: MUSD settlement overflow', () => {
 
     // Short creates order (type 1 = MUSD margin)
     await musd.connect(short).approve(await call.getAddress(), MARGIN);
-    await call.connect(short).createNewOptionShort(1, STRIKE, COST, QTY, MARGIN);
+    await call.connect(short).createNewOptionShort(1, STRIKE, COST, QTY, MARGIN, '0x', 0);
 
     // Long fills
     await musd.connect(long).approve(await call.getAddress(), COST);
@@ -97,7 +105,7 @@ describe('CallOption — HIGH-1: MUSD settlement overflow', () => {
     // strike = 60 000, still above 1/3 of 200 000 = 66 666 — would fail deep-ITM guard
     // Use strike = 70 000 (above 1/3 of 200 000)
     const strike = E18(70_000);
-    await call.connect(short).createNewOptionShort(1, strike, COST, QTY, margin);
+    await call.connect(short).createNewOptionShort(1, strike, COST, QTY, margin, '0x', 0);
 
     await musd.connect(long).approve(await call.getAddress(), COST);
     await call.connect(long).buyToOpen(1);
@@ -111,7 +119,7 @@ describe('CallOption — HIGH-1: MUSD settlement overflow', () => {
     const m2margin = E18(200_001); // 2/3 of 300 000 = 200 000
     const m2strike = E18(110_000);
     await m2.connect(s2).approve(await c2.getAddress(), m2margin);
-    await c2.connect(s2).createNewOptionShort(1, m2strike, COST, QTY, m2margin);
+    await c2.connect(s2).createNewOptionShort(1, m2strike, COST, QTY, m2margin, '0x', 0);
     await m2.connect(l2).approve(await c2.getAddress(), COST);
     await c2.connect(l2).buyToOpen(1);
 
@@ -122,7 +130,7 @@ describe('CallOption — HIGH-1: MUSD settlement overflow', () => {
     const m3margin = E18(333_334); // 2/3 of 500 000
     const m3strike = E18(170_000);
     await m3.connect(s3).approve(await c3.getAddress(), m3margin);
-    await c3.connect(s3).createNewOptionShort(1, m3strike, COST, QTY, m3margin);
+    await c3.connect(s3).createNewOptionShort(1, m3strike, COST, QTY, m3margin, '0x', 0);
     await m3.connect(l3).approve(await c3.getAddress(), COST);
     await c3.connect(l3).buyToOpen(1);
 
@@ -140,8 +148,8 @@ describe('CallOption — HIGH-1: MUSD settlement overflow', () => {
     await musd.connect(short).approve(await call.getAddress(), margin);
     // strike = 30 000 < 100 000/3 = 33 333 → should revert
     await expect(
-      call.connect(short).createNewOptionShort(1, E18(30_000), COST, QTY, margin)
-    ).to.be.revertedWith('Strike too deep in the money');
+      call.connect(short).createNewOptionShort(1, E18(30_000), COST, QTY, margin, '0x', 0)
+    ).to.be.revertedWith('deep ITM');
   });
 });
 
@@ -160,7 +168,7 @@ describe('PutOption — HIGH-2: BTC settlement pull-payment', () => {
 
     // Short fills (posts MUSD margin >= strike)
     await musd.connect(short).approve(await put.getAddress(), STRIKE);
-    await put.connect(short).sellToOpen(1, STRIKE);
+    await put.connect(short).sellToOpen(1, STRIKE, '0x', 0);
 
     // Long exercises: sends QTY BTC, receives STRIKE MUSD
     const longMusdBefore = await musd.balanceOf(long.address);
@@ -180,7 +188,7 @@ describe('PutOption — HIGH-2: BTC settlement pull-payment', () => {
     await musd.connect(long).approve(await put.getAddress(), COST);
     await put.connect(long).createNewOptionLong(0, STRIKE, COST, QTY);
     await musd.connect(short).approve(await put.getAddress(), STRIKE);
-    await put.connect(short).sellToOpen(1, STRIKE);
+    await put.connect(short).sellToOpen(1, STRIKE, '0x', 0);
     await put.connect(long).settleOption(1, { value: QTY });
 
     const before = await ethers.provider.getBalance(short.address);

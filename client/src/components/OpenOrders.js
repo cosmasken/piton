@@ -95,9 +95,9 @@ export default function OpenOrders({ provider, signer, account, callContract, pu
       if (settlType === 1) {
         const margin = ethers.parseUnits((mv * fmt(o.quantity) * 0.67).toFixed(6), 18);
         await (await musd.approve(await callContract.getAddress(), margin)).wait();
-        await (await callContract.sellToOpen(o.id, 1, margin)).wait();
+        await (await callContract.sellToOpen(o.id, 1, margin, '0x', 0)).wait();
       } else {
-        await (await callContract.sellToOpen(o.id, 0, 0, { value: o.quantity })).wait();
+        await (await callContract.sellToOpen(o.id, 0, 0, '0x', 0, { value: o.quantity })).wait();
       }
       onRefresh(); toast.success('Order filled.');
     } catch (e) { console.error(e); toast.error(e?.reason || e?.message || 'Transaction failed.'); setBtnLoad(false); }
@@ -120,7 +120,7 @@ export default function OpenOrders({ provider, signer, account, callContract, pu
       const o = modal.order;
       const musd = await getMusd();
       await (await musd.approve(await putContract.getAddress(), o.strikePrice)).wait();
-      await (await putContract.sellToOpen(o.id, o.strikePrice)).wait();
+      await (await putContract.sellToOpen(o.id, o.strikePrice, '0x', 0)).wait();
       onRefresh(); toast.success('Order filled.');
     } catch (e) { console.error(e); toast.error(e?.reason || e?.message || 'Transaction failed.'); setBtnLoad(false); }
   };

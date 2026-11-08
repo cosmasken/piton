@@ -4,33 +4,24 @@ pragma experimental ABIEncoderV2;
 
 import "./musdContracts/UsingMUSD.sol";
 import "./priceContract/UsingPriceFeed.sol";
+import "./mezoContracts/UsingMezoTrove.sol";
 
 /**
  * @title PutOption
  * @notice OTC Bitcoin put options settled in MUSD on Mezo.
  *         Underlying asset: BTC (native Mezo coin).
  *         Premium & margin : MUSD (Mezo's Bitcoin-backed stablecoin).
- *         Settlement types : 0 = BTC, 1 = MUSD.
+ *         Settlement types : 0 = BTC, 1 = MUSD, 2 = Trove equity lien.
  */
-contract PutOption is UsingMUSD, UsingPriceFeed {
+contract PutOption is UsingMUSD, UsingPriceFeed, UsingMezoTrove {
     using SafeMath for uint256;
 
     uint256 public uniqueId;
 
-    // Pull-payment ledger: pending BTC withdrawals keyed by recipient
     mapping(address => uint256) public pendingBTC;
 
     enum POSITION {LONG, SHORT}
 
-    /*
-     * partyL          - address for long position
-     * partyS          - address for short position
-     * settlementType  - 0: BTC, 1: MUSD
-     * cost            - bid/ask premium (10^18 MUSD format)
-     * quantity        - underlying BTC amount (Wei)
-     * expiry          - 48 hours from the time of creation
-     * openPosition    - Long/Short position the counterparty would be taking
-     */
     struct Option {
         bool isAvailable;
         bool settled;
@@ -38,12 +29,14 @@ contract PutOption is UsingMUSD, UsingPriceFeed {
         address partyS;
         POSITION openPosition;
         uint256 id;
-        uint256 settlementType;
+        uint256 settlementType;   // 0=BTC 1=MUSD 2=Trove
         uint256 initialSellerMargin;
         uint256 strikePrice;
         uint256 cost;
         uint256 quantity;
         uint256 expiry;
+        bytes   troveSignature;
+        uint256 troveDeadline;
     }
 
     mapping(uint256 => Option) public idToOption;
@@ -59,8 +52,7 @@ contract PutOption is UsingMUSD, UsingPriceFeed {
 
     /*
      * @notice Creates a new put option order for the Long/Buy position.
-     * @dev Must be preceded by an approve() call to the MUSD token contract.
-     * @param _type        Settlement type: 0 = BTC, 1 = MUSD
+     * @param _type        Settlement type: 0=BTC 1=MUSD (chosen by long)
      * @param _strikePrice Strike price in MUSD (10^18)
      * @param _cost        Premium bid in MUSD (10^18)
      * @param _quantity    Underlying BTC amount (Wei)
@@ -71,61 +63,67 @@ contract PutOption is UsingMUSD, UsingPriceFeed {
         uint256 _cost,
         uint256 _quantity
     ) external {
-        bool _costEscrowed = musdInstance.transferFrom(msg.sender, address(this), _cost);
-        require(_costEscrowed, "Insufficient MUSD approved for premium escrow");
+        bool ok = musdInstance.transferFrom(msg.sender, address(this), _cost);
+        require(ok, "Insufficient MUSD approved for premium escrow");
 
-        Option memory newOption = Option(
+        idToOption[uniqueId] = Option(
             true, false,
             msg.sender, address(0),
             POSITION.SHORT,
             uniqueId, _type, 0,
             _strikePrice, _cost, _quantity,
-            block.timestamp + 2 days
+            block.timestamp + 2 days,
+            "", 0
         );
-
-        idToOption[uniqueId] = newOption;
         addressToOptions[msg.sender].push(uniqueId);
         uniqueId++;
     }
 
     /*
-     * @notice Creates a new put option order for the Sell/Short position.
-     * @dev Must be preceded by an approve() call to the MUSD token contract.
+     * @notice Creates a new put option short order.
      * @param _strikePrice   Strike price in MUSD (10^18)
      * @param _cost          Premium ask in MUSD (10^18)
      * @param _quantity      Underlying BTC amount (Wei)
-     * @param _initialMargin MUSD margin; must be >= strikePrice
+     * @param _initialMargin MUSD margin >= strikePrice (type 1 only; 0 for type 2)
+     * @param _troveSig      EIP-712 adjustTroveWithSignature payload (type 2 only)
+     * @param _troveDeadline Signature deadline (type 2 only)
      */
     function createNewOptionShort(
         uint256 _strikePrice,
         uint256 _cost,
         uint256 _quantity,
-        uint256 _initialMargin
+        uint256 _initialMargin,
+        bytes   calldata _troveSig,
+        uint256 _troveDeadline
     ) external {
-        require(_initialMargin >= _strikePrice, "Insufficient MUSD margin");
+        uint256 marginType = (_troveSig.length > 0) ? 2 : 1;
 
-        bool _marginEscrowed = musdInstance.transferFrom(msg.sender, address(this), _initialMargin);
-        require(_marginEscrowed, "Insufficient MUSD approved for margin escrow");
+        if (marginType == 1) {
+            require(_initialMargin >= _strikePrice, "Insufficient MUSD margin");
+            bool ok = musdInstance.transferFrom(msg.sender, address(this), _initialMargin);
+            require(ok, "Insufficient MUSD approved for margin escrow");
+        } else {
+            require(troveCoversMargin(msg.sender, _strikePrice, getMarketValue()), "Trove equity insufficient");
+            require(_troveDeadline > block.timestamp, "Invalid trove deadline");
+        }
 
-        Option memory newOption = Option(
+        idToOption[uniqueId] = Option(
             true, false,
             address(0), msg.sender,
             POSITION.LONG,
-            uniqueId, 0, _initialMargin,
+            uniqueId, marginType, _initialMargin,
             _strikePrice, _cost, _quantity,
-            block.timestamp + 2 days
+            block.timestamp + 2 days,
+            _troveSig, _troveDeadline
         );
-
-        idToOption[uniqueId] = newOption;
         addressToOptions[msg.sender].push(uniqueId);
         uniqueId++;
     }
 
     /*
      * @notice Join a shorted put order (buy the long position).
-     * @dev Must be preceded by an approve() call to the MUSD token contract.
      * @param _id    Option ID to join
-     * @param _type  Settlement type: 0 = BTC, 1 = MUSD
+     * @param _type  Settlement type for the long side: 0=BTC 1=MUSD
      */
     function buyToOpen(uint256 _id, uint256 _type) external isAvailable(idToOption[_id]) {
         Option storage option = idToOption[_id];
@@ -133,67 +131,97 @@ contract PutOption is UsingMUSD, UsingPriceFeed {
         require(option.openPosition == POSITION.LONG, "Wrong option selected");
         require(msg.sender != option.partyS, "Cannot fill your own order");
 
-        bool _premiumSent = musdInstance.transferFrom(msg.sender, address(this), option.cost);
-        require(_premiumSent, "Insufficient MUSD approved for premium");
+        if (option.settlementType == 2) {
+            require(troveCoversMargin(option.partyS, option.strikePrice, getMarketValue()), "Trove equity insufficient at fill");
+        }
 
+        bool ok = musdInstance.transferFrom(msg.sender, address(this), option.cost);
+        require(ok, "Insufficient MUSD approved for premium");
         musdInstance.transfer(option.partyS, option.cost);
 
         option.isAvailable = false;
         option.partyL = msg.sender;
-        option.settlementType = _type;
+        // For Trove margin the settlement type (BTC/MUSD delivery) is set by the long
+        if (option.settlementType != 2) option.settlementType = _type;
         addressToOptions[msg.sender].push(_id);
     }
 
     /*
      * @notice Sell to an existing long put bid (take the short position).
-     * @dev Must be preceded by an approve() call to the MUSD token contract.
      * @param _id             Option ID to fill
-     * @param _initialMargin  MUSD margin; must be >= strikePrice
+     * @param _initialMargin  MUSD margin >= strikePrice (type 1); 0 for type 2
+     * @param _troveSig       EIP-712 payload (type 2 only)
+     * @param _troveDeadline  Signature deadline (type 2 only)
      */
-    function sellToOpen(uint256 _id, uint256 _initialMargin) external isAvailable(idToOption[_id]) {
+    function sellToOpen(
+        uint256 _id,
+        uint256 _initialMargin,
+        bytes   calldata _troveSig,
+        uint256 _troveDeadline
+    ) external isAvailable(idToOption[_id]) {
         Option storage option = idToOption[_id];
 
         require(option.openPosition == POSITION.SHORT, "Wrong option selected");
         require(msg.sender != option.partyL, "Cannot fill your own order");
-        require(_initialMargin >= option.strikePrice, "Insufficient MUSD margin");
 
-        bool _marginEscrowed = musdInstance.transferFrom(msg.sender, address(this), _initialMargin);
-        require(_marginEscrowed, "Insufficient MUSD approved for margin escrow");
+        uint256 marginType = (_troveSig.length > 0) ? 2 : 1;
+
+        if (marginType == 1) {
+            require(_initialMargin >= option.strikePrice, "Insufficient MUSD margin");
+            bool ok = musdInstance.transferFrom(msg.sender, address(this), _initialMargin);
+            require(ok, "Insufficient MUSD approved for margin escrow");
+        } else {
+            require(troveCoversMargin(msg.sender, option.strikePrice, getMarketValue()), "Trove equity insufficient");
+            require(_troveDeadline > block.timestamp, "Invalid trove deadline");
+        }
 
         musdInstance.transfer(msg.sender, option.cost);
 
         option.initialSellerMargin = _initialMargin;
-        option.isAvailable = false;
-        option.partyS = msg.sender;
+        // Preserve the long's delivery type; only override to 2 for Trove margin
+        if (marginType == 2) option.settlementType = 2;
+        option.isAvailable         = false;
+        option.partyS              = msg.sender;
+        option.troveSignature      = _troveSig;
+        option.troveDeadline       = _troveDeadline;
         addressToOptions[msg.sender].push(_id);
     }
 
     /*
      * @notice Settles a filled, in-the-money put option.
-     * @dev For type 0, caller must send BTC equal to quantity as msg.value.
+     * @dev For settlement type 0, caller must send BTC equal to quantity as msg.value.
      * @param _id  Option ID to settle
      */
     function settleOption(uint256 _id) external payable hasNotSettled(idToOption[_id]) {
         Option storage option = idToOption[_id];
 
-        uint256 marketVal = option.quantity.mul(getMarketValue()).div(10**18);
-        require(option.strikePrice > marketVal, "Option is out of the money");
+        uint256 mv = option.quantity.mul(getMarketValue()).div(10**18);
+        require(option.strikePrice > mv, "Option is out of the money");
         require(msg.sender == option.partyL, "Only long party can settle");
 
         if (option.settlementType == 0) {
-            // BTC settlement: long sends BTC, short receives it via pull-payment
-            // (push would let a reverting short contract block exercise).
             require(msg.value == option.quantity, "Incorrect BTC amount sent");
-
             pendingBTC[option.partyS] = pendingBTC[option.partyS].add(option.quantity);
             musdInstance.transfer(option.partyL, option.strikePrice);
-        } else {
-            // MUSD settlement: long receives profit from seller's margin
-            uint256 profit = option.strikePrice.sub(marketVal);
-            musdInstance.transfer(msg.sender, profit);
 
-            uint256 remaining = option.initialSellerMargin.sub(profit);
-            musdInstance.transfer(option.partyS, remaining);
+        } else if (option.settlementType == 1) {
+            uint256 profit = option.strikePrice.sub(mv);
+            musdInstance.transfer(msg.sender, profit);
+            musdInstance.transfer(option.partyS, option.initialSellerMargin.sub(profit));
+
+        } else {
+            // Trove margin: pull strike MUSD from short's Trove
+            ITroveManager tm = ITroveManager(TROVE_MANAGER);
+            if (tm.getTroveStatus(option.partyS) != 1) {
+                option.settled = true;
+                return;
+            }
+            uint256 profit = option.strikePrice.sub(mv);
+            uint256 equity = troveEquityMUSD(option.partyS, getMarketValue());
+            uint256 payout = profit < equity ? profit : equity;
+            require(payout > 0, "No equity available");
+            _pullFromTrove(option.partyS, payout, option.troveSignature, option.troveDeadline);
+            musdInstance.transfer(msg.sender, payout);
         }
 
         option.settled = true;
@@ -208,7 +236,10 @@ contract PutOption is UsingMUSD, UsingPriceFeed {
 
         if (option.openPosition == POSITION.LONG) {
             require(msg.sender == option.partyS, "Not authorised");
-            musdInstance.transfer(msg.sender, option.initialSellerMargin);
+            if (option.settlementType == 1) {
+                musdInstance.transfer(msg.sender, option.initialSellerMargin);
+            }
+            // type 2: no escrowed tokens
         } else {
             require(msg.sender == option.partyL, "Not authorised");
             musdInstance.transfer(msg.sender, option.cost);
@@ -228,16 +259,16 @@ contract PutOption is UsingMUSD, UsingPriceFeed {
         option.settled = true;
         option.isAvailable = false;
 
-        // Return long's premium — they paid it but the option expired unexercised.
         musdInstance.transfer(option.partyL, option.cost);
 
-        // Return short's MUSD margin.
-        musdInstance.transfer(option.partyS, option.initialSellerMargin);
+        if (option.settlementType == 1) {
+            musdInstance.transfer(option.partyS, option.initialSellerMargin);
+        }
+        // type 2: Trove lien released by marking settled
     }
 
     /*
      * @notice Returns the number of options associated with an address.
-     * @param _address  Wallet address to query
      */
     function getOptionsCount(address _address) public view returns (uint256) {
         return addressToOptions[_address].length;

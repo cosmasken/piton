@@ -9,6 +9,56 @@ const MUSD_ADDRESSES = {
   31612: '0xdD468A1DDc392dcdbEf6db6e34E89AA338F9F186',
 };
 
+// Mezo matsnet BorrowerOperationsSignatures address
+const BORROWER_OPS_SIGS = '0xD757e3646AF370b15f32EB557F0F8380Df7D639e';
+const BORROWER_OPS_SIGS_ABI = [
+  { type: 'function', name: 'getNonce', stateMutability: 'view',
+    inputs: [{ name: 'user', type: 'address' }], outputs: [{ type: 'uint256' }] }
+];
+
+// 30-day deadline for Trove signatures
+const TROVE_SIG_DEADLINE = () => Math.floor(Date.now() / 1000) + 86400 * 30;
+
+/**
+ * Signs an adjustTroveWithSignature EIP-712 payload.
+ * Matches the domain/typehash used by Mezo's BorrowerOperationsSignatures.
+ */
+async function signTroveAdjust(signer, contractAddress, borrower, debtChange, nonce, deadline, chainId) {
+  const domain = {
+    name: 'BorrowerOperationsSignatures',
+    version: '1',
+    chainId,
+    verifyingContract: contractAddress,
+  };
+  const types = {
+    AdjustTrove: [
+      { name: 'collWithdrawal',  type: 'uint256' },
+      { name: 'debtChange',      type: 'uint256' },
+      { name: 'isDebtIncrease',  type: 'bool'    },
+      { name: 'assetAmount',     type: 'uint256' },
+      { name: 'borrower',        type: 'address' },
+      { name: 'recipient',       type: 'address' },
+      { name: 'nonce',           type: 'uint256' },
+      { name: 'deadline',        type: 'uint256' },
+    ],
+  };
+  // recipient is the option contract — passed as contractAddress param here
+  // but we don't know it at sign time; use zero address and let the contract fill it.
+  // Actually the contract IS the recipient — we need its address.
+  // We pass it in as `contractAddress` (the option contract address).
+  const value = {
+    collWithdrawal: 0n,
+    debtChange,
+    isDebtIncrease: true,
+    assetAmount: 0n,
+    borrower,
+    recipient: contractAddress,
+    nonce,
+    deadline: BigInt(deadline),
+  };
+  return signer.signTypedData(domain, types, value);
+}
+
 export default function NewOrder({ provider, signer, account, callContract, putContract, onRefresh }) {
   const [position, setPosition]   = useState('long');
   const [optionType, setOptionType] = useState('call');
@@ -51,13 +101,20 @@ export default function NewOrder({ provider, signer, account, callContract, putC
         await (await callContract.createNewOptionLong(sp, c, q)).wait();
 
       } else if (isCall && isShort) {
-        if (settlType === '1') {
-          // Round to 6 dp to avoid parseUnits overflow on floating-point strings
+        if (settlType === '2') {
+          const { chainId } = await provider.getNetwork();
+          const bosContract = new ethers.Contract(BORROWER_OPS_SIGS, BORROWER_OPS_SIGS_ABI, signer);
+          const nonce    = await bosContract.getNonce(account);
+          const deadline = TROVE_SIG_DEADLINE();
+          const profit   = ethers.parseUnits((marketVal * 0.67).toFixed(6), 18);
+          const sig = await signTroveAdjust(signer, await callContract.getAddress(), account, profit, nonce, deadline, Number(chainId));
+          await (await callContract.createNewOptionShort(2, sp, c, q, 0, sig, deadline)).wait();
+        } else if (settlType === '1') {
           const margin = ethers.parseUnits((marketVal * 0.67).toFixed(6), 18);
           await (await musd.approve(await callContract.getAddress(), margin)).wait();
-          await (await callContract.createNewOptionShort(1, sp, c, q, margin)).wait();
+          await (await callContract.createNewOptionShort(1, sp, c, q, margin, '0x', 0)).wait();
         } else {
-          await (await callContract.createNewOptionShort(0, sp, c, q, 0, { value: q })).wait();
+          await (await callContract.createNewOptionShort(0, sp, c, q, 0, '0x', 0, { value: q })).wait();
         }
 
       } else if (!isCall && !isShort) {
@@ -65,8 +122,18 @@ export default function NewOrder({ provider, signer, account, callContract, putC
         await (await putContract.createNewOptionLong(settlType, sp, c, q)).wait();
 
       } else {
-        await (await musd.approve(await putContract.getAddress(), sp)).wait();
-        await (await putContract.createNewOptionShort(sp, c, q, sp)).wait();
+        // Put short
+        if (settlType === '2') {
+          const { chainId } = await provider.getNetwork();
+          const bosContract = new ethers.Contract(BORROWER_OPS_SIGS, BORROWER_OPS_SIGS_ABI, signer);
+          const nonce    = await bosContract.getNonce(account);
+          const deadline = TROVE_SIG_DEADLINE();
+          const sig = await signTroveAdjust(signer, await putContract.getAddress(), account, sp, nonce, deadline, Number(chainId));
+          await (await putContract.createNewOptionShort(sp, c, q, 0, sig, deadline)).wait();
+        } else {
+          await (await musd.approve(await putContract.getAddress(), sp)).wait();
+          await (await putContract.createNewOptionShort(sp, c, q, sp, '0x', 0)).wait();
+        }
       }
 
       onRefresh();
@@ -119,7 +186,11 @@ export default function NewOrder({ provider, signer, account, callContract, putC
                   <select value={settlType} onChange={e => setSettlType(e.target.value)} className='form-control'>
                     <option value='0'>BTC</option>
                     <option value='1'>MUSD</option>
+                    <option value='2'>Trove (Mezo)</option>
                   </select>
+                  {settlType === '2' && (
+                    <small className='text-secondary'>Your Mezo Trove equity will be used as margin. You will sign an EIP-712 payload when placing the order.</small>
+                  )}
                 </div>
               )}
             </div>
