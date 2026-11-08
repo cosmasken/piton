@@ -122,7 +122,9 @@ export default function Dashboard() {
           <NewOrder />
         </div>
         <div className="flex flex-col gap-2 lg:overflow-hidden">
-          <Graph />
+          <div className="h-52 shrink-0">
+            <Graph />
+          </div>
           <OpenOrders />
         </div>
         <div className="flex flex-col gap-2 lg:overflow-hidden">

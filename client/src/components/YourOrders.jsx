@@ -164,17 +164,16 @@ export default function YourOrders() {
 
   return (
     <div className="panel flex flex-col overflow-hidden flex-1 min-h-0">
-      <div className="panel-header flex items-center justify-between">
+      <div className="panel-header flex flex-col gap-1">
         <div className="flex gap-1">
           <button onClick={() => setView('open')}
-            className={`text-xs px-3 py-1 rounded font-display transition-colors ${view === 'open' ? 'bg-surface text-text' : 'text-dim'}`}>Open</button>
+            className={`text-xs px-2 py-0.5 rounded font-display transition-colors ${view === 'open' ? 'bg-surface text-text' : 'text-dim'}`}>Open</button>
           <button onClick={() => setView('history')}
-            className={`text-xs px-3 py-1 rounded font-display transition-colors ${view === 'history' ? 'bg-surface text-text' : 'text-dim'}`}>History</button>
-        </div>
-        <div className="flex gap-1">
+            className={`text-xs px-2 py-0.5 rounded font-display transition-colors ${view === 'history' ? 'bg-surface text-text' : 'text-dim'}`}>History</button>
+          <span className="text-border mx-1">|</span>
           {['call','put'].map(t => (
             <button key={t} onClick={() => setTab(t)}
-              className={`text-xs px-3 py-1 rounded uppercase tracking-wider font-display transition-colors ${tab === t ? 'bg-surface text-text' : 'text-dim'}`}>{t}</button>
+              className={`text-xs px-2 py-0.5 rounded uppercase tracking-wider font-display transition-colors ${tab === t ? 'bg-surface text-text' : 'text-dim'}`}>{t}</button>
           ))}
         </div>
       </div>
