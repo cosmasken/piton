@@ -84,8 +84,8 @@ export default function Home() {
           <p className="text-xs tracking-widest uppercase text-dim mb-3">Deployed Contracts</p>
           <h2 className="font-display font-bold text-3xl mb-8">Mezo Matsnet <span className="text-dim text-xl font-body font-normal">· Chain ID 31611</span></h2>
           <div className="panel px-5">
-            <Addr label="CallOption"            short="0x2782…7516" href="https://explorer.test.mezo.org/address/0x278269C888E18D73c315Df8BDE54711905637516" />
-            <Addr label="PutOption"             short="0x5857…17Ca" href="https://explorer.test.mezo.org/address/0x58579360e86BD2f489578b410C5284757EE517Ca" />
+            <Addr label="CallOption"            short="0xd24f…Db7" href="https://explorer.test.mezo.org/address/0xd24fbb05E888aD3F22bEC8323D6D164Ec49bDDb7" />
+            <Addr label="PutOption"             short="0x5c3b…416" href="https://explorer.test.mezo.org/address/0x5c3b1e87668DEF8909500640099068CE20c78416" />
             <Addr label="MUSD"                  short="0x1189…c503" href="https://explorer.test.mezo.org/address/0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503" />
             <Addr label="Skip Oracle (BTC/USD)" short="0x7b7c…0015" href="https://explorer.test.mezo.org/address/0x7b7c000000000000000000000000000000000015" />
           </div>
