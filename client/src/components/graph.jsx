@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import CanvasJSReact from '../addon/canvasjs.react';
+import CanvasJSReact from '../addon/canvasjs.react.jsx';
 
 const CanvasJSChart = CanvasJSReact.CanvasJSChart;
 
