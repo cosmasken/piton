@@ -118,16 +118,16 @@ export default function Dashboard() {
       {isNewUser && <OnboardingCard onDismiss={dismissOnboarding} />}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-[220px_1fr_280px] gap-2 p-2 lg:overflow-hidden lg:min-h-0">
         <div className="flex flex-col gap-2 lg:overflow-hidden">
-          <MarketValue />
-          <NewOrder />
+          <div data-tour="market-value"><MarketValue /></div>
+          <div data-tour="new-order" className="flex flex-col flex-1 overflow-hidden"><NewOrder /></div>
         </div>
         <div className="flex flex-col gap-2 lg:overflow-hidden">
-          <Graph />
-          <OpenOrders />
+          <div data-tour="chart" className="flex flex-col flex-1 overflow-hidden"><Graph /></div>
+          <div data-tour="open-orders" className="flex flex-col flex-1 overflow-hidden"><OpenOrders /></div>
         </div>
         <div className="flex flex-col gap-2 lg:overflow-hidden">
-          <Wallet />
-          <YourOrders />
+          <div data-tour="wallet"><Wallet /></div>
+          <div data-tour="your-orders" className="flex flex-col flex-1 overflow-hidden"><YourOrders /></div>
         </div>
       </div>
     </div>

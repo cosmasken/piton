@@ -1,5 +1,6 @@
 import React from 'react';
 import { useAccount } from 'wagmi';
+import { startTour } from '../tour';
 
 export default function Navbar({ onDisconnect }) {
   const { address } = useAccount();
@@ -9,6 +10,7 @@ export default function Navbar({ onDisconnect }) {
     <nav className="flex items-center justify-between px-4 py-3 border-b border-border bg-bg shrink-0">
       <a href="/" className="font-display font-bold text-lg text-accent tracking-tight">piton</a>
       <div className="flex items-center gap-3">
+        <button onClick={startTour} className="btn-ghost text-xs">Tour</button>
         <span className="font-mono text-xs text-dim">{short}</span>
         <button onClick={onDisconnect} className="btn-ghost text-xs">Disconnect</button>
       </div>

@@ -191,7 +191,7 @@ export default function NewOrder() {
 
           {isShort && !simpleMode && (
             <div className="space-y-2">
-              <button type="button" onClick={() => setSettlType('2')}
+              <button type="button" data-tour="trove-margin" onClick={() => setSettlType('2')}
                 className={`w-full text-left px-3 py-2.5 rounded-md border transition-colors ${settlType === '2' ? 'border-accent/50 bg-accent/5' : 'border-border bg-surface hover:border-accent/30'}`}>
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-display font-semibold text-accent">✦ Trove Margin</span>
