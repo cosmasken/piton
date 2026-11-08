@@ -40,7 +40,7 @@ export default function MarketValue() {
       <div className="space-y-2">
         {[
           ['BTC / USD', `$${btcFmt}`, oracleStale ? 'Binance' : 'Skip'],
-          ['MUSD / USD', '$1.00', 'Pyth'],
+          ['MUSD / USD', '$1.00', 'pegged'],
           ['BTC / MUSD', btcFmt, null],
         ].map(([label, val, source]) => (
           <div key={label} className="flex justify-between items-baseline">
@@ -56,7 +56,7 @@ export default function MarketValue() {
       {/* Pyth multi-asset prices */}
       {PYTH_FEEDS.some(f => pythPrices[f.id]) && (
         <div className="border-t border-border pt-3 space-y-2">
-          <p className="text-[10px] uppercase tracking-widest text-dim/60 font-body">Mezo Ecosystem</p>
+          <p className="text-[10px] uppercase tracking-widest text-dim/60 font-body">Mezo Ecosystem (Pyth)</p>
           {PYTH_FEEDS.map(f => (
             <div key={f.id} className="flex justify-between items-baseline">
               <span className="text-xs text-dim font-body">{f.label}</span>

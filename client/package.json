@@ -25,7 +25,7 @@
   },
   "scripts": {
     "start": "vite",
-    "build": "vite build",
+    "build": "vite build && cp dist/index.html dist/200.html",
     "preview": "vite preview"
   },
   "devDependencies": {
