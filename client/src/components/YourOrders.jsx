@@ -6,6 +6,8 @@ import { useStore } from '../store';
 import { useCountdown } from '../useCountdown';
 import { parseTxError } from '../txUtils';
 import { greeks } from '../greeks';
+import Modal from './Modal';
+import { SkeletonRow } from './Skeleton';
 
 const EXPLORER = 'https://explorer.test.mezo.org/tx/';
 const fmt = v => parseFloat(ethers.formatUnits(v, 18));
@@ -14,7 +16,16 @@ function TxToast({ msg, hash }) {
   return <div>{msg}{hash && <><br/><a href={`${EXPLORER}${hash}`} target="_blank" rel="noreferrer" className="text-accent text-xs underline">View on explorer ↗</a></>}</div>;
 }
 
-function payoffCurve(isCall, isLong, sp, cost, qty, spot) {
+function Row({ label, value, accent, red }) {
+  return (
+    <div className="flex justify-between items-center">
+      <span className="text-xs text-dim">{label}</span>
+      <span className={`font-mono text-xs ${accent ? 'text-accent' : red ? 'text-red' : 'text-text'}`}>{value}</span>
+    </div>
+  );
+}
+
+function payoffCurve(isCall, isLong, sp, cost, qty) {
   const range = sp * 0.3;
   return Array.from({ length: 21 }, (_, i) => {
     const price = (sp - range) + (i / 20) * range * 2;
@@ -31,17 +42,17 @@ function PositionRow({ o, isCall, account, btcPrice, onAction }) {
   const isLong = o.partyS !== account;
   const hoursLeft = Math.max(0, (Number(o.expiry) - Date.now() / 1000) / 3600);
   const g = btcPrice ? greeks(isCall, btcPrice, sp, hoursLeft) : { delta: null, theta: null };
-  const PL     = !o.isAvailable && exp !== 'Expired'
+  const PL = !o.isAvailable && exp !== 'Expired'
     ? (isCall ? (isLong ? btcPrice - sp - cost : cost - Math.max(0, btcPrice - sp))
               : (isLong ? sp - btcPrice - cost  : cost - Math.max(0, sp - btcPrice))) * qty
     : null;
 
   let action = null;
-  if (o.isAvailable)       action = isCall ? 'closeCall'  : 'closePut';
+  if (o.isAvailable)          action = isCall ? 'closeCall'  : 'closePut';
   else if (exp === 'Expired') action = isCall ? 'refundCall' : 'refundPut';
   else if (isLong)            action = isCall ? 'settleCall' : 'settlePut';
 
-  const curve = btcPrice ? payoffCurve(isCall, isLong, sp, cost, qty, btcPrice) : [];
+  const curve = btcPrice ? payoffCurve(isCall, isLong, sp, cost, qty) : [];
 
   return (
     <div className="border-b border-border px-4 py-3 hover:bg-surface/30 transition-colors">
@@ -58,14 +69,13 @@ function PositionRow({ o, isCall, account, btcPrice, onAction }) {
             </span>
           )}
           {action && (
-            <button onClick={() => onAction({ order: o, action })}
+            <button onClick={() => onAction({ order: o, action, isCall, isLong, sp, qty, cost, PL })}
               className={`text-xs font-display font-semibold hover:opacity-70 transition-opacity ${action.startsWith('settle') ? 'text-accent' : 'text-dim'}`}>
               {action.startsWith('settle') ? 'Settle →' : action.startsWith('close') ? 'Close' : 'Refund'}
             </button>
           )}
         </div>
       </div>
-      {/* Greeks */}
       {g.delta !== null && (
         <div className="flex gap-3 mb-1">
           <span className="text-[10px] font-mono text-dim">Δ <span className="text-text">{g.delta}</span></span>
@@ -94,19 +104,75 @@ function PositionRow({ o, isCall, account, btcPrice, onAction }) {
   );
 }
 
+function ActionModal({ modal, onClose, onConfirm, loading }) {
+  if (!modal) return null;
+  const { action, isCall, isLong, sp, qty, cost, PL, order } = modal;
+
+  const isSettle = action.startsWith('settle');
+  const isClose  = action.startsWith('close');
+  const isRefund = action.startsWith('refund');
+
+  const title = isSettle ? 'Settle Option' : isClose ? 'Close Order' : 'Refund Expired';
+
+  const payout = isSettle && PL !== null
+    ? (isCall
+        ? (isLong ? `${(Math.max(0, 0) + cost * qty).toFixed(2)} MUSD` : null) // simplified
+        : null)
+    : null;
+
+  return (
+    <Modal title={title} onClose={onClose}>
+      <div className="space-y-1 bg-surface rounded-md px-3 py-3">
+        <Row label="Type"    value={`${isLong ? 'Long' : 'Short'} ${isCall ? 'Call' : 'Put'}`} />
+        <Row label="Strike"  value={`$${sp?.toLocaleString()}`} />
+        <Row label="Qty"     value={`${qty?.toFixed(4)} BTC`} />
+        <Row label="Premium" value={`${cost?.toFixed(2)} MUSD`} />
+        {PL !== null && <Row label="Est. P/L" value={`${PL > 0 ? '+' : ''}${PL?.toFixed(2)} MUSD`} accent={PL > 0} red={PL <= 0} />}
+      </div>
+
+      {isSettle && (
+        <p className="text-xs text-dim bg-accent/5 border border-accent/20 rounded px-2 py-1.5">
+          {isCall
+            ? isLong ? 'You pay strike in MUSD and receive BTC (or cash-settled profit).' : 'Short call settled against you.'
+            : isLong ? 'You send BTC and receive strike in MUSD (or cash-settled profit).' : 'Short put settled against you.'}
+        </p>
+      )}
+      {isClose && (
+        <p className="text-xs text-dim bg-surface border border-border rounded px-2 py-1.5">
+          Cancels your open order and returns escrowed collateral.
+        </p>
+      )}
+      {isRefund && (
+        <p className="text-xs text-dim bg-surface border border-border rounded px-2 py-1.5">
+          Option expired unexercised. Reclaims your escrowed collateral.
+        </p>
+      )}
+
+      <div className="flex gap-3">
+        <button onClick={onClose} className="btn-ghost flex-1">Cancel</button>
+        <button onClick={onConfirm} disabled={loading}
+          className="btn-primary flex-1 disabled:opacity-50 flex items-center justify-center gap-2">
+          {loading && <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />}
+          {loading ? 'Confirming…' : isSettle ? 'Settle & Collect' : isClose ? 'Close Order' : 'Claim Refund'}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 export default function YourOrders() {
   const { account, callContract, putContract, musdContract, btcPrice, refresh } = useStore();
   const tick = useStore(s => s.tick);
 
-  const [callOrders,    setCallOrders]    = useState([]);
-  const [putOrders,     setPutOrders]     = useState([]);
-  const [callHistory,   setCallHistory]   = useState([]);
-  const [putHistory,    setPutHistory]    = useState([]);
-  const [tab,           setTab]           = useState('call');
-  const [view,          setView]          = useState('open'); // 'open' | 'history'
-  const [loading,       setLoading]       = useState(false);
-  const [modal,         setModal]         = useState(null);
-  const [btnLoad,       setBtnLoad]       = useState(false);
+  const [callOrders,  setCallOrders]  = useState([]);
+  const [putOrders,   setPutOrders]   = useState([]);
+  const [callHistory, setCallHistory] = useState([]);
+  const [putHistory,  setPutHistory]  = useState([]);
+  const [tab,         setTab]         = useState('call');
+  const [view,        setView]        = useState('open');
+  const [loading,     setLoading]     = useState(false);
+  const [modal,       setModal]       = useState(null);
+  const [btnLoad,     setBtnLoad]     = useState(false);
 
   useEffect(() => {
     if (!account || !callContract) return;
@@ -125,7 +191,7 @@ export default function YourOrders() {
     };
     Promise.all([load(callContract), load(putContract)])
       .then(([c, p]) => {
-        setCallOrders(c.open);   setPutOrders(p.open);
+        setCallOrders(c.open);    setPutOrders(p.open);
         setCallHistory(c.history); setPutHistory(p.history);
       })
       .finally(() => setLoading(false));
@@ -154,7 +220,7 @@ export default function YourOrders() {
     refundPut:  () => run(async () => (await putContract.refundExpired(modal.order.id)).wait(), 'Escrow refunded.'),
     settlePut:  () => run(async () => {
       const o = modal.order;
-      return (await putContract.settleOption(o.id, { value: Number(o.settlementType) === 0 ? o.quantity : 0n })).wait(); // eslint-disable-line no-undef
+      return (await putContract.settleOption(o.id, { value: Number(o.settlementType) === 0 ? o.quantity : 0n })).wait();
     }, 'Option settled.'),
   };
 
@@ -166,10 +232,10 @@ export default function YourOrders() {
     <div className="panel flex flex-col overflow-hidden flex-1 min-h-0">
       <div className="panel-header flex flex-col gap-1">
         <div className="flex gap-1">
-          <button onClick={() => setView('open')}
-            className={`text-xs px-2 py-0.5 rounded font-display transition-colors ${view === 'open' ? 'bg-surface text-text' : 'text-dim'}`}>Open</button>
-          <button onClick={() => setView('history')}
-            className={`text-xs px-2 py-0.5 rounded font-display transition-colors ${view === 'history' ? 'bg-surface text-text' : 'text-dim'}`}>History</button>
+          {['open','history'].map(v => (
+            <button key={v} onClick={() => setView(v)}
+              className={`text-xs px-2 py-0.5 rounded font-display capitalize transition-colors ${view === v ? 'bg-surface text-text' : 'text-dim'}`}>{v}</button>
+          ))}
           <span className="text-border mx-1">|</span>
           {['call','put'].map(t => (
             <button key={t} onClick={() => setTab(t)}
@@ -180,10 +246,13 @@ export default function YourOrders() {
 
       <div className="flex-1 overflow-y-auto min-h-0">
         {loading ? (
-          <div className="flex items-center justify-center h-16 text-dim text-xs">Loading…</div>
+          <div>{[...Array(3)].map((_, i) => <SkeletonRow key={i} />)}</div>
         ) : view === 'history' ? (
           history.length === 0
-            ? <div className="flex items-center justify-center h-16 text-dim text-xs">No {tab} history</div>
+            ? <div className="flex flex-col items-center justify-center h-24 gap-1">
+                <span className="text-dim text-xs">No {tab} history</span>
+                <span className="text-dim/50 text-[10px]">Settled options will appear here</span>
+              </div>
             : history.map((o, i) => {
                 const sp = fmt(o.strikePrice), qty = fmt(o.quantity), cost = fmt(o.cost);
                 const isLong = o.partyS !== account;
@@ -204,30 +273,16 @@ export default function YourOrders() {
                 );
               })
         ) : orders.length === 0 ? (
-          <div className="flex items-center justify-center h-16 text-dim text-xs">No {tab} positions</div>
+          <div className="flex flex-col items-center justify-center h-24 gap-1">
+            <span className="text-dim text-xs">No {tab} positions</span>
+            <span className="text-dim/50 text-[10px]">Place or fill an order to get started</span>
+          </div>
         ) : orders.map((o, i) => (
           <PositionRow key={i} o={o} isCall={isCall} account={account} btcPrice={btcPrice} onAction={setModal} />
         ))}
       </div>
 
-      {modal && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="panel w-80 p-6 space-y-4">
-            <p className="font-display font-semibold">Confirm</p>
-            <p className="text-sm text-dim font-body">
-              {modal.action.startsWith('settle') ? 'Settle and receive payout.' : modal.action.startsWith('close') ? 'Refund escrowed collateral.' : 'Reclaim expired escrow.'}
-            </p>
-            <div className="flex gap-3">
-              <button onClick={() => setModal(null)} className="btn-ghost flex-1">Cancel</button>
-              <button onClick={actions[modal.action]} disabled={btnLoad}
-                className="btn-primary flex-1 disabled:opacity-50 flex items-center justify-center gap-2">
-                {btnLoad && <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />}
-                {btnLoad ? 'Confirming…' : 'Confirm'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ActionModal modal={modal} onClose={() => setModal(null)} onConfirm={actions[modal?.action]} loading={btnLoad} />
     </div>
   );
 }

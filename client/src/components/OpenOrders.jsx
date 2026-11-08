@@ -5,13 +5,14 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 import { useStore } from '../store';
 import { useCountdown } from '../useCountdown';
 import { parseTxError } from '../txUtils';
+import Modal from './Modal';
+import { SkeletonRow } from './Skeleton';
 
 const EXPLORER = 'https://explorer.test.mezo.org/tx/';
 const fmt = v => parseFloat(ethers.formatUnits(v, 18));
 const COLS = ['Expiry', 'Side', 'Strike', 'Cost', 'Qty'];
 
-function DepthView({ callOrders, putOrders, btcPrice }) {
-  // bucket orders by strike (round to nearest 1k)
+function DepthView({ callOrders, putOrders }) {
   const bucket = (orders, side) => {
     const map = {};
     orders.forEach(o => {
@@ -35,12 +36,9 @@ function DepthView({ callOrders, putOrders, btcPrice }) {
     <ResponsiveContainer width="100%" height="100%">
       <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
         <XAxis dataKey="strike" tick={{ fill: '#3a5a3a', fontSize: 10 }} axisLine={false} tickLine={false} />
-        <YAxis tick={{ fill: '#3a5a3a', fontSize: 10 }} axisLine={false} tickLine={false} width={40}
-          tickFormatter={v => v.toFixed(2)} />
-        <Tooltip
-          contentStyle={{ background: '#0d0d0d', border: '1px solid #1a1a1a', borderRadius: 6, fontSize: 11 }}
-          formatter={(v, name) => [v.toFixed(4) + ' BTC', name]}
-        />
+        <YAxis tick={{ fill: '#3a5a3a', fontSize: 10 }} axisLine={false} tickLine={false} width={40} tickFormatter={v => v.toFixed(2)} />
+        <Tooltip contentStyle={{ background: '#0d0d0d', border: '1px solid #1a1a1a', borderRadius: 6, fontSize: 11 }}
+          formatter={(v, name) => [v.toFixed(4) + ' BTC', name]} />
         <Bar dataKey="calls" fill="#00ff88" opacity={0.7} radius={[2,2,0,0]} />
         <Bar dataKey="puts"  fill="#ff4466" opacity={0.7} radius={[2,2,0,0]} />
       </BarChart>
@@ -50,6 +48,15 @@ function DepthView({ callOrders, putOrders, btcPrice }) {
 
 function TxToast({ msg, hash }) {
   return <div>{msg}{hash && <><br/><a href={`${EXPLORER}${hash}`} target="_blank" rel="noreferrer" className="text-accent text-xs underline">View on explorer ↗</a></>}</div>;
+}
+
+function Row({ label, value, accent }) {
+  return (
+    <div className="flex justify-between items-center">
+      <span className="text-xs text-dim">{label}</span>
+      <span className={`font-mono text-xs ${accent ? 'text-accent' : 'text-text'}`}>{value}</span>
+    </div>
+  );
 }
 
 function OrderRow({ o, isCall, account, onFill }) {
@@ -65,17 +72,20 @@ function OrderRow({ o, isCall, account, onFill }) {
       <td className="px-4 py-2.5 font-mono text-xs">{fmt(o.cost).toFixed(2)}</td>
       <td className="px-4 py-2.5 font-mono text-xs">{fmt(o.quantity).toFixed(4)}</td>
       <td className="px-4 py-2.5">
-        {canFill && <button onClick={() => onFill({ order: o, isCall, action, settlType: 0 })} className="text-accent text-xs font-display font-semibold hover:opacity-70">Fill →</button>}
+        {canFill && (
+          <button onClick={() => onFill({ order: o, isCall, action, settlType: 0 })}
+            className="text-accent text-xs font-display font-semibold hover:opacity-70">Fill →</button>
+        )}
       </td>
     </tr>
   );
 }
 
 export default function OpenOrders() {
-  const { account, callContract, putContract, musdContract, btcPrice, callOrders, putOrders, ordersLoading, refresh } = useStore();
+  const { account, callContract, putContract, musdContract, btcPrice, callOrders, putOrders, ordersLoading, musdBalance, refresh } = useStore();
 
   const [tab,       setTab]       = useState('call');
-  const [view,      setView]      = useState('book'); // 'book' | 'depth'
+  const [view,      setView]      = useState('book');
   const [modal,     setModal]     = useState(null);
   const [btnLoad,   setBtnLoad]   = useState(false);
   const [sortCol,   setSortCol]   = useState('Strike');
@@ -101,6 +111,23 @@ export default function OpenOrders() {
   }, [raw, sortCol, sortAsc, minStrike, maxStrike]);
 
   const toggleSort = col => { if (sortCol === col) setSortAsc(a => !a); else { setSortCol(col); setSortAsc(true); } };
+
+  // Derived fill details for modal
+  const fillDetails = useMemo(() => {
+    if (!modal) return null;
+    const o = modal.order;
+    const cost = fmt(o.cost), strike = fmt(o.strikePrice), qty = fmt(o.quantity);
+    const mv = btcPrice * qty;
+    const isLong = modal.action.startsWith('buy');
+    const collateral = isLong
+      ? `${cost.toFixed(2)} MUSD (premium)`
+      : modal.action === 'sellCall'
+        ? (modal.settlType === 1 ? `${(mv * 0.67).toFixed(2)} MUSD` : `${qty.toFixed(4)} BTC`)
+        : `${strike.toFixed(2)} MUSD`;
+    const musd = parseFloat(musdBalance?.replace(/,/g, '') || '0');
+    const insufficient = isLong && musd < cost;
+    return { cost, strike, qty, collateral, insufficient };
+  }, [modal, btcPrice, musdBalance]);
 
   const run = async (fn) => {
     setBtnLoad(true);
@@ -144,58 +171,72 @@ export default function OpenOrders() {
 
       {view === 'depth' ? (
         <div className="flex-1 min-h-0 p-3">
-          <DepthView callOrders={callOrders} putOrders={putOrders} btcPrice={btcPrice} />
+          <DepthView callOrders={callOrders} putOrders={putOrders} />
         </div>
       ) : (
-      <div className="flex-1 overflow-y-auto min-h-0">
-        {ordersLoading ? (
-          <div className="flex items-center justify-center h-16 text-dim text-xs">Loading…</div>
-        ) : orders.length === 0 ? (
-          <div className="flex items-center justify-center h-16 text-dim text-xs">No open {tab} orders</div>
-        ) : (
-          <table className="w-full text-xs">
-            <thead className="sticky top-0 bg-bg">
-              <tr className="border-b border-border">
-                {COLS.map(col => (
-                  <th key={col} onClick={() => toggleSort(col)}
-                    className="text-left px-4 py-2 text-[10px] uppercase tracking-wider text-dim cursor-pointer select-none hover:text-text transition-colors">
-                    {col}{sortCol === col ? (sortAsc ? ' ↑' : ' ↓') : ''}
-                  </th>
-                ))}
-                <th className="px-4 py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {orders.map((o, i) => <OrderRow key={i} o={o} isCall={isCall} account={account} onFill={setModal} />)}
-            </tbody>
-          </table>
-        )}
-      </div>
+        <div className="flex-1 overflow-y-auto min-h-0">
+          {ordersLoading ? (
+            <div>{[...Array(4)].map((_, i) => <SkeletonRow key={i} />)}</div>
+          ) : orders.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-24 gap-1">
+              <span className="text-dim text-xs">No open {tab} orders</span>
+              <span className="text-dim/50 text-[10px]">Be the first to place one</span>
+            </div>
+          ) : (
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-bg">
+                <tr className="border-b border-border">
+                  {COLS.map(col => (
+                    <th key={col} onClick={() => toggleSort(col)}
+                      className="text-left px-4 py-2 text-[10px] uppercase tracking-wider text-dim cursor-pointer select-none hover:text-text transition-colors">
+                      {col}{sortCol === col ? (sortAsc ? ' ↑' : ' ↓') : ''}
+                    </th>
+                  ))}
+                  <th className="px-4 py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {orders.map((o, i) => <OrderRow key={i} o={o} isCall={isCall} account={account} onFill={setModal} />)}
+              </tbody>
+            </table>
+          )}
+        </div>
       )}
 
-      {modal && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="panel w-80 p-6 space-y-4">
-            <p className="font-display font-semibold">Fill Order</p>
-            <p className="text-sm text-dim">Taking <strong className="text-text">{modal.action.startsWith('buy') ? 'Long' : 'Short'}</strong> on this {modal.isCall ? 'call' : 'put'}.</p>
-            {(modal.action === 'sellCall' || modal.action === 'buyPut') && (
-              <div>
-                <label className="block text-xs text-dim mb-1">Settlement Type</label>
-                <select className="input-field" value={modal.settlType} onChange={e => setModal(m => ({ ...m, settlType: Number(e.target.value) }))}>
-                  <option value={0}>BTC</option><option value={1}>MUSD</option>
-                </select>
-              </div>
-            )}
-            <div className="flex gap-3">
-              <button onClick={() => setModal(null)} className="btn-ghost flex-1">Cancel</button>
-              <button onClick={actions[modal.action]} disabled={btnLoad}
-                className="btn-primary flex-1 disabled:opacity-50 flex items-center justify-center gap-2">
-                {btnLoad && <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />}
-                {btnLoad ? 'Confirming…' : 'Confirm'}
-              </button>
-            </div>
+      {modal && fillDetails && (
+        <Modal title={`Fill ${modal.isCall ? 'Call' : 'Put'} — ${modal.action.startsWith('buy') ? 'Long' : 'Short'}`} onClose={() => setModal(null)}>
+          <div className="space-y-1 bg-surface rounded-md px-3 py-3">
+            <Row label="Strike"     value={`$${fillDetails.strike.toLocaleString()}`} />
+            <Row label="Quantity"   value={`${fillDetails.qty.toFixed(4)} BTC`} />
+            <Row label="Premium"    value={`${fillDetails.cost.toFixed(2)} MUSD`} />
+            <Row label="You provide" value={fillDetails.collateral} />
+            {btcPrice && <Row label="Spot price" value={`$${btcPrice.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} />}
           </div>
-        </div>
+
+          {(modal.action === 'sellCall' || modal.action === 'buyPut') && (
+            <div>
+              <label className="block text-xs text-dim mb-1">Settlement type</label>
+              <select className="input-field" value={modal.settlType} onChange={e => setModal(m => ({ ...m, settlType: Number(e.target.value) }))}>
+                <option value={0}>BTC</option>
+                <option value={1}>MUSD</option>
+              </select>
+            </div>
+          )}
+
+          {fillDetails.insufficient && (
+            <p className="text-xs text-red bg-red/5 border border-red/20 rounded px-2 py-1.5">⚠ Insufficient MUSD balance</p>
+          )}
+
+          <p className="text-xs text-dim">Requires wallet approval + transaction.</p>
+          <div className="flex gap-3">
+            <button onClick={() => setModal(null)} className="btn-ghost flex-1">Cancel</button>
+            <button onClick={actions[modal.action]} disabled={btnLoad || fillDetails.insufficient}
+              className="btn-primary flex-1 disabled:opacity-50 flex items-center justify-center gap-2">
+              {btnLoad && <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />}
+              {btnLoad ? 'Confirming…' : 'Confirm Fill'}
+            </button>
+          </div>
+        </Modal>
       )}
     </div>
   );
