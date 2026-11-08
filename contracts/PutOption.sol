@@ -80,7 +80,7 @@ contract PutOption is UsingMUSD, UsingPriceFeed {
             POSITION.SHORT,
             uniqueId, _type, 0,
             _strikePrice, _cost, _quantity,
-            now + 2 days
+            block.timestamp + 2 days
         );
 
         idToOption[uniqueId] = newOption;
@@ -113,7 +113,7 @@ contract PutOption is UsingMUSD, UsingPriceFeed {
             POSITION.LONG,
             uniqueId, 0, _initialMargin,
             _strikePrice, _cost, _quantity,
-            now + 2 days
+            block.timestamp + 2 days
         );
 
         idToOption[uniqueId] = newOption;
@@ -225,12 +225,14 @@ contract PutOption is UsingMUSD, UsingPriceFeed {
     function refundExpired(uint256 _id) external isFilledandExpired(idToOption[_id]) {
         Option storage option = idToOption[_id];
 
-        require(msg.sender == option.partyS, "Only short party can reclaim");
-
-        musdInstance.transfer(msg.sender, option.initialSellerMargin);
-
         option.settled = true;
         option.isAvailable = false;
+
+        // Return long's premium — they paid it but the option expired unexercised.
+        musdInstance.transfer(option.partyL, option.cost);
+
+        // Return short's MUSD margin.
+        musdInstance.transfer(option.partyS, option.initialSellerMargin);
     }
 
     /*
@@ -256,7 +258,7 @@ contract PutOption is UsingMUSD, UsingPriceFeed {
     modifier isAvailable(Option memory option) {
         require(option.isAvailable, "Option already filled or invalid");
         require(option.id != 0, "Invalid option id");
-        require(option.expiry > now, "Option has expired");
+        require(option.expiry > block.timestamp, "Option has expired");
         _;
     }
 
@@ -264,7 +266,7 @@ contract PutOption is UsingMUSD, UsingPriceFeed {
         require(option.id != 0, "Invalid option id");
         require(!option.isAvailable, "Option not yet confirmed");
         require(!option.settled, "Option already settled");
-        require(option.expiry > now, "Option has expired");
+        require(option.expiry > block.timestamp, "Option has expired");
         _;
     }
 
@@ -278,7 +280,7 @@ contract PutOption is UsingMUSD, UsingPriceFeed {
         require(option.id != 0, "Invalid option");
         require(!option.isAvailable, "Option not filled");
         require(!option.settled, "Already settled");
-        require(option.expiry < now, "Not yet expired");
+        require(option.expiry < block.timestamp, "Not yet expired");
         _;
     }
 }

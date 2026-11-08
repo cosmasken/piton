@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
 import dayjs from 'dayjs';
 import { Spinner, Modal, Button } from 'react-bootstrap';
+import { toast } from 'react-toastify';
 import MUSDABI from '../abi/musd.json';
 
 const MUSD_ADDRESSES = {
@@ -75,14 +76,14 @@ export default function YourOrders({ provider, signer, account, callContract, pu
 
   const closeCall = async () => {
     setBtnLoad(true);
-    try { await (await callContract.closeOption(modal.order.id)).wait(); onRefresh(); }
-    catch (e) { console.error(e); setBtnLoad(false); }
+    try { await (await callContract.closeOption(modal.order.id)).wait(); onRefresh(); toast.success('Order closed.'); }
+    catch (e) { console.error(e); toast.error(e?.reason || e?.message || 'Transaction failed.'); setBtnLoad(false); }
   };
 
   const refundCall = async () => {
     setBtnLoad(true);
-    try { await (await callContract.refundExpired(modal.order.id)).wait(); onRefresh(); }
-    catch (e) { console.error(e); setBtnLoad(false); }
+    try { await (await callContract.refundExpired(modal.order.id)).wait(); onRefresh(); toast.success('Escrow refunded.'); }
+    catch (e) { console.error(e); toast.error(e?.reason || e?.message || 'Transaction failed.'); setBtnLoad(false); }
   };
 
   const settleCall = async () => {
@@ -94,20 +95,20 @@ export default function YourOrders({ provider, signer, account, callContract, pu
         await (await musd.approve(await callContract.getAddress(), o.strikePrice)).wait();
       }
       await (await callContract.settleOption(o.id)).wait();
-      onRefresh();
-    } catch (e) { console.error(e); setBtnLoad(false); }
+      onRefresh(); toast.success('Option settled.');
+    } catch (e) { console.error(e); toast.error(e?.reason || e?.message || 'Transaction failed.'); setBtnLoad(false); }
   };
 
   const closePut = async () => {
     setBtnLoad(true);
-    try { await (await putContract.closeOption(modal.order.id)).wait(); onRefresh(); }
-    catch (e) { console.error(e); setBtnLoad(false); }
+    try { await (await putContract.closeOption(modal.order.id)).wait(); onRefresh(); toast.success('Order closed.'); }
+    catch (e) { console.error(e); toast.error(e?.reason || e?.message || 'Transaction failed.'); setBtnLoad(false); }
   };
 
   const refundPut = async () => {
     setBtnLoad(true);
-    try { await (await putContract.refundExpired(modal.order.id)).wait(); onRefresh(); }
-    catch (e) { console.error(e); setBtnLoad(false); }
+    try { await (await putContract.refundExpired(modal.order.id)).wait(); onRefresh(); toast.success('Escrow refunded.'); }
+    catch (e) { console.error(e); toast.error(e?.reason || e?.message || 'Transaction failed.'); setBtnLoad(false); }
   };
 
   const settlePut = async () => {
@@ -116,8 +117,8 @@ export default function YourOrders({ provider, signer, account, callContract, pu
       const o = modal.order;
       const value = Number(o.settlementType) === 0 ? o.quantity : 0n;
       await (await putContract.settleOption(o.id, { value })).wait();
-      onRefresh();
-    } catch (e) { console.error(e); setBtnLoad(false); }
+      onRefresh(); toast.success('Option settled.');
+    } catch (e) { console.error(e); toast.error(e?.reason || e?.message || 'Transaction failed.'); setBtnLoad(false); }
   };
 
   const fmt = v => parseFloat(ethers.formatUnits(v, 18));
@@ -151,12 +152,15 @@ export default function YourOrders({ provider, signer, account, callContract, pu
             <span className='text-warning' style={{ cursor: 'pointer' }}
               onClick={() => setModal({ order: o, action: isCall ? 'refundCall' : 'refundPut' })}>Refund</span>
           )}
+          {!o.isAvailable && exp === 'Expired' && pos === 'Long' && (
+            <span className='text-warning' style={{ cursor: 'pointer' }}
+              onClick={() => setModal({ order: o, action: isCall ? 'refundCall' : 'refundPut' })}>Refund</span>
+          )}
           {!o.isAvailable && exp !== 'Expired' && pos === 'Long' && (
             <span className='text-primary' style={{ cursor: 'pointer' }}
               onClick={() => setModal({ order: o, action: isCall ? 'settleCall' : 'settlePut' })}>Settle</span>
           )}
           {!o.isAvailable && exp !== 'Expired' && pos === 'Short' && <span className='text-dark'>N/A</span>}
-          {!o.isAvailable && exp === 'Expired' && pos === 'Long' && <span className='text-dark'>-</span>}
         </td>
       </tr>
     );

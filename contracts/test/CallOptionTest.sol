@@ -44,7 +44,7 @@ contract CallOptionTest is UsingMUSD, UsingPriceFeedTest {
         bool ok = musdInstance.transferFrom(msg.sender, address(this), _cost);
         require(ok, "Insufficient MUSD approved for premium escrow");
         idToOption[uniqueId] = Option(true, false, msg.sender, address(0), POSITION.SHORT,
-            uniqueId, 0, 0, _strikePrice, _cost, _quantity, now + 2 days);
+            uniqueId, 0, 0, _strikePrice, _cost, _quantity, block.timestamp + 2 days);
         addressToOptions[msg.sender].push(uniqueId++);
     }
 
@@ -63,7 +63,7 @@ contract CallOptionTest is UsingMUSD, UsingPriceFeedTest {
             require(ok, "Insufficient MUSD approved for margin escrow");
         }
         idToOption[uniqueId] = Option(true, false, address(0), msg.sender, POSITION.LONG,
-            uniqueId, _type, _initialMargin, _strikePrice, _cost, _quantity, now + 2 days);
+            uniqueId, _type, _initialMargin, _strikePrice, _cost, _quantity, block.timestamp + 2 days);
         addressToOptions[msg.sender].push(uniqueId++);
     }
 
@@ -154,14 +154,14 @@ contract CallOptionTest is UsingMUSD, UsingPriceFeedTest {
     modifier isAvailable(Option memory o) {
         require(o.isAvailable, "Option already filled or invalid");
         require(o.id != 0, "Invalid option id");
-        require(o.expiry > now, "Option has expired");
+        require(o.expiry > block.timestamp, "Option has expired");
         _;
     }
     modifier hasNotSettled(Option memory o) {
         require(o.id != 0, "Invalid option id");
         require(!o.isAvailable, "Option not yet confirmed");
         require(!o.settled, "Option already settled");
-        require(o.expiry > now, "Option has expired");
+        require(o.expiry > block.timestamp, "Option has expired");
         _;
     }
     modifier notFilledorExpired(Option memory o) {
@@ -173,7 +173,7 @@ contract CallOptionTest is UsingMUSD, UsingPriceFeedTest {
         require(o.id != 0, "Invalid option");
         require(!o.isAvailable, "Option not filled");
         require(!o.settled, "Already settled");
-        require(o.expiry < now, "Not yet expired");
+        require(o.expiry < block.timestamp, "Not yet expired");
         _;
     }
 }

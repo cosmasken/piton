@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
 import dayjs from 'dayjs';
 import { Spinner, Modal, Button } from 'react-bootstrap';
+import { toast } from 'react-toastify';
 import MUSDABI from '../abi/musd.json';
 
 const MUSD_ADDRESSES = {
@@ -81,8 +82,8 @@ export default function OpenOrders({ provider, signer, account, callContract, pu
       const musd = await getMusd();
       await (await musd.approve(await callContract.getAddress(), o.cost)).wait();
       await (await callContract.buyToOpen(o.id)).wait();
-      onRefresh();
-    } catch (e) { console.error(e); setBtnLoad(false); }
+      onRefresh(); toast.success('Order filled.');
+    } catch (e) { console.error(e); toast.error(e?.reason || e?.message || 'Transaction failed.'); setBtnLoad(false); }
   };
 
   const sellToOpen = async () => {
@@ -98,8 +99,8 @@ export default function OpenOrders({ provider, signer, account, callContract, pu
       } else {
         await (await callContract.sellToOpen(o.id, 0, 0, { value: o.quantity })).wait();
       }
-      onRefresh();
-    } catch (e) { console.error(e); setBtnLoad(false); }
+      onRefresh(); toast.success('Order filled.');
+    } catch (e) { console.error(e); toast.error(e?.reason || e?.message || 'Transaction failed.'); setBtnLoad(false); }
   };
 
   const buyPut = async () => {
@@ -109,8 +110,8 @@ export default function OpenOrders({ provider, signer, account, callContract, pu
       const musd = await getMusd();
       await (await musd.approve(await putContract.getAddress(), o.cost)).wait();
       await (await putContract.buyToOpen(o.id, modal.settlType)).wait();
-      onRefresh();
-    } catch (e) { console.error(e); setBtnLoad(false); }
+      onRefresh(); toast.success('Order filled.');
+    } catch (e) { console.error(e); toast.error(e?.reason || e?.message || 'Transaction failed.'); setBtnLoad(false); }
   };
 
   const sellPut = async () => {
@@ -120,8 +121,8 @@ export default function OpenOrders({ provider, signer, account, callContract, pu
       const musd = await getMusd();
       await (await musd.approve(await putContract.getAddress(), o.strikePrice)).wait();
       await (await putContract.sellToOpen(o.id, o.strikePrice)).wait();
-      onRefresh();
-    } catch (e) { console.error(e); setBtnLoad(false); }
+      onRefresh(); toast.success('Order filled.');
+    } catch (e) { console.error(e); toast.error(e?.reason || e?.message || 'Transaction failed.'); setBtnLoad(false); }
   };
 
   const rows = (orders, isCall) => orders.map((o, i) => {
@@ -172,7 +173,22 @@ export default function OpenOrders({ provider, signer, account, callContract, pu
       <Modal backdrop='static' className='text-white' show={!!modal} onHide={() => setModal(null)}>
         <Modal.Header className='head-bg' closeButton><Modal.Title>Fill Order</Modal.Title></Modal.Header>
         <Modal.Body className='sec-bg'>
-          {modal && <span>You are taking the <strong>{modal.action.startsWith('buy') ? 'Long' : 'Short'}</strong> position on this {modal.isCall ? 'call' : 'put'} option.</span>}
+          {modal && (
+            <>
+              <span>You are taking the <strong>{modal.action.startsWith('buy') ? 'Long' : 'Short'}</strong> position on this {modal.isCall ? 'call' : 'put'} option.</span>
+              {(modal.action === 'sellCall' || modal.action === 'buyPut') && (
+                <div className='mt-3'>
+                  <label>Settlement Type</label>
+                  <select className='form-control mt-1'
+                    value={modal.settlType}
+                    onChange={e => setModal(m => ({ ...m, settlType: Number(e.target.value) }))}>
+                    <option value={0}>BTC</option>
+                    <option value={1}>MUSD</option>
+                  </select>
+                </div>
+              )}
+            </>
+          )}
         </Modal.Body>
         <Modal.Footer className='head-bg'>
           <Button variant='secondary' disabled={btnLoad} onClick={() => setModal(null)}>Cancel</Button>

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ethers } from 'ethers';
 import { Modal, Button, Spinner } from 'react-bootstrap';
+import { toast } from 'react-toastify';
 import MUSDABI from '../abi/musd.json';
 
 const MUSD_ADDRESSES = {
@@ -69,8 +70,10 @@ export default function NewOrder({ provider, signer, account, callContract, putC
       }
 
       onRefresh();
+      toast.success('Order placed successfully.');
     } catch (err) {
       console.error(err);
+      toast.error(err?.reason || err?.message || 'Transaction failed.');
     } finally {
       setLoading(false);
     }
