@@ -10,7 +10,7 @@ import Modal from './Modal';
 import { SkeletonRow } from './Skeleton';
 
 const EXPLORER = 'https://explorer.test.mezo.org/tx/';
-const fmt = v => parseFloat(ethers.formatUnits(v, 18));
+const fmt = v => v == null ? 0 : parseFloat(ethers.formatUnits(v, 18));
 
 function TxToast({ msg, hash }) {
   return <div>{msg}{hash && <><br/><a href={`${EXPLORER}${hash}`} target="_blank" rel="noreferrer" className="text-accent text-xs underline">View on explorer ↗</a></>}</div>;
@@ -183,7 +183,8 @@ export default function YourOrders() {
       for (let i = Number(count) - 1; i >= 0; i--) {
         try {
           const id = await contract.addressToOptions(account, i);
-          const o  = await contract.idToOption(id);
+          const r  = await contract.idToOption(id);
+          const o  = { isAvailable: r[0], settled: r[1], partyL: r[2], partyS: r[3], openPosition: r[4], id: r[5], settlementType: r[6], initialSellerMargin: r[7], strikePrice: r[8], cost: r[9], quantity: r[10], expiry: r[11], troveSignature: r[12], troveDeadline: r[13] };
           if (o.settled) history.push(o); else open.push(o);
         } catch {}
       }

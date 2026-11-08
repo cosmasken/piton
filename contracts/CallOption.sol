@@ -58,8 +58,11 @@ contract CallOption is UsingMUSD, UsingPriceFeed, UsingMezoTrove {
     function createNewOptionLong(
         uint256 _strikePrice,
         uint256 _cost,
-        uint256 _quantity
+        uint256 _quantity,
+        uint256 _expiry
     ) external {
+        require(_expiry > block.timestamp, "Expiry must be in the future");
+        require(_expiry <= block.timestamp + 30 days, "Expiry too far");
         bool ok = musdInstance.transferFrom(msg.sender, address(this), _cost);
         require(ok, "Insufficient MUSD approved for premium escrow");
 
@@ -69,7 +72,7 @@ contract CallOption is UsingMUSD, UsingPriceFeed, UsingMezoTrove {
             POSITION.SHORT,
             uniqueId, 0, 0,
             _strikePrice, _cost, _quantity,
-            block.timestamp + 2 days,
+            _expiry,
             "", 0
         );
         addressToOptions[msg.sender].push(uniqueId);
@@ -92,10 +95,13 @@ contract CallOption is UsingMUSD, UsingPriceFeed, UsingMezoTrove {
         uint256 _cost,
         uint256 _quantity,
         uint256 _initialMargin,
+        uint256 _expiry,
         bytes   calldata _troveSig,
         uint256 _troveDeadline
     ) external payable {
         require(_type <= 2, "Invalid settlement type");
+        require(_expiry > block.timestamp, "Expiry must be in the future");
+        require(_expiry <= block.timestamp + 30 days, "Expiry too far");
         uint256 mv = _quantity.mul(getMarketValue()).div(10**18);
 
         if (_type == 0) {
@@ -120,7 +126,7 @@ contract CallOption is UsingMUSD, UsingPriceFeed, UsingMezoTrove {
             POSITION.LONG,
             uniqueId, _type, _initialMargin,
             _strikePrice, _cost, _quantity,
-            block.timestamp + 2 days,
+            _expiry,
             _troveSig, _troveDeadline
         );
         addressToOptions[msg.sender].push(uniqueId);

@@ -51,6 +51,7 @@ export default function NewOrder() {
   const [cost,       setCost]       = useState('');
   const [qty,        setQty]        = useState('');
   const [settlType,  setSettlType]  = useState('0');
+  const [expiry,     setExpiry]     = useState('86400');
   const [loading,    setLoading]    = useState(false);
   const [modal,      setModal]      = useState(false);
 
@@ -97,37 +98,38 @@ export default function NewOrder() {
       const cWei  = ethers.parseUnits(cost, 18);
       const qWei  = ethers.parseUnits(qty, 18);
       const mv    = p * q;
+      const expiryTs = Math.floor(Date.now() / 1000) + parseInt(expiry);
       let tx;
 
       if (isCall && !isShort) {
         await (await musdContract.approve(await callContract.getAddress(), cWei)).wait();
-        tx = await (await callContract.createNewOptionLong(spWei, cWei, qWei)).wait();
+        tx = await (await callContract.createNewOptionLong(spWei, cWei, qWei, expiryTs)).wait();
       } else if (isCall && isShort) {
         if (effectiveSettlType === '2') {
           const bos = new ethers.Contract(BORROWER_OPS_SIGS, BORROWER_OPS_SIGS_ABI, signer);
           const nonce = await bos.getNonce(account); const deadline = TROVE_SIG_DEADLINE();
           const profit = ethers.parseUnits((mv * 0.67).toFixed(6), 18);
           const sig = await signTroveAdjust(signer, await callContract.getAddress(), account, profit, nonce, deadline, chainId);
-          tx = await (await callContract.createNewOptionShort(2, spWei, cWei, qWei, 0, sig, deadline)).wait();
+          tx = await (await callContract.createNewOptionShort(2, spWei, cWei, qWei, 0, expiryTs, sig, deadline)).wait();
         } else if (effectiveSettlType === '1') {
           const margin = ethers.parseUnits((mv * 0.67).toFixed(6), 18);
           await (await musdContract.approve(await callContract.getAddress(), margin)).wait();
-          tx = await (await callContract.createNewOptionShort(1, spWei, cWei, qWei, margin, '0x', 0)).wait();
+          tx = await (await callContract.createNewOptionShort(1, spWei, cWei, qWei, margin, expiryTs, '0x', 0)).wait();
         } else {
-          tx = await (await callContract.createNewOptionShort(0, spWei, cWei, qWei, 0, '0x', 0, { value: qWei })).wait();
+          tx = await (await callContract.createNewOptionShort(0, spWei, cWei, qWei, 0, expiryTs, '0x', 0, { value: qWei })).wait();
         }
       } else if (!isCall && !isShort) {
         await (await musdContract.approve(await putContract.getAddress(), cWei)).wait();
-        tx = await (await putContract.createNewOptionLong(effectiveSettlType, spWei, cWei, qWei)).wait();
+        tx = await (await putContract.createNewOptionLong(effectiveSettlType, spWei, cWei, qWei, expiryTs)).wait();
       } else {
         if (effectiveSettlType === '2') {
           const bos = new ethers.Contract(BORROWER_OPS_SIGS, BORROWER_OPS_SIGS_ABI, signer);
           const nonce = await bos.getNonce(account); const deadline = TROVE_SIG_DEADLINE();
           const sig = await signTroveAdjust(signer, await putContract.getAddress(), account, spWei, nonce, deadline, chainId);
-          tx = await (await putContract.createNewOptionShort(spWei, cWei, qWei, 0, sig, deadline)).wait();
+          tx = await (await putContract.createNewOptionShort(spWei, cWei, qWei, 0, expiryTs, sig, deadline)).wait();
         } else {
           await (await musdContract.approve(await putContract.getAddress(), spWei)).wait();
-          tx = await (await putContract.createNewOptionShort(spWei, cWei, qWei, spWei, '0x', 0)).wait();
+          tx = await (await putContract.createNewOptionShort(spWei, cWei, qWei, spWei, expiryTs, '0x', 0)).wait();
         }
       }
       refresh();
@@ -174,6 +176,19 @@ export default function NewOrder() {
           <div className="grid grid-cols-2 gap-2">
             <Field label="Premium" placeholder="MUSD" hint={payoff?.pct ? `${payoff.pct}%` : null} value={cost} onChange={setCost} />
             <Field label="Quantity" placeholder="BTC" value={qty} onChange={setQty} />
+          </div>
+
+          <div>
+            <label className="block text-xs text-dim font-body mb-1">Expiry</label>
+            <select value={expiry} onChange={e => setExpiry(e.target.value)} className="input-field">
+              <option value="900">15 minutes</option>
+              <option value="3600">1 hour</option>
+              <option value="21600">6 hours</option>
+              <option value="86400">1 day</option>
+              <option value="259200">3 days</option>
+              <option value="604800">7 days</option>
+              <option value="1209600">14 days</option>
+            </select>
           </div>
 
           {payoff && (

@@ -29,3 +29,9 @@ truffle-config.js
 # deployment secrets
 .env
 brand-picker.html
+
+# internal docs
+docs/
+
+# bot scripts (contain wallet keys)
+scripts/

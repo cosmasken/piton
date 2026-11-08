@@ -6,8 +6,8 @@ import MUSDABI       from './abi/musd.json';
 
 const CONTRACT_ADDRESSES = {
   31611: {
-    call: '0xd24fbb05E888aD3F22bEC8323D6D164Ec49bDDb7',
-    put:  '0x5c3b1e87668DEF8909500640099068CE20c78416',
+    call: '0xaDaf8284CD398c96f57606027f39A06Ad4b209CD',
+    put:  '0x233fd0a11428B6749540AB78B6Ddd3C268Ac5033',
     musd: '0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503',
   },
 };
@@ -121,7 +121,11 @@ export const useStore = create((set, get) => ({
       const total = await contract.uniqueId();
       const orders = [];
       for (let i = 1; i < Number(total); i++) {
-        try { const o = await contract.idToOption(i); if (o.isAvailable) orders.push(o); } catch {}
+        try {
+          const r = await contract.idToOption(i);
+          const o = { isAvailable: r[0], settled: r[1], partyL: r[2], partyS: r[3], openPosition: r[4], id: r[5], settlementType: r[6], initialSellerMargin: r[7], strikePrice: r[8], cost: r[9], quantity: r[10], expiry: r[11], troveSignature: r[12], troveDeadline: r[13] };
+          if (o.isAvailable && o.strikePrice != null && o.cost != null && o.quantity != null) orders.push(o);
+        } catch {}
       }
       return orders;
     };

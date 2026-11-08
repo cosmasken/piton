@@ -61,8 +61,11 @@ contract PutOption is UsingMUSD, UsingPriceFeed, UsingMezoTrove {
         uint256 _type,
         uint256 _strikePrice,
         uint256 _cost,
-        uint256 _quantity
+        uint256 _quantity,
+        uint256 _expiry
     ) external {
+        require(_expiry > block.timestamp, "Expiry must be in the future");
+        require(_expiry <= block.timestamp + 30 days, "Expiry too far");
         bool ok = musdInstance.transferFrom(msg.sender, address(this), _cost);
         require(ok, "Insufficient MUSD approved for premium escrow");
 
@@ -72,7 +75,7 @@ contract PutOption is UsingMUSD, UsingPriceFeed, UsingMezoTrove {
             POSITION.SHORT,
             uniqueId, _type, 0,
             _strikePrice, _cost, _quantity,
-            block.timestamp + 2 days,
+            _expiry,
             "", 0
         );
         addressToOptions[msg.sender].push(uniqueId);
@@ -93,9 +96,12 @@ contract PutOption is UsingMUSD, UsingPriceFeed, UsingMezoTrove {
         uint256 _cost,
         uint256 _quantity,
         uint256 _initialMargin,
+        uint256 _expiry,
         bytes   calldata _troveSig,
         uint256 _troveDeadline
     ) external {
+        require(_expiry > block.timestamp, "Expiry must be in the future");
+        require(_expiry <= block.timestamp + 30 days, "Expiry too far");
         uint256 marginType = (_troveSig.length > 0) ? 2 : 1;
 
         if (marginType == 1) {
@@ -113,7 +119,7 @@ contract PutOption is UsingMUSD, UsingPriceFeed, UsingMezoTrove {
             POSITION.LONG,
             uniqueId, marginType, _initialMargin,
             _strikePrice, _cost, _quantity,
-            block.timestamp + 2 days,
+            _expiry,
             _troveSig, _troveDeadline
         );
         addressToOptions[msg.sender].push(uniqueId);

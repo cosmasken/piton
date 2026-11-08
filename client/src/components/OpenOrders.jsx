@@ -9,7 +9,7 @@ import Modal from './Modal';
 import { SkeletonRow } from './Skeleton';
 
 const EXPLORER = 'https://explorer.test.mezo.org/tx/';
-const fmt = v => parseFloat(ethers.formatUnits(v, 18));
+const fmt = v => v == null ? 0 : parseFloat(ethers.formatUnits(v, 18));
 const COLS = ['Expiry', 'Side', 'Strike', 'Cost', 'Qty'];
 
 function DepthView({ callOrders, putOrders }) {
