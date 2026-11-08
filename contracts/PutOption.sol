@@ -17,6 +17,9 @@ contract PutOption is UsingMUSD, UsingPriceFeed {
 
     uint256 public uniqueId;
 
+    // Pull-payment ledger: pending BTC withdrawals keyed by recipient
+    mapping(address => uint256) public pendingBTC;
+
     enum POSITION {LONG, SHORT}
 
     /*
@@ -178,10 +181,11 @@ contract PutOption is UsingMUSD, UsingPriceFeed {
         require(msg.sender == option.partyL, "Only long party can settle");
 
         if (option.settlementType == 0) {
-            // BTC settlement: long sends BTC, receives strike in MUSD
+            // BTC settlement: long sends BTC, short receives it via pull-payment
+            // (push would let a reverting short contract block exercise).
             require(msg.value == option.quantity, "Incorrect BTC amount sent");
 
-            address(uint160(option.partyS)).transfer(option.quantity);
+            pendingBTC[option.partyS] = pendingBTC[option.partyS].add(option.quantity);
             musdInstance.transfer(option.partyL, option.strikePrice);
         } else {
             // MUSD settlement: long receives profit from seller's margin
@@ -235,6 +239,16 @@ contract PutOption is UsingMUSD, UsingPriceFeed {
      */
     function getOptionsCount(address _address) public view returns (uint256) {
         return addressToOptions[_address].length;
+    }
+
+    /*
+     * @notice Withdraws BTC credited via pull-payment from BTC-settled put exercises.
+     */
+    function withdrawBTC() external {
+        uint256 amount = pendingBTC[msg.sender];
+        require(amount > 0, "Nothing to withdraw");
+        pendingBTC[msg.sender] = 0;
+        address(uint160(msg.sender)).transfer(amount);
     }
 
     // ── modifiers ────────────────────────────────────────────────────────────

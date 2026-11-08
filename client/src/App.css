@@ -172,6 +172,11 @@ table th {
     max-height: 200px;
   }
 
+  .o-orders-bar {
+    overflow-y: auto;
+    max-height: 200px;
+  }
+
   .y-orders-bar {
     overflow-y: auto;
     max-height: 360px;
@@ -179,6 +184,11 @@ table th {
 }
 @media screen and (min-height: 800px) {
   .orders-bar {
+    overflow-y: auto;
+    max-height: 330px;
+  }
+
+  .o-orders-bar {
     overflow-y: auto;
     max-height: 330px;
   }

@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
 
-const PYTH_ADDRESS = '0x2880aB155794e7179c9eE2e38200202908C17B43';
-
 export default function MarketValue({ callContract }) {
   const [btc, setBtc] = useState('—');
 

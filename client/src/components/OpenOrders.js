@@ -92,7 +92,7 @@ export default function OpenOrders({ provider, signer, account, callContract, pu
       const settlType = modal.settlType;
       const musd = await getMusd();
       if (settlType === 1) {
-        const margin = ethers.parseUnits((mv * fmt(o.quantity) * 0.67).toFixed(18), 18);
+        const margin = ethers.parseUnits((mv * fmt(o.quantity) * 0.67).toFixed(6), 18);
         await (await musd.approve(await callContract.getAddress(), margin)).wait();
         await (await callContract.sellToOpen(o.id, 1, margin)).wait();
       } else {

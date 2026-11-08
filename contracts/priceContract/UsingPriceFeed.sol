@@ -25,16 +25,20 @@ contract UsingPriceFeed {
     // Skip oracle — same address on matsnet and mainnet
     address public constant SKIP_ORACLE = 0x7b7c000000000000000000000000000000000015;
 
+    // Reject prices older than 2 hours (7200 s). Mezo blocks are ~2 s so this
+    // is very conservative; tighten to 300 s once oracle cadence is confirmed.
+    uint256 public constant PRICE_STALENESS_LIMIT = 7200;
+
     /**
      * @notice Returns BTC/USD price scaled to 10^18.
-     * MUSD is pegged 1:1 to USD so BTC/MUSD == BTC/USD.
+     * Reverts if the oracle answer is non-positive or stale.
      */
     function getMarketValue() public view returns (uint256) {
         ISkipOracle oracle = ISkipOracle(SKIP_ORACLE);
-        (, int256 answer, , ,) = oracle.latestRoundData();
+        (, int256 answer, , uint256 updatedAt,) = oracle.latestRoundData();
         require(answer > 0, "Invalid price");
+        require(block.timestamp.sub(updatedAt) <= PRICE_STALENESS_LIMIT, "Stale price");
         uint8 dec = oracle.decimals();
-        // Normalise to 10^18
         return uint256(answer).mul(10**18).div(10**uint256(dec));
     }
 

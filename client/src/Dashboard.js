@@ -54,8 +54,36 @@ export default function Dashboard() {
   }
 
   if (!state.provider || state.chainId !== MEZO_CHAIN_ID) {
-    window.location.href = '/';
-    return null;
+    const switchNetwork = async () => {
+      try {
+        await window.ethereum.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: '0x7B8B' }], // 31611
+        });
+        window.location.reload();
+      } catch (err) {
+        if (err.code === 4902) {
+          await window.ethereum.request({
+            method: 'wallet_addEthereumChain',
+            params: [{
+              chainId: '0x7B8B',
+              chainName: 'Mezo Matsnet',
+              rpcUrls: ['https://rpc.test.mezo.org'],
+              nativeCurrency: { name: 'BTC', symbol: 'BTC', decimals: 18 },
+              blockExplorerUrls: ['https://explorer.test.mezo.org'],
+            }],
+          });
+          window.location.reload();
+        }
+      }
+    };
+
+    return (
+      <div className='loader container text-white text-center'>
+        <p className='mb-3'>Please connect to <strong>Mezo Matsnet</strong> (Chain ID 31611).</p>
+        <button className='btn btn-warning' onClick={switchNetwork}>Switch Network</button>
+      </div>
+    );
   }
 
   const addrs = CONTRACT_ADDRESSES[state.chainId];

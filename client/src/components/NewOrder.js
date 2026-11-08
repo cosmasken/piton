@@ -51,7 +51,8 @@ export default function NewOrder({ provider, signer, account, callContract, putC
 
       } else if (isCall && isShort) {
         if (settlType === '1') {
-          const margin = ethers.parseUnits((marketVal * 0.67).toFixed(18), 18);
+          // Round to 6 dp to avoid parseUnits overflow on floating-point strings
+          const margin = ethers.parseUnits((marketVal * 0.67).toFixed(6), 18);
           await (await musd.approve(await callContract.getAddress(), margin)).wait();
           await (await callContract.createNewOptionShort(1, sp, c, q, margin)).wait();
         } else {

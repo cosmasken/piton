@@ -107,6 +107,8 @@ contract CallOption is UsingMUSD, UsingPriceFeed {
             uint256 marketVal = _quantity.mul(getMarketValue()).div(10**18);
             uint256 requiredMargin = marketVal.sub(marketVal.div(3));
             require(_initialMargin >= requiredMargin, "Insufficient MUSD margin");
+            // Reject if strike is already so deep ITM that profit > margin at creation
+            require(_strikePrice >= marketVal.div(3), "Strike too deep in the money");
 
             bool _marginEscrowed = musdInstance.transferFrom(msg.sender, address(this), _initialMargin);
             require(_marginEscrowed, "Insufficient MUSD approved for margin escrow");
@@ -172,6 +174,7 @@ contract CallOption is UsingMUSD, UsingPriceFeed {
             uint256 marketVal = option.quantity.mul(getMarketValue()).div(10**18);
             uint256 requiredMargin = marketVal.sub(marketVal.div(3));
             require(_initialMargin >= requiredMargin, "Insufficient MUSD margin");
+            require(option.strikePrice >= marketVal.div(3), "Strike too deep in the money");
 
             bool _marginEscrowed = musdInstance.transferFrom(msg.sender, address(this), _initialMargin);
             require(_marginEscrowed, "Insufficient MUSD approved for margin escrow");
@@ -206,12 +209,15 @@ contract CallOption is UsingMUSD, UsingPriceFeed {
             address(uint160(msg.sender)).transfer(option.quantity);
             musdInstance.transfer(option.partyS, option.strikePrice);
         } else {
-            // MUSD settlement: long receives profit in MUSD from seller's margin
+            // MUSD settlement: long receives min(profit, margin) so sub never reverts.
+            // Margin is 2/3 of market value at fill time, so deep-ITM moves can exceed it;
+            // the long is made whole up to the posted collateral.
             uint256 profit = marketVal.sub(option.strikePrice);
-            musdInstance.transfer(msg.sender, profit);
+            uint256 payout = profit < option.initialSellerMargin ? profit : option.initialSellerMargin;
+            musdInstance.transfer(msg.sender, payout);
 
-            uint256 remaining = option.initialSellerMargin.sub(profit);
-            musdInstance.transfer(option.partyS, remaining);
+            uint256 remaining = option.initialSellerMargin.sub(payout);
+            if (remaining > 0) musdInstance.transfer(option.partyS, remaining);
         }
 
         option.settled = true;
