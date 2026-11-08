@@ -116,15 +116,13 @@ export default function Dashboard() {
       <Navbar onDisconnect={disconnect} />
       <OracleBanner />
       {isNewUser && <OnboardingCard onDismiss={dismissOnboarding} />}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[220px_1fr_240px] gap-2 p-2 lg:overflow-hidden lg:min-h-0">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[220px_1fr_280px] gap-2 p-2 lg:overflow-hidden lg:min-h-0">
         <div className="flex flex-col gap-2 lg:overflow-hidden">
           <MarketValue />
           <NewOrder />
         </div>
         <div className="flex flex-col gap-2 lg:overflow-hidden">
-          <div className="h-52 shrink-0">
-            <Graph />
-          </div>
+          <Graph />
           <OpenOrders />
         </div>
         <div className="flex flex-col gap-2 lg:overflow-hidden">
