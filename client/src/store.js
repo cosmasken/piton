@@ -12,40 +12,47 @@ const CONTRACT_ADDRESSES = {
   },
 };
 
+const SKIP_ORACLE_ADDR = '0x7b7c000000000000000000000000000000000015';
+const SKIP_ORACLE_ABI  = [
+  { name: 'latestRoundData', type: 'function', stateMutability: 'view',
+    inputs: [], outputs: [
+      { name: 'roundId', type: 'uint80' }, { name: 'answer', type: 'int256' },
+      { name: 'startedAt', type: 'uint256' }, { name: 'updatedAt', type: 'uint256' },
+      { name: 'answeredInRound', type: 'uint80' },
+    ]},
+  { name: 'decimals', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint8' }] },
+];
+
+const STALENESS_WARN = 90 * 60; // warn at 90 min (contract rejects at 120 min)
+
 export const useStore = create((set, get) => ({
-  // wallet
   provider:  null,
   signer:    null,
   account:   null,
   chainId:   null,
 
-  // contracts
   callContract: null,
   putContract:  null,
   musdContract: null,
 
-  // market
-  btcPrice: 0,
+  btcPrice:    0,
+  oracleStale: false,   // true = Skip oracle stale, price is Binance fallback
+  priceSource: 'oracle', // 'oracle' | 'binance'
 
-  // order book
-  callOrders: [],
-  putOrders:  [],
+  callOrders:    [],
+  putOrders:     [],
   ordersLoading: false,
 
-  // balances
   btcBalance:  '—',
   musdBalance: '—',
 
-  // refresh trigger
   tick: 0,
   refresh: () => set(s => ({ tick: s.tick + 1 })),
 
-  // ── init from wagmi signer ──────────────────────────────────────────────
   init: (walletClient, chainId) => {
     if (!walletClient || !chainId) return;
     const addrs = CONTRACT_ADDRESSES[chainId];
     if (!addrs) return;
-
     const provider = new ethers.BrowserProvider(walletClient.transport);
     provider.getSigner().then(signer => {
       const callContract = new ethers.Contract(addrs.call, CallOptionABI.abi, signer);
@@ -62,23 +69,32 @@ export const useStore = create((set, get) => ({
     callOrders: [], putOrders: [], btcBalance: '—', musdBalance: '—',
   }),
 
-  // ── market price ────────────────────────────────────────────────────────
   fetchPrice: async () => {
-    const { callContract } = get();
-    try {
-      if (callContract) {
-        const raw = await callContract.getMarketValue();
-        set({ btcPrice: parseFloat(ethers.formatUnits(raw, 18)) });
-        return;
-      }
-    } catch {}
+    const { provider } = get();
+    // Try Skip oracle first — also check staleness
+    if (provider) {
+      try {
+        const oracle = new ethers.Contract(SKIP_ORACLE_ADDR, SKIP_ORACLE_ABI, provider);
+        const [, answer, , updatedAt] = await oracle.latestRoundData();
+        const dec   = await oracle.decimals();
+        const price = parseFloat(ethers.formatUnits(answer, dec));
+        const age   = Math.floor(Date.now() / 1000) - Number(updatedAt);
+        if (age > STALENESS_WARN) {
+          // stale — fall through to Binance but flag it
+          set({ oracleStale: true });
+        } else {
+          set({ btcPrice: price, oracleStale: false, priceSource: 'oracle' });
+          return;
+        }
+      } catch {}
+    }
+    // Binance fallback
     try {
       const { price } = await (await fetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT')).json();
-      set({ btcPrice: parseFloat(price) });
+      set({ btcPrice: parseFloat(price), priceSource: 'binance' });
     } catch {}
   },
 
-  // ── balances ─────────────────────────────────────────────────────────────
   fetchBalances: async () => {
     const { provider, account, musdContract } = get();
     if (!provider || !account || !musdContract) return;
@@ -94,7 +110,6 @@ export const useStore = create((set, get) => ({
     } catch {}
   },
 
-  // ── orders ───────────────────────────────────────────────────────────────
   fetchOrders: async () => {
     const { callContract, putContract } = get();
     if (!callContract || !putContract) return;
@@ -114,10 +129,5 @@ export const useStore = create((set, get) => ({
     finally { set({ ordersLoading: false }); }
   },
 
-  // ── fetch everything ─────────────────────────────────────────────────────
-  fetchAll: () => {
-    get().fetchPrice();
-    get().fetchBalances();
-    get().fetchOrders();
-  },
+  fetchAll: () => { get().fetchPrice(); get().fetchBalances(); get().fetchOrders(); },
 }));

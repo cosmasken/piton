@@ -1,23 +1,53 @@
 # Piton — Bitcoin Options on Mezo
 
-## Screenshot
+> Decentralised OTC options for BTC, priced and settled in MUSD, on the Mezo Bitcoin L2.
 
-![Trading Page](https://ibb.co/bgSjvFrw)
+## What is Piton?
 
-## Description
+Piton is a peer-to-peer options trading platform built on [Mezo](https://mezo.org) — the Bitcoin finance chain. It lets anyone create, fill, and settle American-style BTC call and put options without an intermediary.
 
-### Overview
+- Options are priced and settled in **MUSD** — Mezo's Bitcoin-backed stablecoin (1:1 USD)
+- **American-style** — exercise any time before the 48-hour expiry
+- The short (seller) is always fully collateralised — no undercollateralised risk
+- BTC/USD price from the **Skip oracle** (Chainlink-compatible, updated every block)
 
-- Piton is a decentralized OTC (Over The Counter) options platform for Bitcoin call & put options on **Mezo** — the Bitcoin finance chain.
-- Options are priced and settled in **MUSD**, Mezo's Bitcoin-backed stablecoin (1:1 with USD).
-- American-style options with a fixed expiry of **48 hours** from creation.
-- All orders are listed on-chain via smart contracts. Counterparties can take the LONG or SHORT position directly from the order book.
-- The SHORT position is always collateralised — either with the underlying BTC amount, or a **2/3 margin in MUSD**.
-- Settlements can be done any time before expiry, in **BTC** or **MUSD**. Settlement type is chosen by the party selling the underlying asset.
-- BTC/USD market prices are sourced from **[Skip oracle](https://mezo.org/docs/developers/)** deployed on Mezo (Chainlink-compatible `latestRoundData` interface, updated every block). Prices older than 2 hours are rejected on-chain.
-- Deployed on **Mezo matsnet** (testnet, chainId 31611). Contracts are unaudited — do not use with real funds.
+---
 
-### Deployed Contracts (Mezo matsnet)
+## How it works
+
+### Placing an order
+
+1. Choose **Long** (buy) or **Short** (sell), and **Call** or **Put**
+2. Set your strike price, premium, and quantity
+3. Submit — the order appears in the on-chain order book
+
+### Filling an order
+
+Any wallet can take the opposite side of an open order directly from the order book. Click **Fill →** next to any order.
+
+### Settlement
+
+- The **long party** can settle any time before expiry if the option is in the money
+- **Call settlement**: long pays strike in MUSD, receives BTC — or takes cash-settled profit
+- **Put settlement**: long sends BTC, receives strike in MUSD — or takes cash-settled profit
+- After expiry, both parties can reclaim their collateral via **Refund**
+
+---
+
+## Trove Margin — Piton's unique feature
+
+Short sellers normally lock up BTC or MUSD as collateral. Piton uniquely supports **Mezo Trove equity as margin**:
+
+- If you have an active Mezo Trove (a BTC-collateralised borrowing position), you can use its equity as margin for short options
+- **No capital lockup** — your BTC stays in your Trove earning yield
+- Implemented via EIP-712 signed `adjustTroveWithSignature` — the option contract draws margin from your Trove only if the option is exercised against you
+- Select **"Trove (Mezo)"** in the margin dropdown when placing a short order
+
+This is not available on any other options protocol.
+
+---
+
+## Deployed Contracts — Mezo Matsnet (testnet, chainId 31611)
 
 | Contract | Address |
 |---|---|
@@ -33,30 +63,22 @@
 | MUSD | `0xdD468A1DDc392dcdbEf6db6e34E89AA338F9F186` |
 | Skip Oracle (BTC/USD) | `0x7b7c000000000000000000000000000000000015` |
 
-### Technical Stack
-
-- **Front-end:** React 18, Ethers.js v6, React Router v6, Bootstrap 5
-- **Smart Contracts:** Solidity 0.6.12 (Hardhat)
-- **Charts:** [CanvasJS](https://canvasjs.com/) + Binance public API (BTC/USD)
-- **Oracle:** [Skip oracle](https://mezo.org/docs/developers/) (Chainlink-compatible BTC/USD feed on Mezo)
-- **Chain:** [Mezo](https://mezo.org) (EVM-compatible, Bitcoin L2)
+---
 
 ## Running Locally
 
-_Requires a Web3 wallet (e.g. MetaMask) connected to Mezo matsnet._
+Requires a Web3 wallet (MetaMask) connected to Mezo matsnet:
 
 ```
 RPC:     https://rpc.test.mezo.org
 ChainID: 31611
 ```
 
-After cloning the repo:
-
 ```bash
-cp .env.example .env        # add your PRIVATE_KEY (deployer only)
-npm install                 # root dependencies
-npm run client-install      # React client dependencies
-npm run dapp                # launch on localhost:3000
+cp .env.example .env        # add PRIVATE_KEY (deployer only)
+npm install                 # root deps (Hardhat)
+npm run client-install      # React client deps
+npm run dapp                # launches on localhost:3000
 ```
 
 ## Deploying Contracts
@@ -66,14 +88,28 @@ npm run deploy:testnet   # Mezo matsnet (chainId 31611)
 npm run deploy:mainnet   # Mezo mainnet  (chainId 31612)
 ```
 
-## Mezo Testnet Setup
+## Getting Test Tokens
 
 1. Add Mezo matsnet to your wallet (RPC: `https://rpc.test.mezo.org`, ChainID: `31611`)
-2. Get test BTC and MUSD from the faucet: https://faucet.test.mezo.org
-3. To get MUSD: borrow against test BTC at https://testnet.mezo.org
+2. Get test BTC from the faucet: https://faucet.test.mezo.org
+3. Borrow MUSD against your test BTC: https://testnet.mezo.org
 
-## Relevant Links
+---
 
-- **Mezo docs:** https://mezo.org/docs/developers/
-- **Mezo testnet dApp:** https://testnet.mezo.org
-- **Skip oracle:** https://mezo.org/docs/developers/
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React 18, Vite, Tailwind CSS v3 |
+| Wallet | wagmi v3, viem |
+| State | Zustand |
+| Charts | Recharts |
+| Contracts | Solidity 0.6.12, Hardhat |
+| Oracle | Skip oracle (Chainlink-compatible BTC/USD, updated every block) |
+| Chain | Mezo (EVM-compatible Bitcoin L2, chainId 31611) |
+
+---
+
+## Security
+
+Contracts are **unaudited**. Deployed on testnet only. Do not use with real funds.
