@@ -1,6 +1,6 @@
 import React from 'react';
-import CanvasJSModule from './canvasjs.min';
-const CanvasJS = CanvasJSModule.Chart ? CanvasJSModule : window.CanvasJS;
+import './canvasjs.min';
+const CanvasJS = window.CanvasJS;
 
 class CanvasJSChart extends React.Component {
 	static _cjsContainerId = 0
