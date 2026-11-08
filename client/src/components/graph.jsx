@@ -1,61 +1,136 @@
 import React, { useState, useEffect } from 'react';
-import { ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import {
+  ComposedChart, AreaChart, LineChart,
+  Bar, Area, Line, Cell,
+  XAxis, YAxis, Tooltip, ResponsiveContainer,
+} from 'recharts';
+
+const INTERVALS = ['1h', '4h', '1d'];
+
+async function fetchCandles(interval) {
+  const limit = interval === '1d' ? 60 : 48;
+  const raw = await (await fetch(
+    `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${interval}&limit=${limit}`
+  )).json();
+  return raw.map(k => ({
+    t:    interval === '1d'
+            ? new Date(k[0]).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+            : new Date(k[0]).getHours() + ':00',
+    o:    parseFloat(k[1]),
+    h:    parseFloat(k[2]),
+    l:    parseFloat(k[3]),
+    c:    parseFloat(k[4]),
+    bull: parseFloat(k[4]) >= parseFloat(k[1]),
+  }));
+}
+
+const axisProps = {
+  tick: { fill: '#3a5a3a', fontSize: 10 },
+  axisLine: false, tickLine: false,
+};
+const tooltipStyle = {
+  contentStyle: { background: '#0d0d0d', border: '1px solid #1a1a1a', borderRadius: 6, fontSize: 11 },
+  labelStyle: { color: '#3a5a3a' },
+};
+
+function CandleBar({ x, y, width, height, bull }) {
+  const color = bull ? '#00ff88' : '#ff4466';
+  return <rect x={x + width * 0.2} y={y} width={width * 0.6} height={Math.max(height, 1)} fill={color} />;
+}
 
 export default function Graph() {
-  const [candles, setCandles] = useState([]);
+  const [candles,  setCandles]  = useState([]);
+  const [type,     setType]     = useState('candle');
+  const [interval, setInterval] = useState('1h');
+  const [loading,  setLoading]  = useState(true);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const raw = await (await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=48')).json();
-        setCandles(raw.map(k => ({
-          t:    new Date(k[0]).getHours() + ':00',
-          o:    parseFloat(k[1]),
-          h:    parseFloat(k[2]),
-          l:    parseFloat(k[3]),
-          c:    parseFloat(k[4]),
-          bull: parseFloat(k[4]) >= parseFloat(k[1]),
-        })));
-      } catch {}
-    })();
-  }, []);
+    setLoading(true);
+    fetchCandles(interval)
+      .then(setCandles)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [interval]);
 
-  if (!candles.length) return <div className="panel flex-1 flex items-center justify-center text-dim text-xs">Loading chart…</div>;
+  const tickInterval = interval === '1d' ? 9 : 7;
+  const yFmt = v => `$${(v / 1000).toFixed(0)}k`;
 
-  // recharts doesn't have a native candlestick — encode as stacked bar: [low, open/close body, high]
-  const data = candles.map(c => ({
-    t:      c.t,
-    bull:   c.bull,
-    wick_l: c.l,                                    // bottom wick base
-    body:   [Math.min(c.o, c.c), Math.max(c.o, c.c)], // [bodyLow, bodyHigh]
-    wick_h: c.h,
+  const candleData = candles.map(c => ({
+    t: c.t, bull: c.bull,
+    body: [Math.min(c.o, c.c), Math.max(c.o, c.c)],
   }));
 
-  const CustomBar = (props) => {
-    const { x, y, width, height, bull } = props;
-    const color = bull ? '#00ff88' : '#ff4466';
-    return <rect x={x + width * 0.2} y={y} width={width * 0.6} height={Math.max(height, 1)} fill={color} />;
-  };
+  const lineData = candles.map(c => ({ t: c.t, price: c.c }));
+
+  const areaData = candles.map(c => ({ t: c.t, price: c.c }));
+
+  const TYPES = ['candle', 'line', 'area'];
 
   return (
     <div className="panel flex-1 min-h-0 flex flex-col">
-      <div className="panel-header">BTC / USD — 48h</div>
+      <div className="panel-header flex items-center justify-between">
+        <span>BTC / USD</span>
+        <div className="flex items-center gap-2">
+          {/* interval */}
+          <div className="flex gap-0.5">
+            {INTERVALS.map(iv => (
+              <button key={iv} onClick={() => setInterval(iv)}
+                className={`text-[10px] px-2 py-0.5 rounded font-mono transition-colors ${interval === iv ? 'bg-surface text-text' : 'text-dim hover:text-text'}`}>
+                {iv}
+              </button>
+            ))}
+          </div>
+          {/* chart type */}
+          <div className="flex gap-0.5">
+            {TYPES.map(t => (
+              <button key={t} onClick={() => setType(t)}
+                className={`text-[10px] px-2 py-0.5 rounded font-mono capitalize transition-colors ${type === t ? 'bg-surface text-text' : 'text-dim hover:text-text'}`}>
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
       <div className="flex-1 min-h-0 p-2">
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
-            <XAxis dataKey="t" tick={{ fill: '#3a5a3a', fontSize: 10 }} interval={7} axisLine={false} tickLine={false} />
-            <YAxis domain={['auto', 'auto']} tick={{ fill: '#3a5a3a', fontSize: 10 }} axisLine={false} tickLine={false} width={60}
-              tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
-            <Tooltip
-              contentStyle={{ background: '#0d0d0d', border: '1px solid #1a1a1a', borderRadius: 6, fontSize: 11 }}
-              labelStyle={{ color: '#3a5a3a' }}
-              formatter={(val, name) => name === 'body' ? [`$${val[0].toFixed(0)} – $${val[1].toFixed(0)}`, 'Body'] : null}
-            />
-            <Bar dataKey="body" shape={<CustomBar />}>
-              {data.map((d, i) => <Cell key={i} fill={d.bull ? '#00ff88' : '#ff4466'} />)}
-            </Bar>
-          </ComposedChart>
-        </ResponsiveContainer>
+        {loading ? (
+          <div className="flex items-center justify-center h-full text-dim text-xs">Loading…</div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            {type === 'candle' ? (
+              <ComposedChart data={candleData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+                <XAxis dataKey="t" {...axisProps} interval={tickInterval} />
+                <YAxis domain={['auto', 'auto']} {...axisProps} width={60} tickFormatter={yFmt} />
+                <Tooltip {...tooltipStyle}
+                  formatter={(val, name) => name === 'body' ? [`$${val[0].toFixed(0)} – $${val[1].toFixed(0)}`, 'Body'] : null} />
+                <Bar dataKey="body" shape={<CandleBar />}>
+                  {candleData.map((d, i) => <Cell key={i} fill={d.bull ? '#00ff88' : '#ff4466'} />)}
+                </Bar>
+              </ComposedChart>
+            ) : type === 'line' ? (
+              <LineChart data={lineData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+                <XAxis dataKey="t" {...axisProps} interval={tickInterval} />
+                <YAxis domain={['auto', 'auto']} {...axisProps} width={60} tickFormatter={yFmt} />
+                <Tooltip {...tooltipStyle} formatter={v => [`$${v.toFixed(0)}`, 'Price']} />
+                <Line type="monotone" dataKey="price" dot={false} strokeWidth={1.5} stroke="#00ff88" />
+              </LineChart>
+            ) : (
+              <AreaChart data={areaData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+                <defs>
+                  <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#00ff88" stopOpacity={0.15} />
+                    <stop offset="95%" stopColor="#00ff88" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="t" {...axisProps} interval={tickInterval} />
+                <YAxis domain={['auto', 'auto']} {...axisProps} width={60} tickFormatter={yFmt} />
+                <Tooltip {...tooltipStyle} formatter={v => [`$${v.toFixed(0)}`, 'Price']} />
+                <Area type="monotone" dataKey="price" dot={false} strokeWidth={1.5}
+                  stroke="#00ff88" fill="url(#areaGrad)" />
+              </AreaChart>
+            )}
+          </ResponsiveContainer>
+        )}
       </div>
     </div>
   );
