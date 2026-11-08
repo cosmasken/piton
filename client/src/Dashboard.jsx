@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { useAccount, useDisconnect, useSwitchChain, useWalletClient } from 'wagmi';
-import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { useAccount, useConnect, useDisconnect, useSwitchChain, useWalletClient } from 'wagmi';
+import { injected } from 'wagmi/connectors';
 import { useStore } from './store';
 import { mezoMatsnet } from './wagmi';
 
@@ -66,6 +66,7 @@ function MobileBanner({ onDismiss }) {
 
 export default function Dashboard() {
   const { address, chainId, isConnected } = useAccount();
+  const { connect }     = useConnect();
   const { disconnect }  = useDisconnect();
   const { switchChain } = useSwitchChain();
   const { data: walletClient } = useWalletClient();
@@ -98,7 +99,7 @@ export default function Dashboard() {
     <div className="flex flex-col items-center justify-center h-screen gap-4 bg-bg">
       <p className="font-display text-2xl text-accent">piton</p>
       <p className="text-dim text-sm font-body">Connect your wallet to start trading</p>
-      <ConnectButton />
+      <button className="btn-primary" onClick={() => connect({ connector: injected() })}>Connect Wallet</button>
     </div>
   );
 
@@ -112,7 +113,7 @@ export default function Dashboard() {
   return (
     <div className="flex flex-col lg:h-screen lg:overflow-hidden bg-bg">
       {showMobile && <MobileBanner onDismiss={() => setShowMobile(false)} />}
-      <Navbar />
+      <Navbar onDisconnect={disconnect} />
       <OracleBanner />
       {isNewUser && <OnboardingCard onDismiss={dismissOnboarding} />}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-[220px_1fr_240px] gap-2 p-2 lg:overflow-hidden lg:min-h-0">

@@ -1,11 +1,5 @@
-import { http } from 'wagmi';
+import { createConfig, http } from 'wagmi';
 import { injected } from 'wagmi/connectors';
-import { getDefaultConfig } from '@rainbow-me/rainbowkit';
-import {
-  getUnisatWallet,
-  getXverseWallet,
-  getOKXWallet,
-} from '@mezo-org/passport';
 
 export const mezoMatsnet = {
   id: 31611,
@@ -15,26 +9,8 @@ export const mezoMatsnet = {
   blockExplorers: { default: { name: 'Explorer', url: 'https://explorer.test.mezo.org' } },
 };
 
-const btcWalletConfig = { rpcUrl: 'https://rpc.test.mezo.org', chainId: 31611 };
-
-export const wagmiConfig = getDefaultConfig({
-  appName: 'Piton',
-  projectId: 'piton-placeholder', // WalletConnect project ID — replace for production
+export const wagmiConfig = createConfig({
   chains: [mezoMatsnet],
+  connectors: [injected()],
   transports: { [mezoMatsnet.id]: http() },
-  wallets: [
-    {
-      groupName: 'Bitcoin Wallets',
-      wallets: [
-        getUnisatWallet(btcWalletConfig),
-        getXverseWallet(btcWalletConfig),
-        getOKXWallet(btcWalletConfig),
-      ],
-    },
-    {
-      groupName: 'EVM Wallets',
-      wallets: [injected],
-    },
-  ],
-  ssr: false,
 });
