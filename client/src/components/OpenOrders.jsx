@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { ethers } from 'ethers';
 import { toast } from 'react-toastify';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { useStore } from '../store';
 import { useCountdown } from '../useCountdown';
 import { parseTxError } from '../txUtils';
@@ -8,6 +9,44 @@ import { parseTxError } from '../txUtils';
 const EXPLORER = 'https://explorer.test.mezo.org/tx/';
 const fmt = v => parseFloat(ethers.formatUnits(v, 18));
 const COLS = ['Expiry', 'Side', 'Strike', 'Cost', 'Qty'];
+
+function DepthView({ callOrders, putOrders, btcPrice }) {
+  // bucket orders by strike (round to nearest 1k)
+  const bucket = (orders, side) => {
+    const map = {};
+    orders.forEach(o => {
+      const k = Math.round(fmt(o.strikePrice) / 1000) * 1000;
+      map[k] = (map[k] || 0) + fmt(o.quantity);
+    });
+    return Object.entries(map).map(([strike, qty]) => ({ strike: Number(strike), [side]: qty }));
+  };
+  const calls = bucket(callOrders, 'calls');
+  const puts  = bucket(putOrders,  'puts');
+  const strikes = [...new Set([...calls, ...puts].map(d => d.strike))].sort((a, b) => a - b);
+  const data = strikes.map(s => ({
+    strike: `$${(s/1000).toFixed(0)}k`,
+    calls: calls.find(d => d.strike === s)?.calls || 0,
+    puts:  puts.find(d => d.strike === s)?.puts  || 0,
+  }));
+
+  if (!data.length) return <div className="flex items-center justify-center h-full text-dim text-xs">No orders to display</div>;
+
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+        <XAxis dataKey="strike" tick={{ fill: '#3a5a3a', fontSize: 10 }} axisLine={false} tickLine={false} />
+        <YAxis tick={{ fill: '#3a5a3a', fontSize: 10 }} axisLine={false} tickLine={false} width={40}
+          tickFormatter={v => v.toFixed(2)} />
+        <Tooltip
+          contentStyle={{ background: '#0d0d0d', border: '1px solid #1a1a1a', borderRadius: 6, fontSize: 11 }}
+          formatter={(v, name) => [v.toFixed(4) + ' BTC', name]}
+        />
+        <Bar dataKey="calls" fill="#00ff88" opacity={0.7} radius={[2,2,0,0]} />
+        <Bar dataKey="puts"  fill="#ff4466" opacity={0.7} radius={[2,2,0,0]} />
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
 
 function TxToast({ msg, hash }) {
   return <div>{msg}{hash && <><br/><a href={`${EXPLORER}${hash}`} target="_blank" rel="noreferrer" className="text-accent text-xs underline">View on explorer ↗</a></>}</div>;
@@ -36,6 +75,7 @@ export default function OpenOrders() {
   const { account, callContract, putContract, musdContract, btcPrice, callOrders, putOrders, ordersLoading, refresh } = useStore();
 
   const [tab,       setTab]       = useState('call');
+  const [view,      setView]      = useState('book'); // 'book' | 'depth'
   const [modal,     setModal]     = useState(null);
   const [btnLoad,   setBtnLoad]   = useState(false);
   const [sortCol,   setSortCol]   = useState('Strike');
@@ -88,16 +128,25 @@ export default function OpenOrders() {
             <button key={t} onClick={() => setTab(t)}
               className={`text-xs px-3 py-1 rounded uppercase tracking-wider font-display transition-colors ${tab === t ? 'bg-surface text-text' : 'text-dim'}`}>{t}</button>
           ))}
+          <button onClick={() => setView(v => v === 'book' ? 'depth' : 'book')}
+            className={`text-xs px-3 py-1 rounded font-display transition-colors ${view === 'depth' ? 'bg-surface text-text' : 'text-dim'}`}>Depth</button>
         </div>
-        <div className="flex items-center gap-1">
-          <input className="w-20 bg-surface border border-border rounded px-2 py-1 text-xs font-mono text-dim focus:outline-none focus:border-accent"
-            placeholder="Min $" value={minStrike} onChange={e => setMinStrike(e.target.value)} />
-          <span className="text-dim text-xs">–</span>
-          <input className="w-20 bg-surface border border-border rounded px-2 py-1 text-xs font-mono text-dim focus:outline-none focus:border-accent"
-            placeholder="Max $" value={maxStrike} onChange={e => setMaxStrike(e.target.value)} />
-        </div>
+        {view === 'book' && (
+          <div className="flex items-center gap-1">
+            <input className="w-20 bg-surface border border-border rounded px-2 py-1 text-xs font-mono text-dim focus:outline-none focus:border-accent"
+              placeholder="Min $" value={minStrike} onChange={e => setMinStrike(e.target.value)} />
+            <span className="text-dim text-xs">–</span>
+            <input className="w-20 bg-surface border border-border rounded px-2 py-1 text-xs font-mono text-dim focus:outline-none focus:border-accent"
+              placeholder="Max $" value={maxStrike} onChange={e => setMaxStrike(e.target.value)} />
+          </div>
+        )}
       </div>
 
+      {view === 'depth' ? (
+        <div className="flex-1 min-h-0 p-3">
+          <DepthView callOrders={callOrders} putOrders={putOrders} btcPrice={btcPrice} />
+        </div>
+      ) : (
       <div className="flex-1 overflow-y-auto min-h-0">
         {ordersLoading ? (
           <div className="flex items-center justify-center h-16 text-dim text-xs">Loading…</div>
@@ -122,6 +171,7 @@ export default function OpenOrders() {
           </table>
         )}
       </div>
+      )}
 
       {modal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">

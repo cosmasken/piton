@@ -33,7 +33,7 @@ function TxToast({ msg, hash }) {
 }
 
 export default function NewOrder() {
-  const { signer, account, chainId, callContract, putContract, musdContract, btcPrice, refresh } = useStore();
+  const { signer, account, chainId, callContract, putContract, musdContract, btcPrice, simpleMode, refresh } = useStore();
 
   const [position,   setPosition]   = useState('long');
   const [optionType, setOptionType] = useState('call');
@@ -41,6 +41,9 @@ export default function NewOrder() {
   const [cost,       setCost]       = useState('');
   const [qty,        setQty]        = useState('');
   const [settlType,  setSettlType]  = useState('0');
+
+  // simple mode forces MUSD settlement
+  const effectiveSettlType = simpleMode ? '1' : settlType;
   const [loading,    setLoading]    = useState(false);
   const [modal,      setModal]      = useState(false);
 
@@ -71,13 +74,13 @@ export default function NewOrder() {
         await (await musdContract.approve(await callContract.getAddress(), c)).wait();
         tx = await (await callContract.createNewOptionLong(sp, c, q)).wait();
       } else if (isCall && isShort) {
-        if (settlType === '2') {
+        if (effectiveSettlType === '2') {
           const bos = new ethers.Contract(BORROWER_OPS_SIGS, BORROWER_OPS_SIGS_ABI, signer);
           const nonce = await bos.getNonce(account); const deadline = TROVE_SIG_DEADLINE();
           const profit = ethers.parseUnits((mv * 0.67).toFixed(6), 18);
           const sig = await signTroveAdjust(signer, await callContract.getAddress(), account, profit, nonce, deadline, chainId);
           tx = await (await callContract.createNewOptionShort(2, sp, c, q, 0, sig, deadline)).wait();
-        } else if (settlType === '1') {
+        } else if (effectiveSettlType === '1') {
           const margin = ethers.parseUnits((mv * 0.67).toFixed(6), 18);
           await (await musdContract.approve(await callContract.getAddress(), margin)).wait();
           tx = await (await callContract.createNewOptionShort(1, sp, c, q, margin, '0x', 0)).wait();
@@ -86,9 +89,9 @@ export default function NewOrder() {
         }
       } else if (!isCall && !isShort) {
         await (await musdContract.approve(await putContract.getAddress(), c)).wait();
-        tx = await (await putContract.createNewOptionLong(settlType, sp, c, q)).wait();
+        tx = await (await putContract.createNewOptionLong(effectiveSettlType, sp, c, q)).wait();
       } else {
-        if (settlType === '2') {
+        if (effectiveSettlType === '2') {
           const bos = new ethers.Contract(BORROWER_OPS_SIGS, BORROWER_OPS_SIGS_ABI, signer);
           const nonce = await bos.getNonce(account); const deadline = TROVE_SIG_DEADLINE();
           const sig = await signTroveAdjust(signer, await putContract.getAddress(), account, sp, nonce, deadline, chainId);
@@ -150,7 +153,7 @@ export default function NewOrder() {
             </div>
           )}
 
-          {isShort && (
+          {isShort && !simpleMode && (
             <div className="space-y-2">
               {/* Trove callout */}
               <button type="button" onClick={() => setSettlType('2')}

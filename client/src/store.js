@@ -36,8 +36,11 @@ export const useStore = create((set, get) => ({
   musdContract: null,
 
   btcPrice:    0,
-  oracleStale: false,   // true = Skip oracle stale, price is Binance fallback
-  priceSource: 'oracle', // 'oracle' | 'binance'
+  oracleStale: false,
+  priceSource: 'oracle',
+
+  simpleMode: false,
+  setSimpleMode: (v) => set({ simpleMode: v }),
 
   callOrders:    [],
   putOrders:     [],

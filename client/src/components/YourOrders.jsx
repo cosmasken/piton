@@ -5,6 +5,7 @@ import { LineChart, Line, ReferenceLine, Tooltip, ResponsiveContainer } from 're
 import { useStore } from '../store';
 import { useCountdown } from '../useCountdown';
 import { parseTxError } from '../txUtils';
+import { greeks } from '../greeks';
 
 const EXPLORER = 'https://explorer.test.mezo.org/tx/';
 const fmt = v => parseFloat(ethers.formatUnits(v, 18));
@@ -28,6 +29,8 @@ function PositionRow({ o, isCall, account, btcPrice, onAction }) {
   const exp    = useCountdown(o.expiry);
   const sp     = fmt(o.strikePrice), qty = fmt(o.quantity), cost = fmt(o.cost);
   const isLong = o.partyS !== account;
+  const hoursLeft = Math.max(0, (Number(o.expiry) - Date.now() / 1000) / 3600);
+  const g = btcPrice ? greeks(isCall, btcPrice, sp, hoursLeft) : { delta: null, theta: null };
   const PL     = !o.isAvailable && exp !== 'Expired'
     ? (isCall ? (isLong ? btcPrice - sp - cost : cost - Math.max(0, btcPrice - sp))
               : (isLong ? sp - btcPrice - cost  : cost - Math.max(0, sp - btcPrice))) * qty
@@ -42,7 +45,7 @@ function PositionRow({ o, isCall, account, btcPrice, onAction }) {
 
   return (
     <div className="border-b border-border px-4 py-3 hover:bg-surface/30 transition-colors">
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-2 flex-wrap">
           <span className={isLong ? 'tag-call' : 'tag-put'}>{isLong ? 'Long' : 'Short'}</span>
           <span className="font-mono text-xs text-dim">Strike ${sp.toLocaleString()}</span>
@@ -62,6 +65,14 @@ function PositionRow({ o, isCall, account, btcPrice, onAction }) {
           )}
         </div>
       </div>
+      {/* Greeks */}
+      {g.delta !== null && (
+        <div className="flex gap-3 mb-1">
+          <span className="text-[10px] font-mono text-dim">Δ <span className="text-text">{g.delta}</span></span>
+          <span className="text-[10px] font-mono text-dim">Θ <span className="text-text">{g.theta}/day</span></span>
+          <span className="text-[10px] font-mono text-dim/50">IV 80%</span>
+        </div>
+      )}
       {curve.length > 0 && (
         <div className="h-12">
           <ResponsiveContainer width="100%" height="100%">
@@ -87,26 +98,36 @@ export default function YourOrders() {
   const { account, callContract, putContract, musdContract, btcPrice, refresh } = useStore();
   const tick = useStore(s => s.tick);
 
-  const [callOrders, setCallOrders] = useState([]);
-  const [putOrders,  setPutOrders]  = useState([]);
-  const [tab,        setTab]        = useState('call');
-  const [loading,    setLoading]    = useState(false);
-  const [modal,      setModal]      = useState(null);
-  const [btnLoad,    setBtnLoad]    = useState(false);
+  const [callOrders,    setCallOrders]    = useState([]);
+  const [putOrders,     setPutOrders]     = useState([]);
+  const [callHistory,   setCallHistory]   = useState([]);
+  const [putHistory,    setPutHistory]    = useState([]);
+  const [tab,           setTab]           = useState('call');
+  const [view,          setView]          = useState('open'); // 'open' | 'history'
+  const [loading,       setLoading]       = useState(false);
+  const [modal,         setModal]         = useState(null);
+  const [btnLoad,       setBtnLoad]       = useState(false);
 
   useEffect(() => {
     if (!account || !callContract) return;
     setLoading(true);
     const load = async (contract) => {
       const count = await contract.getOptionsCount(account);
-      const orders = [];
+      const open = [], history = [];
       for (let i = Number(count) - 1; i >= 0; i--) {
-        try { const id = await contract.addressToOptions(account, i); const o = await contract.idToOption(id); if (!o.settled) orders.push(o); } catch {}
+        try {
+          const id = await contract.addressToOptions(account, i);
+          const o  = await contract.idToOption(id);
+          if (o.settled) history.push(o); else open.push(o);
+        } catch {}
       }
-      return orders;
+      return { open, history };
     };
     Promise.all([load(callContract), load(putContract)])
-      .then(([c, p]) => { setCallOrders(c); setPutOrders(p); })
+      .then(([c, p]) => {
+        setCallOrders(c.open);   setPutOrders(p.open);
+        setCallHistory(c.history); setPutHistory(p.history);
+      })
       .finally(() => setLoading(false));
   }, [account, callContract, putContract, tick]); // eslint-disable-line
 
@@ -137,13 +158,19 @@ export default function YourOrders() {
     }, 'Option settled.'),
   };
 
-  const orders = tab === 'call' ? callOrders : putOrders;
-  const isCall = tab === 'call';
+  const orders  = tab === 'call' ? callOrders  : putOrders;
+  const history = tab === 'call' ? callHistory : putHistory;
+  const isCall  = tab === 'call';
 
   return (
     <div className="panel flex flex-col overflow-hidden flex-1 min-h-0">
       <div className="panel-header flex items-center justify-between">
-        <span>Your Positions</span>
+        <div className="flex gap-1">
+          <button onClick={() => setView('open')}
+            className={`text-xs px-3 py-1 rounded font-display transition-colors ${view === 'open' ? 'bg-surface text-text' : 'text-dim'}`}>Open</button>
+          <button onClick={() => setView('history')}
+            className={`text-xs px-3 py-1 rounded font-display transition-colors ${view === 'history' ? 'bg-surface text-text' : 'text-dim'}`}>History</button>
+        </div>
         <div className="flex gap-1">
           {['call','put'].map(t => (
             <button key={t} onClick={() => setTab(t)}
@@ -155,6 +182,28 @@ export default function YourOrders() {
       <div className="flex-1 overflow-y-auto min-h-0">
         {loading ? (
           <div className="flex items-center justify-center h-16 text-dim text-xs">Loading…</div>
+        ) : view === 'history' ? (
+          history.length === 0
+            ? <div className="flex items-center justify-center h-16 text-dim text-xs">No {tab} history</div>
+            : history.map((o, i) => {
+                const sp = fmt(o.strikePrice), qty = fmt(o.quantity), cost = fmt(o.cost);
+                const isLong = o.partyS !== account;
+                const finalPL = isCall
+                  ? (isLong ? (Math.max(0, fmt(o.settledPrice || 0) - sp) - cost) * qty : (cost - Math.max(0, fmt(o.settledPrice || 0) - sp)) * qty)
+                  : (isLong ? (Math.max(0, sp - fmt(o.settledPrice || 0)) - cost) * qty : (cost - Math.max(0, sp - fmt(o.settledPrice || 0))) * qty);
+                return (
+                  <div key={i} className="border-b border-border px-4 py-2.5 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className={isLong ? 'tag-call' : 'tag-put'}>{isLong ? 'Long' : 'Short'}</span>
+                      <span className="font-mono text-xs text-dim">Strike ${sp.toLocaleString()}</span>
+                      <span className="text-xs text-dim/50">Settled</span>
+                    </div>
+                    <span className={`font-mono text-xs font-semibold ${finalPL >= 0 ? 'text-accent' : 'text-red'}`}>
+                      {finalPL >= 0 ? '+' : ''}{finalPL.toFixed(1)} MUSD
+                    </span>
+                  </div>
+                );
+              })
         ) : orders.length === 0 ? (
           <div className="flex items-center justify-center h-16 text-dim text-xs">No {tab} positions</div>
         ) : orders.map((o, i) => (
