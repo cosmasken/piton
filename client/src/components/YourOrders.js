@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
 import dayjs from 'dayjs';
-import { Spinner, Modal, Button } from 'react-bootstrap';
 import { toast } from 'react-toastify';
 import MUSDABI from '../abi/musd.json';
 
@@ -11,61 +10,40 @@ const MUSD_ADDRESSES = {
 };
 
 function expiry(ts) {
-  const exp = dayjs(Number(ts) * 1000);
-  const now = dayjs();
+  const exp = dayjs(Number(ts) * 1000), now = dayjs();
   if (exp.isBefore(now)) return 'Expired';
-  const h = exp.diff(now, 'hour');
-  const m = exp.diff(now, 'minute') % 60;
+  const h = exp.diff(now, 'hour'), m = exp.diff(now, 'minute') % 60;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
+
+const fmt = v => parseFloat(ethers.formatUnits(v, 18));
 
 export default function YourOrders({ provider, signer, account, callContract, putContract, onRefresh, tick }) {
   const [callOrders, setCallOrders] = useState([]);
   const [putOrders,  setPutOrders]  = useState([]);
-  const [selected,   setSelected]   = useState('call');
+  const [tab,        setTab]        = useState('call');
   const [mv,         setMv]         = useState(0);
   const [loading,    setLoading]    = useState(true);
-  const [modal,      setModal]      = useState(null); // { type, order, action }
+  const [modal,      setModal]      = useState(null);
   const [btnLoad,    setBtnLoad]    = useState(false);
 
   useEffect(() => {
     if (!account) return;
     (async () => {
       try {
-        let rawMv;
-        try {
-          rawMv = await callContract.getMarketValue();
-        } catch {
-          try {
-            const res = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT');
-            const { price } = await res.json();
-            rawMv = ethers.parseUnits(parseFloat(price).toFixed(18), 18);
-          } catch { return; }
-        }
-        setMv(parseFloat(ethers.formatUnits(rawMv, 18)));
+        try { setMv(parseFloat(ethers.formatUnits(await callContract.getMarketValue(), 18))); }
+        catch { const { price } = await (await fetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT')).json(); setMv(parseFloat(price)); }
 
-        const loadOrders = async (contract, setter) => {
-          try {
-            const count = await contract.getOptionsCount(account);
-            const orders = [];
-            for (let i = Number(count) - 1; i >= 0; i--) {
-              try {
-                const id  = await contract.addressToOptions(account, i);
-                const opt = await contract.idToOption(id);
-                if (!opt.settled) orders.push(opt);
-              } catch {}
-            }
-            setter(orders);
-          } catch {}
+        const load = async (contract, setter) => {
+          const count = await contract.getOptionsCount(account);
+          const orders = [];
+          for (let i = Number(count) - 1; i >= 0; i--) {
+            try { const id = await contract.addressToOptions(account, i); const o = await contract.idToOption(id); if (!o.settled) orders.push(o); } catch {}
+          }
+          setter(orders);
         };
-
-        await Promise.all([
-          loadOrders(callContract, setCallOrders),
-          loadOrders(putContract,  setPutOrders),
-        ]);
-      } finally {
-        setLoading(false);
-      }
+        await Promise.all([load(callContract, setCallOrders), load(putContract, setPutOrders)]);
+      } finally { setLoading(false); }
     })();
   }, [account, callContract, putContract, tick]);
 
@@ -74,147 +52,112 @@ export default function YourOrders({ provider, signer, account, callContract, pu
     return new ethers.Contract(MUSD_ADDRESSES[Number(chainId)], MUSDABI.abi, signer);
   };
 
-  const closeCall = async () => {
+  const run = async (fn, msg) => {
     setBtnLoad(true);
-    try { await (await callContract.closeOption(modal.order.id)).wait(); onRefresh(); toast.success('Order closed.'); }
-    catch (e) { console.error(e); toast.error(e?.reason || e?.message || 'Transaction failed.'); setBtnLoad(false); }
+    try { await fn(); onRefresh(); toast.success(msg); setModal(null); }
+    catch (e) { toast.error(e?.reason || e?.message || 'Transaction failed.'); }
+    finally { setBtnLoad(false); }
   };
 
-  const refundCall = async () => {
-    setBtnLoad(true);
-    try { await (await callContract.refundExpired(modal.order.id)).wait(); onRefresh(); toast.success('Escrow refunded.'); }
-    catch (e) { console.error(e); toast.error(e?.reason || e?.message || 'Transaction failed.'); setBtnLoad(false); }
+  const actions = {
+    closeCall:  () => run(async () => { await (await callContract.closeOption(modal.order.id)).wait(); }, 'Order closed.'),
+    refundCall: () => run(async () => { await (await callContract.refundExpired(modal.order.id)).wait(); }, 'Escrow refunded.'),
+    settleCall: () => run(async () => { const o = modal.order; if (Number(o.settlementType) === 0) { const musd = await getMusd(); await (await musd.approve(await callContract.getAddress(), o.strikePrice)).wait(); } await (await callContract.settleOption(o.id)).wait(); }, 'Option settled.'),
+    closePut:   () => run(async () => { await (await putContract.closeOption(modal.order.id)).wait(); }, 'Order closed.'),
+    refundPut:  () => run(async () => { await (await putContract.refundExpired(modal.order.id)).wait(); }, 'Escrow refunded.'),
+    settlePut:  () => run(async () => { const o = modal.order; await (await putContract.settleOption(o.id, { value: Number(o.settlementType) === 0 ? o.quantity : 0n })).wait(); }, 'Option settled.'),
   };
 
-  const settleCall = async () => {
-    setBtnLoad(true);
-    try {
-      const o = modal.order;
-      if (Number(o.settlementType) === 0) {
-        const musd = await getMusd();
-        await (await musd.approve(await callContract.getAddress(), o.strikePrice)).wait();
-      }
-      await (await callContract.settleOption(o.id)).wait();
-      onRefresh(); toast.success('Option settled.');
-    } catch (e) { console.error(e); toast.error(e?.reason || e?.message || 'Transaction failed.'); setBtnLoad(false); }
-  };
-
-  const closePut = async () => {
-    setBtnLoad(true);
-    try { await (await putContract.closeOption(modal.order.id)).wait(); onRefresh(); toast.success('Order closed.'); }
-    catch (e) { console.error(e); toast.error(e?.reason || e?.message || 'Transaction failed.'); setBtnLoad(false); }
-  };
-
-  const refundPut = async () => {
-    setBtnLoad(true);
-    try { await (await putContract.refundExpired(modal.order.id)).wait(); onRefresh(); toast.success('Escrow refunded.'); }
-    catch (e) { console.error(e); toast.error(e?.reason || e?.message || 'Transaction failed.'); setBtnLoad(false); }
-  };
-
-  const settlePut = async () => {
-    setBtnLoad(true);
-    try {
-      const o = modal.order;
-      const value = Number(o.settlementType) === 0 ? o.quantity : 0n;
-      await (await putContract.settleOption(o.id, { value })).wait();
-      onRefresh(); toast.success('Option settled.');
-    } catch (e) { console.error(e); toast.error(e?.reason || e?.message || 'Transaction failed.'); setBtnLoad(false); }
-  };
-
-  const fmt = v => parseFloat(ethers.formatUnits(v, 18));
-
-  const rows = (orders, isCall) => orders.map((o, i) => {
-    const qty  = fmt(o.quantity);
-    const sp   = fmt(o.strikePrice);
-    const c    = fmt(o.cost);
-    const mval = mv * qty;
-    const exp  = expiry(o.expiry);
-    const pos  = o.partyS === account ? 'Short' : 'Long';
-    const PL   = exp !== 'Expired' && !o.isAvailable
-      ? (isCall
-          ? (pos === 'Long' ? mval - sp - c : Math.min(c, c - (mval - sp)))
-          : (pos === 'Long' ? sp - mval - c : Math.min(c, c - (sp - mval))))
-      : 0;
-
-    return (
-      <tr key={i} className='fade-in order-row'>
-        <td style={{ fontSize: '12px' }} className={exp === 'Expired' ? 'light-white' : ''}>{exp}</td>
-        <td>{pos}</td>
-        <td className={PL > 0 ? 'text-success' : PL < 0 ? 'text-danger' : 'text-dark'}>
-          {PL !== 0 ? PL.toFixed(1) : 'N/A'}
-        </td>
-        <td>
-          {o.isAvailable && (
-            <span className='text-warning' style={{ cursor: 'pointer' }}
-              onClick={() => setModal({ order: o, action: isCall ? 'closeCall' : 'closePut' })}>Refund</span>
-          )}
-          {!o.isAvailable && exp === 'Expired' && pos === 'Short' && (
-            <span className='text-warning' style={{ cursor: 'pointer' }}
-              onClick={() => setModal({ order: o, action: isCall ? 'refundCall' : 'refundPut' })}>Refund</span>
-          )}
-          {!o.isAvailable && exp === 'Expired' && pos === 'Long' && (
-            <span className='text-warning' style={{ cursor: 'pointer' }}
-              onClick={() => setModal({ order: o, action: isCall ? 'refundCall' : 'refundPut' })}>Refund</span>
-          )}
-          {!o.isAvailable && exp !== 'Expired' && pos === 'Long' && (
-            <span className='text-primary' style={{ cursor: 'pointer' }}
-              onClick={() => setModal({ order: o, action: isCall ? 'settleCall' : 'settlePut' })}>Settle</span>
-          )}
-          {!o.isAvailable && exp !== 'Expired' && pos === 'Short' && <span className='text-dark'>N/A</span>}
-        </td>
-      </tr>
-    );
-  });
-
-  const actionMap = { closeCall, refundCall, settleCall, closePut, refundPut, settlePut };
+  const orders = tab === 'call' ? callOrders : putOrders;
+  const isCall = tab === 'call';
 
   return (
-    <div className='your-orders sec-bg'>
-      <div className='mb-2 input-box-header'>
-        <span className='ms-3'>Your Orders</span>
-        <select onChange={e => setSelected(e.target.value)} style={{ background: '#242424' }} className='me-3 float-end option-select-top'>
-          <option value='call'>Call</option>
-          <option value='put'>Put</option>
-        </select>
-      </div>
-      <div className='y-orders-bar text-center'>
-        {loading ? <Spinner size='sm' animation='border' variant='light' /> : (
-          <table>
-            <thead><tr className='text-secondary open-header'><th>Expiry</th><th>Position</th><th>P/L</th><th>Action</th></tr></thead>
-            <tbody>{selected === 'call' ? rows(callOrders, true) : rows(putOrders, false)}</tbody>
-          </table>
-        )}
-        {!loading && selected === 'call' && callOrders.length === 0 && <p className='mt-5 text-secondary'>No call orders.</p>}
-        {!loading && selected === 'put'  && putOrders.length  === 0 && <p className='mt-5 text-secondary'>No put orders.</p>}
+    <div className="panel flex flex-col overflow-hidden">
+      <div className="panel-header flex items-center justify-between">
+        <span>Your Positions</span>
+        <div className="flex gap-1">
+          {['call','put'].map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`text-xs px-3 py-1 rounded transition-colors uppercase tracking-wider font-display ${tab === t ? 'bg-surface text-text' : 'text-dim'}`}>
+              {t}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <Modal backdrop='static' className='text-white' show={!!modal} onHide={() => setModal(null)}>
-        <Modal.Header className='head-bg' closeButton>
-          <Modal.Title>Confirm Action</Modal.Title>
-        </Modal.Header>
-        <Modal.Body className='sec-bg'>
-          {modal && (() => {
-            const o = modal.order;
-            const sp = fmt(o.strikePrice); const qty = fmt(o.quantity);
-            const mval = mv * qty;
-            if (modal.action === 'settleCall') return Number(o.settlementType) === 0
-              ? <span>Receive {qty} BTC in exchange for {sp} MUSD.</span>
-              : <span>Receive {(mval - sp).toFixed(2)} MUSD profit.</span>;
-            if (modal.action === 'settlePut') return Number(o.settlementType) === 0
-              ? <span>Send {qty} BTC, receive {sp} MUSD.</span>
-              : <span>Receive {(sp - mval).toFixed(2)} MUSD profit.</span>;
-            if (modal.action === 'closeCall' || modal.action === 'closePut')
-              return <span>Refund your escrowed collateral.</span>;
-            return <span>Reclaim expired escrow.</span>;
-          })()}
-        </Modal.Body>
-        <Modal.Footer className='head-bg'>
-          <Button variant='secondary' disabled={btnLoad} onClick={() => setModal(null)}>Cancel</Button>
-          <Button variant='success' disabled={btnLoad} onClick={() => modal && actionMap[modal.action]()}>
-            {btnLoad && <Spinner size='sm' animation='grow' className='mb-1 me-2' />}Confirm
-          </Button>
-        </Modal.Footer>
-      </Modal>
+      <div className="flex-1 overflow-y-auto">
+        {loading ? (
+          <div className="flex items-center justify-center h-20 text-dim text-xs">Loading…</div>
+        ) : orders.length === 0 ? (
+          <div className="flex items-center justify-center h-20 text-dim text-xs">No {tab} positions</div>
+        ) : (
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-dim border-b border-border">
+                {['Expiry','Side','P/L',''].map(h => (
+                  <th key={h} className="text-left px-4 py-2 font-body font-medium tracking-wider uppercase text-[10px]">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {orders.map((o, i) => {
+                const qty = fmt(o.quantity), sp = fmt(o.strikePrice), c = fmt(o.cost);
+                const mval = mv * qty, exp = expiry(o.expiry);
+                const pos = o.partyS === account ? 'Short' : 'Long';
+                const PL = !o.isAvailable && exp !== 'Expired'
+                  ? (isCall ? (pos === 'Long' ? mval - sp - c : c - Math.max(0, mval - sp)) : (pos === 'Long' ? sp - mval - c : c - Math.max(0, sp - mval)))
+                  : null;
+
+                let action = null;
+                if (o.isAvailable) action = isCall ? 'closeCall' : 'closePut';
+                else if (exp === 'Expired') action = isCall ? 'refundCall' : 'refundPut';
+                else if (pos === 'Long') action = isCall ? 'settleCall' : 'settlePut';
+
+                return (
+                  <tr key={i} className="border-b border-border hover:bg-surface/50 transition-colors fade-in">
+                    <td className="px-4 py-2.5 font-mono">{exp}</td>
+                    <td className="px-4 py-2.5">
+                      <span className={pos === 'Long' ? 'tag-call' : 'tag-put'}>{pos}</span>
+                    </td>
+                    <td className={`px-4 py-2.5 font-mono ${PL === null ? 'text-dim' : PL > 0 ? 'text-accent' : 'text-red'}`}>
+                      {PL === null ? '—' : (PL > 0 ? '+' : '') + PL.toFixed(1)}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {action && (
+                        <button
+                          onClick={() => setModal({ order: o, action })}
+                          className={`text-xs font-display font-semibold hover:opacity-70 transition-opacity ${action.startsWith('settle') ? 'text-accent' : 'text-dim'}`}
+                        >
+                          {action.startsWith('settle') ? 'Settle →' : action.startsWith('close') ? 'Close' : 'Refund'}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {modal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="panel w-80 p-6 space-y-4">
+            <p className="font-display font-semibold text-text">Confirm</p>
+            <p className="text-sm text-dim font-body">
+              {modal.action.startsWith('settle') ? `Settle ${isCall ? 'call' : 'put'} — receive payout.` :
+               modal.action.startsWith('close')  ? 'Refund escrowed collateral.' :
+               'Reclaim expired escrow.'}
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setModal(null)} className="btn-ghost flex-1">Cancel</button>
+              <button onClick={actions[modal.action]} disabled={btnLoad} className="btn-primary flex-1 disabled:opacity-50">
+                {btnLoad ? '…' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

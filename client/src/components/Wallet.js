@@ -13,43 +13,31 @@ export default function Wallet({ provider, account }) {
 
   useEffect(() => {
     if (!provider || !account) return;
-
     const update = async () => {
       try {
         const { chainId } = await provider.getNetwork();
-        const musdAddr = MUSD_ADDRESSES[Number(chainId)];
-        const musdContract = new ethers.Contract(musdAddr, MUSDABI.abi, provider);
-
-        const [btcBal, musdBal] = await Promise.all([
-          provider.getBalance(account),
-          musdContract.balanceOf(account),
-        ]);
-
-        setBtc(parseFloat(ethers.formatEther(btcBal)).toFixed(4));
-        setMusd(parseFloat(ethers.formatUnits(musdBal, 18)).toFixed(2));
+        const musdContract = new ethers.Contract(MUSD_ADDRESSES[Number(chainId)], MUSDABI.abi, provider);
+        const [b, m] = await Promise.all([provider.getBalance(account), musdContract.balanceOf(account)]);
+        setBtc(parseFloat(ethers.formatEther(b)).toFixed(4));
+        setMusd(parseFloat(ethers.formatUnits(m, 18)).toLocaleString('en-US', { maximumFractionDigits: 2 }));
       } catch {}
     };
-
     update();
     const id = setInterval(update, 5000);
     return () => clearInterval(id);
   }, [provider, account]);
 
   return (
-    <div className='sec-bg wallet text-white'>
-      <div className='input-box-header text-center'>
-        <img className='ms-2 mb-1' src={require('../images/meta.png')} width='24' alt='wallet' />{' '}Wallet
+    <div className="panel row-span-1">
+      <div className="panel-header">Wallet</div>
+      <div className="px-4 py-3 space-y-3">
+        {[['BTC', btc], ['MUSD', musd]].map(([sym, bal]) => (
+          <div key={sym} className="flex justify-between items-center">
+            <span className="text-xs font-display font-semibold text-dim uppercase tracking-wider">{sym}</span>
+            <span className="font-mono text-sm text-text">{bal}</span>
+          </div>
+        ))}
       </div>
-      <table className='w-100'>
-        <tbody>
-          <tr>
-            <td className='text-center'><img src={require('../images/btc.png')} width='36' alt='btc' /></td>
-            <td>{btc} BTC</td>
-            <td className='text-center'><img src={require('../images/musd.png')} width='36' alt='musd' /></td>
-            <td>{musd} MUSD</td>
-          </tr>
-        </tbody>
-      </table>
     </div>
   );
 }

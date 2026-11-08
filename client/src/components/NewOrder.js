@@ -47,28 +47,28 @@ async function signTroveAdjust(signer, contractAddress, borrower, debtChange, no
   // Actually the contract IS the recipient — we need its address.
   // We pass it in as `contractAddress` (the option contract address).
   const value = {
-    collWithdrawal: 0n,
+    collWithdrawal: 0n, // eslint-disable-line no-undef
     debtChange,
     isDebtIncrease: true,
-    assetAmount: 0n,
+    assetAmount: 0n, // eslint-disable-line no-undef
     borrower,
     recipient: contractAddress,
     nonce,
-    deadline: BigInt(deadline),
+    deadline: BigInt(deadline), // eslint-disable-line no-undef
   };
   return signer.signTypedData(domain, types, value);
 }
 
 export default function NewOrder({ provider, signer, account, callContract, putContract, onRefresh }) {
-  const [position, setPosition]   = useState('long');
+  const [position, setPosition]     = useState('long');
   const [optionType, setOptionType] = useState('call');
-  const [strike, setStrike]       = useState('');
-  const [cost, setCost]           = useState('');
-  const [qty, setQty]             = useState('');
-  const [settlType, setSettlType] = useState('0');
-  const [loading, setLoading]     = useState(false);
-  const [modal, setModal]         = useState(false);
-  const [marketVal, setMarketVal] = useState(0);
+  const [strike, setStrike]         = useState('');
+  const [cost, setCost]             = useState('');
+  const [qty, setQty]               = useState('');
+  const [settlType, setSettlType]   = useState('0');
+  const [loading, setLoading]       = useState(false);
+  const [modal, setModal]           = useState(false);
+  const [marketVal, setMarketVal]   = useState(0);
 
   const isShort = position === 'short';
   const isCall  = optionType === 'call';
@@ -99,14 +99,13 @@ export default function NewOrder({ provider, signer, account, callContract, putC
       if (isCall && !isShort) {
         await (await musd.approve(await callContract.getAddress(), c)).wait();
         await (await callContract.createNewOptionLong(sp, c, q)).wait();
-
       } else if (isCall && isShort) {
         if (settlType === '2') {
           const { chainId } = await provider.getNetwork();
           const bosContract = new ethers.Contract(BORROWER_OPS_SIGS, BORROWER_OPS_SIGS_ABI, signer);
-          const nonce    = await bosContract.getNonce(account);
+          const nonce = await bosContract.getNonce(account);
           const deadline = TROVE_SIG_DEADLINE();
-          const profit   = ethers.parseUnits((marketVal * 0.67).toFixed(6), 18);
+          const profit = ethers.parseUnits((marketVal * 0.67).toFixed(6), 18);
           const sig = await signTroveAdjust(signer, await callContract.getAddress(), account, profit, nonce, deadline, Number(chainId));
           await (await callContract.createNewOptionShort(2, sp, c, q, 0, sig, deadline)).wait();
         } else if (settlType === '1') {
@@ -116,17 +115,14 @@ export default function NewOrder({ provider, signer, account, callContract, putC
         } else {
           await (await callContract.createNewOptionShort(0, sp, c, q, 0, '0x', 0, { value: q })).wait();
         }
-
       } else if (!isCall && !isShort) {
         await (await musd.approve(await putContract.getAddress(), c)).wait();
         await (await putContract.createNewOptionLong(settlType, sp, c, q)).wait();
-
       } else {
-        // Put short
         if (settlType === '2') {
           const { chainId } = await provider.getNetwork();
           const bosContract = new ethers.Contract(BORROWER_OPS_SIGS, BORROWER_OPS_SIGS_ABI, signer);
-          const nonce    = await bosContract.getNonce(account);
+          const nonce = await bosContract.getNonce(account);
           const deadline = TROVE_SIG_DEADLINE();
           const sig = await signTroveAdjust(signer, await putContract.getAddress(), account, sp, nonce, deadline, Number(chainId));
           await (await putContract.createNewOptionShort(sp, c, q, 0, sig, deadline)).wait();
@@ -135,9 +131,8 @@ export default function NewOrder({ provider, signer, account, callContract, putC
           await (await putContract.createNewOptionShort(sp, c, q, sp, '0x', 0)).wait();
         }
       }
-
       onRefresh();
-      toast.success('Order placed successfully.');
+      toast.success('Order placed.');
     } catch (err) {
       console.error(err);
       toast.error(err?.reason || err?.message || 'Transaction failed.');
@@ -146,77 +141,98 @@ export default function NewOrder({ provider, signer, account, callContract, putC
     }
   };
 
+  const Field = ({ label, placeholder, value, onChange }) => (
+    <div>
+      <label className="block text-xs text-dim font-body mb-1">{label}</label>
+      <input
+        className="input-field"
+        type="number" step="any"
+        placeholder={placeholder}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+      />
+    </div>
+  );
+
   return (
-    <div className='new-order sec-bg text-white text-center'>
-      <div className='input-box-header'>New Order</div>
-      <div className='container'>
-        <div style={{ margin: 'auto' }} className='row text-center mt-3'>
-          <div className='col-sm-8 font-weight-bold text-secondary'>
-            <div style={{ cursor: 'pointer' }} className='row'>
-              <div onClick={() => setPosition('long')}  className={position === 'long'  ? 'green-box col-sm-6' : 'col-sm-6'}>Long</div>
-              <div onClick={() => setPosition('short')} className={position === 'short' ? 'red-box col-sm-6'   : 'col-sm-6'}>Short</div>
-            </div>
-          </div>
-          <div className='col-sm-4'>
-            <select onChange={e => setOptionType(e.target.value)} className='float-end option-select'>
-              <option value='call'>Call</option>
-              <option value='put'>Put</option>
-            </select>
-          </div>
+    <div className="panel flex flex-col overflow-hidden">
+      <div className="panel-header">New Order</div>
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+
+        {/* Long / Short toggle */}
+        <div className="flex rounded-md overflow-hidden border border-border text-xs font-display font-semibold">
+          <button
+            onClick={() => setPosition('long')}
+            className={`flex-1 py-2 transition-colors ${isShort ? 'text-dim' : 'bg-accent/10 text-accent'}`}
+          >Long</button>
+          <button
+            onClick={() => setPosition('short')}
+            className={`flex-1 py-2 transition-colors ${!isShort ? 'text-dim' : 'bg-red/10 text-red'}`}
+          >Short</button>
         </div>
 
-        <div className='text-start mt-4'>
-          <form onSubmit={validate}>
-            <div className='row'>
-              <div className='form-group col-sm-12'>
-                <label>Strike Price</label>
-                <input placeholder='MUSD / 1 BTC' className='form-control form-control-sm' type='number' step='any' value={strike} onChange={e => setStrike(e.target.value)} />
-              </div>
-              <div className='form-group col-sm-6'>
-                <label>Option Cost</label>
-                <input placeholder='Premium in MUSD' className='form-control form-control-sm' type='number' step='any' value={cost} onChange={e => setCost(e.target.value)} />
-              </div>
-              <div className='form-group col-sm-6'>
-                <label>Quantity</label>
-                <input placeholder='BTC quantity' className='form-control form-control-sm' type='number' step='any' value={qty} onChange={e => setQty(e.target.value)} />
-              </div>
-              {showSettlType && (
-                <div className='form-group col-sm-12'>
-                  <label>Settlement Type</label>
-                  <select value={settlType} onChange={e => setSettlType(e.target.value)} className='form-control'>
-                    <option value='0'>BTC</option>
-                    <option value='1'>MUSD</option>
-                    <option value='2'>Trove (Mezo)</option>
-                  </select>
-                  {settlType === '2' && (
-                    <small className='text-secondary'>Your Mezo Trove equity will be used as margin. You will sign an EIP-712 payload when placing the order.</small>
-                  )}
-                </div>
+        {/* Call / Put toggle */}
+        <div className="flex rounded-md overflow-hidden border border-border text-xs font-display font-semibold">
+          {['call', 'put'].map(t => (
+            <button key={t}
+              onClick={() => setOptionType(t)}
+              className={`flex-1 py-2 transition-colors uppercase tracking-wider ${optionType === t ? 'bg-surface text-text' : 'text-dim'}`}
+            >{t}</button>
+          ))}
+        </div>
+
+        <form onSubmit={validate} className="space-y-3">
+          <Field label="Strike Price" placeholder="MUSD / 1 BTC" value={strike} onChange={setStrike} />
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Premium" placeholder="MUSD" value={cost} onChange={setCost} />
+            <Field label="Quantity" placeholder="BTC" value={qty} onChange={setQty} />
+          </div>
+
+          {showSettlType && (
+            <div>
+              <label className="block text-xs text-dim font-body mb-1">Margin / Settlement</label>
+              <select
+                value={settlType}
+                onChange={e => setSettlType(e.target.value)}
+                className="input-field"
+              >
+                <option value="0">BTC</option>
+                <option value="1">MUSD</option>
+                <option value="2">Trove (Mezo)</option>
+              </select>
+              {settlType === '2' && (
+                <p className="text-xs text-dim mt-1">Trove equity used as margin. Requires EIP-712 signature.</p>
               )}
             </div>
-            <Button type='submit' className={`mt-1 text-white fw-bold btn btn-block ${isShort ? 'red-bg' : 'green-bg'}`} disabled={loading} variant=''>
-              {loading && <Spinner size='sm' animation='grow' className='mb-1 me-2' />}
-              {loading ? 'Processing...' : isShort ? 'PLACE SELL ORDER' : 'PLACE BUY ORDER'}
-            </Button>
-          </form>
-        </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className={`w-full py-2.5 rounded-md font-display font-bold text-sm transition-opacity disabled:opacity-50 ${
+              isShort ? 'bg-red/20 text-red border border-red/30' : 'bg-accent/20 text-accent border border-accent/30'
+            }`}
+          >
+            {loading ? 'Processing…' : isShort ? 'Place Sell Order' : 'Place Buy Order'}
+          </button>
+        </form>
       </div>
 
-      <Modal className='text-white' show={modal} onHide={() => setModal(false)}>
-        <Modal.Header className='head-bg' closeButton>
-          <Modal.Title>Confirm Order</Modal.Title>
-        </Modal.Header>
-        <Modal.Body className='sec-bg'>
-          {!isShort && <span>Approve {cost} MUSD as premium to the seller.</span>}
-          {isCall && isShort && settlType === '1' && <span>Approve {(0.67 * marketVal).toFixed(2)} MUSD as margin.</span>}
-          {isCall && isShort && settlType === '0' && <span>Send {qty} BTC as collateral.</span>}
-          {!isCall && isShort && <span>Approve {strike} MUSD as margin.</span>}
-        </Modal.Body>
-        <Modal.Footer className='head-bg'>
-          <Button variant='danger' onClick={() => setModal(false)}>Cancel</Button>
-          <Button variant='success' onClick={submit}>Approve & Submit</Button>
-        </Modal.Footer>
-      </Modal>
+      {/* Confirm modal */}
+      {modal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="panel w-80 p-6 space-y-4">
+            <p className="font-display font-semibold text-text">Confirm Order</p>
+            <p className="text-sm text-dim font-body">
+              {isShort ? 'Short' : 'Long'} {isCall ? 'Call' : 'Put'} · Strike {strike} · {qty} BTC · Premium {cost} MUSD
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setModal(false)} className="btn-ghost flex-1">Cancel</button>
+              <button onClick={submit} className="btn-primary flex-1">Confirm</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,18 +1,20 @@
 import React from 'react';
 
 export default function Navbar({ account, onDisconnect }) {
+  const short = account ? `${account.slice(0, 6)}…${account.slice(-4)}` : '';
   return (
-    <div style={{ background: '#000', borderRadius: '0' }} className='nav-custom'>
-      <a href='/' style={{ cursor: 'pointer' }} className='text-white nav-brand'>piton</a>
-      <div className='text-white wallet-add' style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <img src={require('../images/add.png')} className='me-1' width='24' alt='wallet' />{' '}
-        {account}
-        <button onClick={onDisconnect} style={{ cursor: 'pointer', background: 'transparent', border: '1px solid #444', borderRadius: 8, color: '#aaa', fontSize: 12, fontWeight: 600, padding: '4px 12px', marginLeft: 8 }}
-          onMouseEnter={e => { e.target.style.borderColor = '#ef4444'; e.target.style.color = '#ef4444'; }}
-          onMouseLeave={e => { e.target.style.borderColor = '#444'; e.target.style.color = '#aaa'; }}>
+    <nav className="flex items-center justify-between px-4 py-3 border-b border-border bg-bg shrink-0">
+      <a href="/" className="font-display font-bold text-lg text-accent tracking-tight">piton</a>
+      <div className="flex items-center gap-3">
+        <span className="font-mono text-xs text-dim">{short}</span>
+        <div className="w-2 h-2 rounded-full bg-accent" />
+        <button
+          onClick={onDisconnect}
+          className="btn-ghost text-xs px-3 py-1.5"
+        >
           Disconnect
         </button>
       </div>
-    </div>
+    </nav>
   );
 }
