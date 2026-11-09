@@ -5,8 +5,16 @@ const PRIVATE_KEY = process.env.PRIVATE_KEY || '0'.repeat(64);
 
 module.exports = {
   solidity: {
-    version: '0.6.12',
-    settings: { optimizer: { enabled: true, runs: 200 } },
+    compilers: [
+      {
+        version: '0.8.28',
+        settings: { evmVersion: 'london', viaIR: true, optimizer: { enabled: true, runs: 200 } },
+      },
+      {
+        version: '0.6.12',
+        settings: { optimizer: { enabled: true, runs: 200 } },
+      },
+    ],
   },
   networks: {
     // Mezo matsnet (testnet) — chainId 31611
