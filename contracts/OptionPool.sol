@@ -97,6 +97,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
     // Pool performance tracking (pool-wide)
     uint256 public totalPremiumsEarned;
     uint256 public totalSettlementsPaid;
+    uint256 public totalPerformanceFeePaid;
 
     // Pricing
     uint256 public iv = 8e17;         // 80% default, 18 dec
@@ -189,21 +190,15 @@ contract OptionPool is Ownable, ReentrancyGuard {
         uint256 k4 = k3 * k1 / PRECISION;
         uint256 k5 = k4 * k1 / PRECISION;
 
-        uint256 poly = (3193815300 * k1 / 1e10)
-                     + (18446956180 * k2 / 1e10)  // note: A&S coeff is negative, handled below
-                     + (17814779370 * k3 / 1e10)
-                     + (18212559780 * k4 / 1e10)  // negative
-                     + (13302744290 * k5 / 1e10);
-
         // A&S signs: +a1 -a2 +a3 -a4 +a5
-        uint256 a1 = 3193815300 * k1 / 1e10;
-        uint256 a2 = 3565637820 * k2 / 1e10;
+        uint256 a1 = 3193815300  * k1 / 1e10;
+        uint256 a2 = 3565637820  * k2 / 1e10;
         uint256 a3 = 17814779370 * k3 / 1e10;
         uint256 a4 = 18212559780 * k4 / 1e10;
         uint256 a5 = 13302744290 * k5 / 1e10;
-        poly = a1 + a3 + a5;
-        uint256 neg_poly = a2 + a4;
-        uint256 t = poly > neg_poly ? (poly - neg_poly) : 0;
+        uint256 pos  = a1 + a3 + a5;
+        uint256 negP = a2 + a4;
+        uint256 t = pos > negP ? (pos - negP) : 0;
 
         uint256 result = PRECISION - pdf * t / PRECISION;
         return neg ? PRECISION - result : result;
@@ -270,6 +265,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
         uint256 supply = ymusd.totalSupply();
         if (supply == 0 || totalAssets == 0) {
             shares = amount;
+            require(amount >= 1e15, "min deposit 0.001 MUSD"); // inflation attack guard
         } else {
             shares = amount * supply / totalAssets;
         }
@@ -331,9 +327,12 @@ contract OptionPool is Ownable, ReentrancyGuard {
     function _takePerformanceFee() internal {
         if (totalPremiumsEarned <= totalSettlementsPaid) return;
         uint256 netYield = totalPremiumsEarned - totalSettlementsPaid;
-        uint256 fee = netYield * performanceFeeBps / 10000;
+        if (netYield <= totalPerformanceFeePaid) return;
+        uint256 newYield = netYield - totalPerformanceFeePaid;
+        uint256 fee = newYield * performanceFeeBps / 10000;
         if (fee > 0 && fee <= totalAssets) {
             totalAssets -= fee;
+            totalPerformanceFeePaid += fee;
             musd.safeTransfer(feeRecipient, fee);
         }
     }
@@ -384,7 +383,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
         if (o.premium < fair * 95 / 100) return; // below fair value, skip
 
         uint256 collateral = _requiredCollateral(o.optionType, spot, o.strike, o.quantity);
-        require(collateral <= maxOptionCollateral, "collateral exceeds max");
+        if (collateral > maxOptionCollateral) return;
 
         // Check pool has enough free capital
         if (totalAssets < lockedCollateral + collateral) return;
@@ -523,16 +522,17 @@ contract OptionPool is Ownable, ReentrancyGuard {
         o.status = OrderStatus.SETTLED;
 
         if (o.filledByPool) {
-            require(profit <= o.collateral, "profit exceeds collateral");
+            uint256 payout = profit > o.collateral ? o.collateral : profit;
             lockedCollateral -= o.collateral;
-            totalAssets      -= profit;
-            totalSettlementsPaid += profit;
+            totalAssets      -= payout;
+            totalSettlementsPaid += payout;
             _takePerformanceFee();
-            musd.safeTransfer(o.long, profit);
+            musd.safeTransfer(o.long, payout);
             // remaining collateral stays in pool
         } else if (o.marginType == MarginType.MUSD) {
-            musd.safeTransfer(o.long, profit);
-            uint256 remaining = o.collateral - profit;
+            uint256 payout = profit > o.collateral ? o.collateral : profit;
+            musd.safeTransfer(o.long, payout);
+            uint256 remaining = o.collateral - payout;
             if (remaining > 0) musd.safeTransfer(o.short, remaining);
         } else {
             // Trove margin — pull from trove
