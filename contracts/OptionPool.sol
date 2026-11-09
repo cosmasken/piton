@@ -43,9 +43,9 @@ contract OptionPool is Ownable, ReentrancyGuard {
 
     // ─── Constants ───────────────────────────────────────────────────────────
 
-    address public constant SKIP_ORACLE       = 0x7b7c000000000000000000000000000000000015;
-    address public constant TROVE_MANAGER     = 0xE47c80e8c23f6B4A1aE41c34837a0599D5D16bb0;
-    address public constant BORROWER_OPS_SIGS = 0xD757e3646AF370b15f32EB557F0F8380Df7D639e;
+    address public SKIP_ORACLE;
+    address public TROVE_MANAGER;
+    address public BORROWER_OPS_SIGS;
 
     uint256 public constant PRICE_STALENESS   = 7200;
     uint256 public constant MIN_EXPIRY        = 15 minutes;
@@ -120,10 +120,13 @@ contract OptionPool is Ownable, ReentrancyGuard {
 
     // ─── Constructor ─────────────────────────────────────────────────────────
 
-    constructor(address _musd, address _ymusd) Ownable(msg.sender) {
-        musd         = IERC20(_musd);
-        ymusd        = yMUSD(_ymusd);
-        feeRecipient = msg.sender;
+    constructor(address _musd, address _ymusd, address _oracle, address _troveManager, address _borrowerOps) Ownable(msg.sender) {
+        musd              = IERC20(_musd);
+        ymusd             = yMUSD(_ymusd);
+        feeRecipient      = msg.sender;
+        SKIP_ORACLE       = _oracle;
+        TROVE_MANAGER     = _troveManager;
+        BORROWER_OPS_SIGS = _borrowerOps;
     }
 
     // ─── Modifiers ───────────────────────────────────────────────────────────
@@ -375,7 +378,9 @@ contract OptionPool is Ownable, ReentrancyGuard {
         uint256 spot = _spot();
 
         // Validate premium against BS price (5% tolerance)
-        uint256 fair = bsPrice(o.optionType == OptionType.CALL, spot, o.strike, o.expiry - block.timestamp);
+        // bsPrice returns per-BTC premium; scale by quantity
+        uint256 fairUnit = bsPrice(o.optionType == OptionType.CALL, spot, o.strike, o.expiry - block.timestamp);
+        uint256 fair     = fairUnit * o.quantity / PRECISION;
         if (o.premium < fair * 95 / 100) return; // below fair value, skip
 
         uint256 collateral = _requiredCollateral(o.optionType, spot, o.strike, o.quantity);
