@@ -11,6 +11,7 @@ import Graph       from './components/graph';
 import OpenOrders  from './components/OpenOrders';
 import Wallet      from './components/Wallet';
 import YourOrders  from './components/YourOrders';
+import Pool        from './components/Pool';
 
 function OracleBanner() {
   const { oracleStale, priceSource } = useStore();
@@ -71,12 +72,12 @@ export default function Dashboard() {
   const { switchChain } = useSwitchChain();
   const { data: walletClient } = useWalletClient();
 
-  const { init, reset, fetchPrice, fetchBalances, fetchOrders, btcBalance, callOrders, putOrders, tick } = useStore();
+  const { init, reset, fetchPrice, fetchBalances, fetchOptions, fetchPoolStats, btcBalance, options, tick } = useStore();
 
   const [showOnboarding, setShowOnboarding] = useState(() => !localStorage.getItem('piton_onboarding_dismissed'));
   const [showMobile,     setShowMobile]     = useState(() => window.innerWidth < 1024);
 
-  const isNewUser = showOnboarding && btcBalance !== '—' && parseFloat(btcBalance) === 0 && callOrders.length === 0 && putOrders.length === 0;
+  const isNewUser = showOnboarding && btcBalance !== '—' && parseFloat(btcBalance) === 0 && options.length === 0;
 
   useEffect(() => {
     if (walletClient && chainId === mezoMatsnet.id) init(walletClient, chainId);
@@ -85,13 +86,14 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchPrice();
-    fetchOrders();
-    const id = setInterval(fetchPrice, 30_000);
+    fetchOptions();
+    fetchPoolStats();
+    const id = setInterval(() => { fetchPrice(); fetchPoolStats(); }, 30_000);
     return () => clearInterval(id);
   }, []); // eslint-disable-line
 
   useEffect(() => {
-    if (isConnected && chainId === mezoMatsnet.id) { fetchBalances(); fetchOrders(); }
+    if (isConnected && chainId === mezoMatsnet.id) { fetchBalances(); fetchOptions(); fetchPoolStats(); }
   }, [tick]); // eslint-disable-line
 
   const dismissOnboarding = () => { localStorage.setItem('piton_onboarding_dismissed', '1'); setShowOnboarding(false); };
@@ -120,6 +122,7 @@ export default function Dashboard() {
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-[220px_1fr_280px] gap-2 p-2 lg:overflow-hidden lg:min-h-0">
         <div className="flex flex-col gap-2 lg:overflow-hidden">
           <div data-tour="market-value"><MarketValue /></div>
+          <div data-tour="wallet"><Wallet /></div>
           <div data-tour="new-order" className="flex flex-col flex-1 overflow-hidden"><NewOrder /></div>
         </div>
         <div className="flex flex-col gap-2 lg:overflow-hidden">
@@ -127,7 +130,7 @@ export default function Dashboard() {
           <div data-tour="open-orders" className="flex flex-col flex-1 overflow-hidden"><OpenOrders /></div>
         </div>
         <div className="flex flex-col gap-2 lg:overflow-hidden">
-          <div data-tour="wallet"><Wallet /></div>
+          <div data-tour="pool" className="flex flex-col overflow-hidden"><Pool /></div>
           <div data-tour="your-orders" className="flex flex-col flex-1 overflow-hidden"><YourOrders /></div>
         </div>
       </div>
