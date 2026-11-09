@@ -47,7 +47,16 @@ This is not available on any other options protocol.
 
 ---
 
-## Deployed Contracts — Mezo Matsnet (testnet, chainId 31611)
+## Deployed Contracts — V2 (Mezo Matsnet, chainId 31611)
+
+| Contract | Address |
+|---|---|
+| OptionPool | `0x12f9aD9212A3eb5E0796e47124076F0e63A5a20a` |
+| yMUSD | `0xeA342D5568C1981dfF35353c28D3Ac7f6C842177` |
+| MUSD | `0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503` |
+| Skip Oracle (BTC/USD) | `0x7b7c000000000000000000000000000000000015` |
+
+
 
 | Contract | Address |
 |---|---|
