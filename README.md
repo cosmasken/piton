@@ -7,7 +7,7 @@
 Piton is a peer-to-peer options trading platform built on [Mezo](https://mezo.org) — the Bitcoin finance chain. It lets anyone create, fill, and settle American-style BTC call and put options without an intermediary.
 
 - Options are priced and settled in **MUSD** — Mezo's Bitcoin-backed stablecoin (1:1 USD)
-- **American-style** — exercise any time before the 48-hour expiry
+- **American-style** — exercise any time before expiry (15 minutes to 14 days, chosen at order creation)
 - The short (seller) is always fully collateralised — no undercollateralised risk
 - BTC/USD price from the **Skip oracle** (Chainlink-compatible, updated every block)
 
@@ -51,8 +51,8 @@ This is not available on any other options protocol.
 
 | Contract | Address |
 |---|---|
-| CallOption | `0xd24fbb05E888aD3F22bEC8323D6D164Ec49bDDb7` |
-| PutOption | `0x5c3b1e87668DEF8909500640099068CE20c78416` |
+| CallOption | `0xaDaf8284CD398c96f57606027f39A06Ad4b209CD` |
+| PutOption | `0x233fd0a11428B6749540AB78B6Ddd3C268Ac5033` |
 | MUSD | `0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503` |
 | Skip Oracle (BTC/USD) | `0x7b7c000000000000000000000000000000000015` |
 
