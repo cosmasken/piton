@@ -85,6 +85,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchPrice();
+    fetchOrders();
     const id = setInterval(fetchPrice, 30_000);
     return () => clearInterval(id);
   }, []); // eslint-disable-line

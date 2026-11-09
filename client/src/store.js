@@ -114,8 +114,13 @@ export const useStore = create((set, get) => ({
   },
 
   fetchOrders: async () => {
-    const { callContract, putContract } = get();
-    if (!callContract || !putContract) return;
+    let { callContract, putContract } = get();
+    if (!callContract || !putContract) {
+      const ro = new ethers.JsonRpcProvider('https://rpc.test.mezo.org');
+      const addrs = CONTRACT_ADDRESSES[31611];
+      callContract = new ethers.Contract(addrs.call, CallOptionABI.abi, ro);
+      putContract  = new ethers.Contract(addrs.put,  PutOptionABI.abi,  ro);
+    }
     set({ ordersLoading: true });
     const load = async (contract) => {
       const total = await contract.uniqueId();
@@ -124,7 +129,7 @@ export const useStore = create((set, get) => ({
         try {
           const r = await contract.idToOption(i);
           const o = { isAvailable: r[0], settled: r[1], partyL: r[2], partyS: r[3], openPosition: r[4], id: r[5], settlementType: r[6], initialSellerMargin: r[7], strikePrice: r[8], cost: r[9], quantity: r[10], expiry: r[11], troveSignature: r[12], troveDeadline: r[13] };
-          if (o.isAvailable && o.strikePrice != null && o.cost != null && o.quantity != null) orders.push(o);
+          if (o.isAvailable && o.strikePrice != null && o.cost != null && o.quantity != null && Number(o.expiry) > Date.now() / 1000) orders.push(o);
         } catch {}
       }
       return orders;
