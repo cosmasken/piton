@@ -146,3 +146,7 @@ time. Verify against Mezo's BorrowerOperations; the feature may not work as desi
   `setIV` and nothing else. `scripts/ivKeeper.js` reads Deribit BTC DVOL and pushes it hourly (cron),
   skipping changes < 2 vol points and stale data. IV floor lowered from 50% to 25%: live DVOL was
   ~39.7% when this was written, so a 50% floor would have kept the pool ~45% overpriced.
+- DONE: order book shows bids (long orders the pool did not fill) next to asks; "Sell →" calls
+  `fillShort` after approving the collateral (calls +2% buffer since the contract recomputes it from
+  spot). Modal shows premium received (net of 2% fee), collateral locked and max loss. Built, not
+  click-tested in a browser.

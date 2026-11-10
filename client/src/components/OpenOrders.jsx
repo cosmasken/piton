@@ -9,6 +9,9 @@ import Modal from './Modal';
 import { SkeletonRow } from './Skeleton';
 
 const EXPLORER = 'https://explorer.test.mezo.org/tx/';
+// Must match OptionPool.CALL_CAP_MULTIPLE and protocolFeeBps
+const CALL_CAP_MULTIPLE = 3;
+const PROTOCOL_FEE = 0.02;
 const fmt = v => v == null ? 0 : parseFloat(ethers.formatEther(v));
 
 function TxToast({ msg, hash }) {
@@ -49,30 +52,45 @@ function DepthView({ options }) {
   );
 }
 
+// Open short order (seller waiting) = an ask you can buy; open long order the pool didn't fill
+// (buyer waiting) = a bid you can sell into via fillShort.
+const isAsk = o => o.long === ethers.ZeroAddress && o.short !== ethers.ZeroAddress;
+const isBid = o => o.short === ethers.ZeroAddress && o.long !== ethers.ZeroAddress;
+
+/** MUSD a seller must lock to fill a bid, at the current spot (contract recomputes at fill time). */
+function sellCollateral(o, spot) {
+  const strike = fmt(o.strike), qty = fmt(o.quantity);
+  return o.optionType === TYPE.CALL ? Math.max(0, (CALL_CAP_MULTIPLE * spot - strike) * qty) : strike * qty;
+}
+
 function OrderRow({ o, account, onFill }) {
   const exp     = useCountdown(o.expiry);
   const isCall  = o.optionType === TYPE.CALL;
   const isOpen  = o.status === STATUS.OPEN;
-  // open short orders (no long yet) can be filled by a buyer
-  const canFill = isOpen && o.long === ethers.ZeroAddress && o.short !== account && exp !== 'Expired';
+  const bid     = isBid(o);
+  const mine    = bid ? o.long === account : o.short === account;
+  const canFill = isOpen && !mine && exp !== 'Expired';
 
   return (
     <tr className="border-b border-border hover:bg-surface/50 transition-colors">
       <td className="px-4 py-2.5 font-mono text-xs">{exp}</td>
       <td className="px-4 py-2.5"><span className={isCall ? 'tag-call' : 'tag-put'}>{isCall ? 'Call' : 'Put'}</span></td>
+      <td className="px-4 py-2.5 text-[10px] uppercase tracking-wider">
+        <span className={bid ? 'text-accent' : 'text-red'} title={bid ? 'Buyer waiting — you sell' : 'Seller waiting — you buy'}>{bid ? 'Bid' : 'Ask'}</span>
+      </td>
       <td className="px-4 py-2.5 font-mono text-xs">{fmt(o.strike).toLocaleString()}</td>
       <td className="px-4 py-2.5 font-mono text-xs">{fmt(o.premium).toFixed(2)}</td>
       <td className="px-4 py-2.5 font-mono text-xs">{fmt(o.quantity).toFixed(4)}</td>
       <td className="px-4 py-2.5">
         {canFill && (
-          <button onClick={() => onFill(o)} className="text-accent text-xs font-display font-semibold hover:opacity-70">Fill →</button>
+          <button onClick={() => onFill(o)} className="text-accent text-xs font-display font-semibold hover:opacity-70">{bid ? 'Sell →' : 'Buy →'}</button>
         )}
       </td>
     </tr>
   );
 }
 
-const COLS = ['Expiry', 'Type', 'Strike', 'Premium', 'Qty'];
+const COLS = ['Expiry', 'Type', 'Side', 'Strike', 'Premium', 'Qty'];
 
 export default function OpenOrders() {
   const { account, poolContract, musdContract, btcPrice, options, ordersLoading, refresh } = useStore();
@@ -88,22 +106,21 @@ export default function OpenOrders() {
 
   const isCallTab = tab === 'call';
 
-  // open unfilled short orders (peer-to-peer book)
+  // peer-to-peer book: open asks (short orders) and bids (long orders the pool didn't fill)
   const openOrders = useMemo(() => {
     let list = options.filter(o =>
       o.status === STATUS.OPEN &&
-      o.long === ethers.ZeroAddress &&
-      o.short !== ethers.ZeroAddress &&
+      (isAsk(o) || isBid(o)) &&
       (isCallTab ? o.optionType === TYPE.CALL : o.optionType === TYPE.PUT)
     );
     if (minStrike) list = list.filter(o => fmt(o.strike) >= parseFloat(minStrike));
     if (maxStrike) list = list.filter(o => fmt(o.strike) <= parseFloat(maxStrike));
-    const key = { Expiry: 'expiry', Type: 'optionType', Strike: 'strike', Premium: 'premium', Qty: 'quantity' }[sortCol];
+    const key = { Expiry: 'expiry', Type: 'optionType', Side: 'long', Strike: 'strike', Premium: 'premium', Qty: 'quantity' }[sortCol];
     list.sort((a, b) => sortAsc ? (a[key] > b[key] ? 1 : -1) : (a[key] < b[key] ? 1 : -1));
     return list;
   }, [options, isCallTab, sortCol, sortAsc, minStrike, maxStrike]);
 
-  const allOpen = useMemo(() => options.filter(o => o.status === STATUS.OPEN && o.long === ethers.ZeroAddress), [options]);
+  const allOpen = useMemo(() => options.filter(o => o.status === STATUS.OPEN && (isAsk(o) || isBid(o))), [options]);
 
   const toggleSort = col => { if (sortCol === col) setSortAsc(a => !a); else { setSortCol(col); setSortAsc(true); } };
 
@@ -112,8 +129,17 @@ export default function OpenOrders() {
     setBtnLoad(true);
     try {
       const poolAddr = await poolContract.getAddress();
-      await (await musdContract.approve(poolAddr, modal.premium)).wait();
-      const tx = await (await poolContract.fillLong(modal.id)).wait();
+      let tx;
+      if (isBid(modal)) {
+        // Selling into a bid: lock collateral. Calls get a 2% buffer because the contract recomputes
+        // collateral from spot at fill time; it only pulls the exact amount.
+        const need = sellCollateral(modal, btcPrice) * (modal.optionType === TYPE.CALL ? 1.02 : 1);
+        await (await musdContract.approve(poolAddr, ethers.parseEther(need.toFixed(6)))).wait();
+        tx = await (await poolContract.fillShort(modal.id)).wait();
+      } else {
+        await (await musdContract.approve(poolAddr, modal.premium)).wait();
+        tx = await (await poolContract.fillLong(modal.id)).wait();
+      }
       refresh();
       toast.success(<TxToast msg="Order filled." hash={tx?.hash} />);
       setModal(null);
@@ -178,15 +204,24 @@ export default function OpenOrders() {
       )}
 
       {modal && (
-        <Modal title={`Fill ${modal.optionType === TYPE.CALL ? 'Call' : 'Put'} — Long`} onClose={() => setModal(null)}>
+        <Modal title={`${isBid(modal) ? 'Sell' : 'Buy'} ${modal.optionType === TYPE.CALL ? 'Call' : 'Put'} — ${isBid(modal) ? 'Short' : 'Long'}`} onClose={() => setModal(null)}>
           <div className="space-y-1 bg-surface rounded-md px-3 py-3">
             <Row label="Strike"   value={`$${fmt(modal.strike).toLocaleString()}`} />
             <Row label="Quantity" value={`${fmt(modal.quantity).toFixed(4)} BTC`} />
-            <Row label="Premium"  value={`${fmt(modal.premium).toFixed(2)} MUSD`} />
+            {isBid(modal) ? <>
+              <Row label="You receive" value={`${(fmt(modal.premium) * (1 - PROTOCOL_FEE)).toFixed(2)} MUSD (premium − 2% fee)`} accent />
+              <Row label="You lock"    value={`${sellCollateral(modal, btcPrice).toFixed(2)} MUSD collateral`} />
+              <Row label="Max loss"    value={`${sellCollateral(modal, btcPrice).toFixed(2)} MUSD`} />
+            </> : <Row label="Premium" value={`${fmt(modal.premium).toFixed(2)} MUSD`} />}
             <Row label="Settlement" value="Cash (MUSD)" />
             {btcPrice && <Row label="Spot" value={`$${btcPrice.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} />}
           </div>
-          <p className="text-xs text-dim">You pay the premium and receive cash profit if ITM at settlement.</p>
+          <p className="text-xs text-dim">{isBid(modal)
+            ? 'You take the short side: keep the premium, and the buyer is paid from your collateral if the option ends in the money. Unused collateral returns at settlement or expiry.'
+            : 'You pay the premium and receive cash profit if ITM at settlement.'}</p>
+          {isBid(modal) && modal.optionType === TYPE.CALL && (
+            <p className="text-[10px] text-dim">Call collateral is (3 × spot − strike) × qty, recomputed when your transaction lands; we approve a 2% buffer.</p>
+          )}
           <div className="flex gap-3">
             <button onClick={() => setModal(null)} className="btn-ghost flex-1">Cancel</button>
             <button onClick={fillOrder} disabled={btnLoad}
