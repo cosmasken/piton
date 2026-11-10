@@ -25,6 +25,7 @@ contract Handler is Test {
     bool public ghost_payoutAboveCollateral;
     bool public ghost_withdrawAboveShare;
     bool public ghost_feeRecipientDecreased;
+    bool public ghost_flashExerciseProfit;
     uint256 public ghost_lastFeeBalance;
     mapping(bytes32 => uint256) public calls;
 
@@ -204,6 +205,35 @@ contract Handler is Test {
         try pool.cancelOrder(id) { calls["cancel"]++; } catch { revert("action reverted"); }
     }
 
+    /// Buy an in-the-money option from the pool at its quote and exercise it immediately. This must
+    /// never profit the buyer or cost LPs, whatever the price, strike, size or pool state.
+    function buyAndExerciseNow(uint256 actorSeed, bool isCall, uint256 strikeSeed, uint256 qtySeed) external {
+        address a = _actor(actorSeed);
+        uint256 spot = _spot();
+        uint256 strike = isCall ? spot * bound(strikeSeed, 50, 99) / 100 : spot * bound(strikeSeed, 101, 200) / 100;
+        uint256 qty = bound(qtySeed, 1e15, 0.05e18);
+        uint256 exp = block.timestamp + 16 minutes + 1;
+        uint256 quote;
+        try pool.quotePremium(isCall, strike, qty, exp) returns (uint256 v) { quote = v; } catch { return; }
+        if (quote == 0) return;
+        uint256 assetsBefore = pool.totalAssets();
+        uint256 perfFeeBefore = pool.totalPerformanceFeePaid();
+        uint256 balBefore = musd.balanceOf(a);
+        vm.prank(a);
+        try pool.createLongOrder(isCall ? OptionPool.OptionType.CALL : OptionPool.OptionType.PUT, strike, qty, exp, quote) {} catch { return; }
+        uint256 id = pool.nextId() - 1;
+        if (!pool.getOption(id).filledByPool) { // not filled: rests as a bid, nothing to check
+            vm.prank(a); pool.cancelOrder(id); return;
+        }
+        vm.prank(a);
+        try pool.settle(id) { calls["buyExercise"]++; } catch { return; }
+        if (musd.balanceOf(a) > balBefore) ghost_flashExerciseProfit = true;       // buyer profited
+        // LPs lost value to the buyer. The performance fee triggered by this settle (15% of yield
+        // from OTHER, earlier options) leaves the pool too, so add it back.
+        if (pool.totalAssets() + (pool.totalPerformanceFeePaid() - perfFeeBefore) < assetsBefore) ghost_flashExerciseProfit = true;
+        _trackFees();
+    }
+
     // ── market / admin ───────────────────────────────────────────────────────
     function movePrice(uint256 pct) external {
         price = bound(price * bound(pct, 70, 130) / 100, 20_000, 400_000);
@@ -284,10 +314,23 @@ contract OptionPoolInvariants is StdInvariant, Test {
         assertFalse(h.ghost_feeRecipientDecreased(), "fee recipient balance decreased");
     }
 
+    /// Buying at the quote and exercising at once never profits the buyer or costs LPs.
+    function invariant_flashExerciseNeverProfits() public view {
+        assertFalse(h.ghost_flashExerciseProfit(), "buy-and-exercise took value from LPs");
+    }
+
+    /// Net asset value (what LP shares are redeemed at) never exceeds raw assets, and is never
+    /// below assets minus the collateral locked behind open pool options.
+    function invariant_navBounds() public view {
+        uint256 nav = pool.netAssetValue();
+        assertLe(nav, pool.totalAssets(), "NAV > assets");
+        assertGe(nav, pool.totalAssets() - pool.lockedCollateral(), "NAV below assets - locked");
+    }
+
     /// Sanity: the fuzzer actually exercised the important paths (printed with -vv).
     function afterInvariant() public {
-        string[13] memory k = ["deposit", "withdraw", "createLong", "createShort", "createShortTrove", "fillLong",
-            "fillShort", "settle", "refund", "cancel", "movePrice", "warp", "setIV"];
+        string[14] memory k = ["deposit", "withdraw", "createLong", "createShort", "createShortTrove", "fillLong",
+            "fillShort", "settle", "refund", "cancel", "movePrice", "warp", "setIV", "buyExercise"];
         for (uint256 i = 0; i < k.length; i++) {
             emit log_named_uint(k[i], h.calls(bytes32(bytes(k[i]))));
         }
@@ -304,7 +347,7 @@ contract HandlerCoverage is Test {
             r = uint256(keccak256(abi.encode(r)));
             uint256 a = r >> 8; uint256 b = r >> 40; uint256 c = r >> 72; uint256 d = r >> 104; uint256 e = r >> 136;
             bytes memory call;
-            uint256 pick = r % 13;
+            uint256 pick = r % 14;
             if (pick == 0) call = abi.encodeCall(h.deposit, (a, b));
             else if (pick == 1) call = abi.encodeCall(h.withdraw, (a, b));
             else if (pick == 2) call = abi.encodeCall(h.createLong, (a, b % 2 == 0, c, d, e, b));
@@ -317,12 +360,13 @@ contract HandlerCoverage is Test {
             else if (pick == 9) call = abi.encodeCall(h.cancel, (b));
             else if (pick == 10) call = abi.encodeCall(h.movePrice, (b));
             else if (pick == 11) call = abi.encodeCall(h.warp, (b % 6 hours));
-            else call = abi.encodeCall(h.setIV, (b));
+            else if (pick == 12) call = abi.encodeCall(h.setIV, (b));
+            else call = abi.encodeCall(h.buyAndExerciseNow, (a, b % 2 == 0, c, d));
             (bool ok,) = address(h).call(call);
             ok; // reverts are expected for some random inputs
         }
-        string[9] memory k = ["deposit", "withdraw", "createLong", "createShort", "createShortTrove",
-            "fillLong", "fillShort", "settle", "refund"];
+        string[10] memory k = ["deposit", "withdraw", "createLong", "createShort", "createShortTrove",
+            "fillLong", "fillShort", "settle", "refund", "buyExercise"];
         for (uint256 i = 0; i < k.length; i++) {
             uint256 n = h.calls(bytes32(bytes(k[i])));
             emit log_named_uint(k[i], n);

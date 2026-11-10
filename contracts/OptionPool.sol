@@ -98,6 +98,16 @@ contract OptionPool is Ownable, ReentrancyGuard {
     uint256 public totalPremiumsEarned;
     uint256 public totalSettlementsPaid;
     uint256 public totalPerformanceFeePaid;
+    /// @notice Net yield already charged a performance fee (high-water mark). Fees apply only to
+    ///         yield above this, so rate changes are never retroactive and losses must be recovered
+    ///         before any further fee.
+    uint256 public perfFeeHighWater;
+
+    /// @notice Open pool-sold options, so LP shares can be priced net of what they would pay out now.
+    ///         Bounded so the pricing loop always fits in a block.
+    uint256 public constant MAX_OPEN_POOL_OPTIONS = 50;
+    uint256[] internal openPoolOptions;
+    mapping(uint256 => uint256) internal openPoolSlot; // option id => index + 1
 
     // Pricing
     uint256 public iv = 8e17;         // 80% default, 18 dec — mid implied vol (set by owner or ivKeeper)
@@ -298,15 +308,18 @@ contract OptionPool is Ownable, ReentrancyGuard {
 
         uint256 shares;
         uint256 supply = ymusd.totalSupply();
+        // Shares are priced on net asset value: assets minus what open pool options would pay if
+        // exercised now. Otherwise a depositor could buy in above fair value while the pool is losing.
+        uint256 nav = _netAssets();
         // After a total loss, outstanding yMUSD is worth nothing. Minting 1:1 here would hand those
         // holders a share of the new depositor's money, so block deposits until the old shares are
         // cleared (holders can withdraw 0, or the owner calls clearWorthlessShares).
-        require(!(supply > 0 && totalAssets == 0), "pool insolvent: clear old shares first");
+        require(!(supply > 0 && nav == 0), "pool insolvent: clear old shares first");
         if (supply == 0) {
             shares = amount;
             require(amount >= 1e15, "min deposit 0.001 MUSD"); // inflation attack guard
         } else {
-            shares = amount * supply / totalAssets;
+            shares = amount * supply / nav;
         }
 
         totalAssets += amount; // effects before interactions
@@ -321,7 +334,8 @@ contract OptionPool is Ownable, ReentrancyGuard {
         uint256 supply = ymusd.totalSupply();
         require(supply > 0, "no supply");
 
-        uint256 musdOut = shares * totalAssets / supply;
+        // Priced on net asset value so a leaving LP takes their share of open losses with them.
+        uint256 musdOut = shares * _netAssets() / supply;
         uint256 available = totalAssets - lockedCollateral;
         require(musdOut <= available, "insufficient liquidity");
 
@@ -346,6 +360,54 @@ contract OptionPool is Ownable, ReentrancyGuard {
         }
         require(ymusd.totalSupply() == 0, "holders list incomplete");
         emit SharesCleared(holders.length, burned);
+    }
+
+    // ─── Net asset value ──────────────────────────────────────────────────────
+
+    /// @dev What open pool options would pay if exercised now (each capped at its collateral).
+    ///      If the oracle is unavailable, assume the worst case (full collateral owed), so exits
+    ///      keep working and are never priced too high.
+    function _poolLiability() internal view returns (uint256 liability) {
+        uint256 n = openPoolOptions.length;
+        if (n == 0) return 0;
+        (bool ok, uint256 spot) = _trySpot();
+        for (uint256 i = 0; i < n; i++) {
+            Option storage o = options[openPoolOptions[i]];
+            if (o.expiry <= block.timestamp) continue; // can no longer be exercised
+            if (!ok) { liability += o.collateral; continue; }
+            uint256 p = _intrinsic(o.optionType, o.strike, o.quantity, spot);
+            liability += p > o.collateral ? o.collateral : p;
+        }
+    }
+
+    function _netAssets() internal view returns (uint256) {
+        uint256 l = _poolLiability();
+        return totalAssets > l ? totalAssets - l : 0;
+    }
+
+    function _trySpot() internal view returns (bool, uint256) {
+        try this.spotPrice() returns (uint256 s) { return (true, s); } catch { return (false, 0); }
+    }
+
+    /// @notice Pool assets minus the immediate-exercise value of open pool options. LP shares are
+    ///         minted and redeemed at this value.
+    function netAssetValue() external view returns (uint256) { return _netAssets(); }
+
+    function openPoolOptionCount() external view returns (uint256) { return openPoolOptions.length; }
+
+    function _addOpenPoolOption(uint256 id) internal {
+        openPoolOptions.push(id);
+        openPoolSlot[id] = openPoolOptions.length;
+    }
+
+    function _removeOpenPoolOption(uint256 id) internal {
+        uint256 slot = openPoolSlot[id];
+        if (slot == 0) return;
+        uint256 last = openPoolOptions[openPoolOptions.length - 1];
+        openPoolOptions[slot - 1] = last;
+        openPoolSlot[last] = slot;
+        openPoolOptions.pop();
+        delete openPoolSlot[id];
     }
 
     // ─── Collateral helpers ───────────────────────────────────────────────────
@@ -376,6 +438,25 @@ contract OptionPool is Ownable, ReentrancyGuard {
             : _putCollateral(strike, quantity);
     }
 
+    /// @dev Value of exercising right now: (spot - strike) for calls, (strike - spot) for puts.
+    function _intrinsic(OptionType t, uint256 strike, uint256 quantity, uint256 spot)
+        internal pure returns (uint256)
+    {
+        if (t == OptionType.CALL) return spot > strike ? (spot - strike) * quantity / PRECISION : 0;
+        return strike > spot ? (strike - spot) * quantity / PRECISION : 0;
+    }
+
+    /// @dev Smallest gross premium whose net (after the protocol fee) covers immediate exercise, so
+    ///      buying from the pool and exercising at once can never take value from LPs.
+    function _intrinsicFloor(OptionType t, uint256 strike, uint256 quantity, uint256 spot)
+        internal view returns (uint256)
+    {
+        uint256 intr = _intrinsic(t, strike, quantity, spot);
+        if (intr == 0) return 0;
+        uint256 keep = 10000 - protocolFeeBps;
+        return (intr * 10000 + keep - 1) / keep; // round up
+    }
+
     // ─── Fee helpers ──────────────────────────────────────────────────────────
 
     function _takePremiumFee(uint256 premium) internal returns (uint256 net) {
@@ -386,14 +467,17 @@ contract OptionPool is Ownable, ReentrancyGuard {
 
     function _takePerformanceFee() internal {
         if (totalPremiumsEarned <= totalSettlementsPaid) return;
-        uint256 netYield     = totalPremiumsEarned - totalSettlementsPaid;
-        uint256 cumulativeFee = netYield * performanceFeeBps / 10000;
-        if (cumulativeFee <= totalPerformanceFeePaid) return;
-        uint256 fee = cumulativeFee - totalPerformanceFeePaid;
-        // never dip into collateral locked for open options; any remainder is
-        // collected later because the fee is tracked cumulatively
+        uint256 netYield = totalPremiumsEarned - totalSettlementsPaid;
+        if (netYield <= perfFeeHighWater) return; // below the high-water mark: losses not yet recovered
+        uint256 newYield = netYield - perfFeeHighWater;
+        if (performanceFeeBps == 0) { perfFeeHighWater = netYield; return; } // fee-free yield stays fee-free
+        uint256 fee = newYield * performanceFeeBps / 10000;
+        // never dip into collateral locked for open options; the uncharged part stays above the
+        // high-water mark and is collected later at the rate in force when it was earned
         uint256 free = totalAssets > lockedCollateral ? totalAssets - lockedCollateral : 0;
-        if (fee > free) fee = free;
+        uint256 charged = newYield;
+        if (fee > free) { fee = free; charged = fee * 10000 / performanceFeeBps; }
+        perfFeeHighWater += charged;
         if (fee > 0) {
             totalAssets -= fee;
             totalPerformanceFeePaid += fee;
@@ -445,6 +529,10 @@ contract OptionPool is Ownable, ReentrancyGuard {
         uint256 fairUnit = _bs(o.optionType == OptionType.CALL, spot, o.strike, o.expiry - block.timestamp, askIv());
         uint256 fair     = fairUnit * o.quantity / PRECISION;
         if (o.premium < fair * 95 / 100) return; // below fair value, skip
+        // Never sell below immediate-exercise value (after the protocol fee): otherwise buying and
+        // exercising at once would take value from LPs.
+        if (o.premium < _intrinsicFloor(o.optionType, o.strike, o.quantity, spot)) return;
+        if (openPoolOptions.length >= MAX_OPEN_POOL_OPTIONS) return;
 
         uint256 collateral = _requiredCollateral(o.optionType, spot, o.strike, o.quantity);
         if (collateral == 0 || collateral > maxOptionCollateral) return;
@@ -463,6 +551,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
         o.filledByPool = true;
         o.collateral   = collateral;
         o.status       = OrderStatus.FILLED;
+        _addOpenPoolOption(id);
 
         emit OrderFilled(id, address(this), true);
     }
@@ -635,6 +724,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
 
         if (o.filledByPool) {
             uint256 payout = paid;
+            _removeOpenPoolOption(id);
             lockedCollateral -= o.collateral;
             totalAssets      -= payout;
             totalSettlementsPaid += payout;
@@ -652,11 +742,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
     }
 
     function _profit(Option storage o, uint256 spot) internal view returns (uint256) {
-        if (o.optionType == OptionType.CALL) {
-            return spot > o.strike ? (spot - o.strike) * o.quantity / PRECISION : 0;
-        } else {
-            return o.strike > spot ? (o.strike - spot) * o.quantity / PRECISION : 0;
-        }
+        return _intrinsic(o.optionType, o.strike, o.quantity, spot);
     }
 
     // ─── Refund (expiry) ──────────────────────────────────────────────────────
@@ -669,6 +755,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
         o.status = OrderStatus.REFUNDED;
 
         if (o.filledByPool) {
+            _removeOpenPoolOption(id);
             lockedCollateral -= o.collateral;
             // collateral stays in pool as yield
             _takePerformanceFee();
@@ -728,7 +815,9 @@ contract OptionPool is Ownable, ReentrancyGuard {
         require(expiry > block.timestamp, "expired");
         uint256 spot = _spot();
         uint256 unitPremium = _bs(isCall, spot, strike, expiry - block.timestamp, askIv());
-        return unitPremium * quantity / PRECISION;
+        uint256 quote = unitPremium * quantity / PRECISION;
+        uint256 floor_ = _intrinsicFloor(isCall ? OptionType.CALL : OptionType.PUT, strike, quantity, spot);
+        return quote > floor_ ? quote : floor_; // the pool never sells below immediate-exercise value
     }
 
     // ─── Owner ────────────────────────────────────────────────────────────────
@@ -765,8 +854,9 @@ contract OptionPool is Ownable, ReentrancyGuard {
         emit ProtocolFeeSet(_bps);
     }
 
-    function setPerformanceFeeBps(uint256 _bps) external onlyOwner {
+    function setPerformanceFeeBps(uint256 _bps) external nonReentrant onlyOwner {
         require(_bps <= 3000, "max 30%");
+        _takePerformanceFee(); // yield earned so far is charged at the old rate, never the new one
         performanceFeeBps = _bps;
         emit PerformanceFeeSet(_bps);
     }
