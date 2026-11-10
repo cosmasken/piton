@@ -49,6 +49,7 @@ describe('Premium lock: unearned premium is not LP profit', () => {
 
   it('the honest LP receives the premium once the option expires worthless', async () => {
     const { pool, ymusd, honest, attacker } = await deploy();
+    await pool.setRiskLimits(10000, 10000); // this test is not about the exposure limits
     await pool.connect(honest).deposit(E18('1000'));
     const exp = (await now()) + 86400;
     const premium = await pool.quotePremium(false, K, Q, exp);
@@ -84,6 +85,7 @@ describe('Premium lock: unearned premium is not LP profit', () => {
 
   it('liability is the larger of exercise value and decayed premium', async () => {
     const { pool, oracle, honest, attacker } = await deploy();
+    await pool.setRiskLimits(10000, 10000); // this test is not about the exposure limits
     await pool.connect(honest).deposit(E18('1000'));
     const exp = (await now()) + 86400;
     const premium = await pool.quotePremium(false, K, Q, exp);

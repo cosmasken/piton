@@ -432,6 +432,7 @@ describe('Zero-collateral calls', () => {
 describe('Invariant: contract MUSD balance covers pool accounting', () => {
   it('holds after deposit, pool fill, settle, refund and fees', async () => {
     const { pool, musd, oracle, lp, buyer } = await deploy();
+    await pool.setRiskLimits(10000, 10000); // this test is not about the exposure limits
     const addr = await pool.getAddress();
     await pool.connect(lp).deposit(E18('10000'));
 

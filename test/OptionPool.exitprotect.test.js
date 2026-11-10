@@ -58,6 +58,7 @@ describe('Exit protections (deposit lock, withdrawal fee)', () => {
 
   it('charges the fee only while pool options are open, and the fee stays in the pool', async () => {
     const { pool, ymusd, musd, lp, buyer, friend } = await deploy();
+    await pool.setRiskLimits(10000, 10000); // this test is not about the exposure limits
     await pool.setDepositLock(0);
     await pool.connect(lp).deposit(E18('1000'));
     await pool.connect(friend).deposit(E18('1000'));

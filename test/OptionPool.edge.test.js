@@ -73,6 +73,7 @@ describe('Audit guards', () => {
 describe('Payout accounting', () => {
   it('caps pool payout at the locked collateral (profit overflow)', async () => {
     const { pool, musd, oracle, lp, buyer } = await deploy();
+    await pool.setRiskLimits(10000, 10000); // this test is not about the exposure limits
     await pool.connect(lp).deposit(E18('10000'));
 
     const strike = E18('50000');
@@ -164,6 +165,7 @@ describe('Performance fee', () => {
 
   it('does not charge a fee when net yield is negative', async () => {
     const { pool, oracle, lp, buyer, owner } = await deploy();
+    await pool.setRiskLimits(10000, 10000); // this test is not about the exposure limits
     await pool.connect(lp).deposit(E18('10000'));
 
     const strike = E18('100000');

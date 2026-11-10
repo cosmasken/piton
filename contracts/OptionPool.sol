@@ -142,6 +142,14 @@ contract OptionPool is Ownable, ReentrancyGuard {
     uint256 public constant MAX_DEPOSIT_LOCK = 7 days;
     mapping(address => uint256) public depositLockExpiry;
 
+    // Pool-fill risk limits (suggestion #3)
+    /// @notice Pool fills stop once locked collateral would exceed this share of pool assets, so some
+    ///         liquidity always stays withdrawable.
+    uint256 public maxUtilisationBps = 8000;
+    /// @notice One option's collateral may use at most this share of pool assets: no single bet can
+    ///         lock most of the pool.
+    uint256 public maxOptionExposureBps = 2500;
+
     // ─── Events ──────────────────────────────────────────────────────────────
 
     event Deposited(address indexed user, uint256 musdIn, uint256 sharesOut);
@@ -163,6 +171,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
     event PausedSet(bool paused);
     event WithdrawalFeeSet(uint256 bps);
     event DepositLockSet(uint256 seconds_);
+    event RiskLimitsSet(uint256 maxUtilisationBps, uint256 maxOptionExposureBps);
 
 
     // ─── Constructor ─────────────────────────────────────────────────────────
@@ -583,6 +592,8 @@ contract OptionPool is Ownable, ReentrancyGuard {
         // Check pool has enough free capital
         if (totalAssets < lockedCollateral + collateral) return;
         if (totalAssets >= tvlCap) return;
+        if ((lockedCollateral + collateral) * 10000 > totalAssets * maxUtilisationBps) return;
+        if (collateral * 10000 > totalAssets * maxOptionExposureBps) return;
 
         if (o.premium > type(uint128).max) return;
 
@@ -910,6 +921,13 @@ contract OptionPool is Ownable, ReentrancyGuard {
         require(_bps <= MAX_WITHDRAWAL_FEE_BPS, "max 1%");
         withdrawalFeeBps = _bps;
         emit WithdrawalFeeSet(_bps);
+    }
+
+    function setRiskLimits(uint256 _maxUtilBps, uint256 _maxExposureBps) external onlyOwner {
+        require(_maxUtilBps > 0 && _maxUtilBps <= 10000 && _maxExposureBps > 0 && _maxExposureBps <= _maxUtilBps, "bad limits");
+        maxUtilisationBps = _maxUtilBps;
+        maxOptionExposureBps = _maxExposureBps;
+        emit RiskLimitsSet(_maxUtilBps, _maxExposureBps);
     }
 
     function setDepositLock(uint256 _seconds) external onlyOwner {
