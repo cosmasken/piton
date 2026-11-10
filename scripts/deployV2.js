@@ -4,7 +4,8 @@
 //
 // Env: KEEPER=0x...  optional IV keeper address (can only call setIV)
 // Writes deployments/<network>.json, which seedV2.js / health.js / ivKeeper.js read.
-// After deploying, update client/src/store.js ADDRESSES and the README table.
+// After deploying, put the pool/ymusd addresses in client/src/network.mjs (replacing the zero
+// placeholders on a new network) and the README table.
 
 const { ethers, network } = require('hardhat');
 const deployments = require('./lib/deployments');
@@ -42,6 +43,7 @@ async function main() {
     ymusd: await ymusd.getAddress(),
   });
   console.log('saved', file);
+  console.log(`next: set ${network.name} pool/ymusd in client/src/network.mjs, then rebuild the client`);
 
   if (keeper) {
     await (await pool.setIvKeeper(keeper)).wait();

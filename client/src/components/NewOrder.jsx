@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { ethers } from 'ethers';
 import { toast } from 'react-toastify';
 import { useStore, ADDRESSES } from '../store';
+import { explorerTx } from '../network.mjs';
 import { parseTxError } from '../txUtils';
 import Modal from './Modal';
 import ProtectTrove from './ProtectTrove';
@@ -9,8 +10,6 @@ import ProtectTrove from './ProtectTrove';
 // Must match OptionPool.CALL_CAP_MULTIPLE: call collateral = (CAP * spot - strike) * qty
 const CALL_CAP_MULTIPLE = 3;
 
-const EXPLORER = 'https://explorer.test.mezo.org/tx/';
-const BORROWER_OPS_SIGS = '0xD757e3646AF370b15f32EB557F0F8380Df7D639e';
 const BORROWER_OPS_SIGS_ABI = [{ type: 'function', name: 'getNonce', stateMutability: 'view', inputs: [{ name: 'user', type: 'address' }], outputs: [{ type: 'uint256' }] }];
 
 // Mezo WithdrawMUSD typed data. The signature commits to the exact amount and recipient, and is
@@ -29,7 +28,7 @@ function TxToast({ msg, hash }) {
   return (
     <div>
       <div>{msg}</div>
-      {hash && <a href={`${EXPLORER}${hash}`} target="_blank" rel="noreferrer" className="text-accent text-xs underline">View on explorer ↗</a>}
+      {hash && <a href={explorerTx(useStore.getState().network, hash)} target="_blank" rel="noreferrer" className="text-accent text-xs underline">View on explorer ↗</a>}
     </div>
   );
 }
@@ -120,6 +119,7 @@ export default function NewOrder() {
         // returned at expiry).
         const required = isCall ? (p * CALL_CAP_MULTIPLE - sp) * q * 1.05 : sp * q;
         const marginWei = ethers.parseEther(required.toFixed(6));
+        const BORROWER_OPS_SIGS = ADDRESSES[chainId].borrowerOpsSigs; // Mezo signature contract on this network
         const bos      = new ethers.Contract(BORROWER_OPS_SIGS, BORROWER_OPS_SIGS_ABI, signer);
         const nonce    = await bos.getNonce(account);
         const deadline = Math.floor(Date.now() / 1000) + 600;

@@ -3,19 +3,19 @@ import { ethers } from 'ethers';
 import { toast } from 'react-toastify';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { useStore, STATUS, TYPE } from '../store';
+import { explorerTx } from '../network.mjs';
 import { useCountdown } from '../useCountdown';
 import { parseTxError } from '../txUtils';
 import Modal from './Modal';
 import { SkeletonRow } from './Skeleton';
 
-const EXPLORER = 'https://explorer.test.mezo.org/tx/';
 // Must match OptionPool.CALL_CAP_MULTIPLE and protocolFeeBps
 const CALL_CAP_MULTIPLE = 3;
 const PROTOCOL_FEE = 0.02;
 const fmt = v => v == null ? 0 : parseFloat(ethers.formatEther(v));
 
 function TxToast({ msg, hash }) {
-  return <div>{msg}{hash && <><br/><a href={`${EXPLORER}${hash}`} target="_blank" rel="noreferrer" className="text-accent text-xs underline">View on explorer ↗</a></>}</div>;
+  return <div>{msg}{hash && <><br/><a href={explorerTx(useStore.getState().network, hash)} target="_blank" rel="noreferrer" className="text-accent text-xs underline">View on explorer ↗</a></>}</div>;
 }
 
 function Row({ label, value, accent }) {

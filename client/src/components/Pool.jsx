@@ -2,12 +2,12 @@ import React, { useState } from 'react';
 import { ethers } from 'ethers';
 import { toast } from 'react-toastify';
 import { useStore, ADDRESSES } from '../store';
+import { explorerTx } from '../network.mjs';
 import { parseTxError } from '../txUtils';
 
-const EXPLORER = 'https://explorer.test.mezo.org/tx/';
 
 function TxToast({ msg, hash }) {
-  return <div>{msg}{hash && <><br/><a href={`${EXPLORER}${hash}`} target="_blank" rel="noreferrer" className="text-accent text-xs underline">View on explorer ↗</a></>}</div>;
+  return <div>{msg}{hash && <><br/><a href={explorerTx(useStore.getState().network, hash)} target="_blank" rel="noreferrer" className="text-accent text-xs underline">View on explorer ↗</a></>}</div>;
 }
 
 function Stat({ label, value }) {

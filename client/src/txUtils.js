@@ -1,4 +1,5 @@
-const EXPLORER = 'https://explorer.test.mezo.org/tx/';
+import { explorerTx } from './network.mjs';
+import { useStore } from './store';
 
 // Map known revert reasons to plain English
 const REVERT_MAP = {
@@ -6,7 +7,7 @@ const REVERT_MAP = {
   'Only long party can settle':              'Only the buyer (long party) can settle this option.',
   'Insufficient MUSD approved for strike':   'Approve more MUSD before settling — the strike payment was not approved.',
   'Incorrect BTC amount sent':               'Wrong BTC amount sent. Check the quantity.',
-  'Stale price':                             'The on-chain oracle price is stale (>2h old). Try again shortly.',
+  'stale price':                             'The on-chain oracle price is stale (more than 5 minutes old). Try again shortly.',
   'Invalid price':                           'Oracle returned an invalid price. Try again shortly.',
   'Trove equity insufficient':               'Your Mezo Trove does not have enough equity to cover this margin.',
   'Cannot fill your own order':              'You cannot fill your own order.',
@@ -29,5 +30,5 @@ export function parseTxError(err) {
 }
 
 export function txSuccessMsg(hash) {
-  return { hash, explorerUrl: `${EXPLORER}${hash}` };
+  return { hash, explorerUrl: explorerTx(useStore.getState().network, hash) };
 }

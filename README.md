@@ -174,7 +174,7 @@ npx hardhat run scripts/ivKeeper.js --network matsnet  # push Deribit DVOL as th
 ```
 
 - `deployV2.js` checks its inputs before sending anything and writes addresses to `deployments/<network>.json`; the other scripts read that file.
-- After a deploy, update `ADDRESSES` in `client/src/store.js` and the table above.
+- After a deploy, put the new `pool` and `ymusd` addresses in `client/src/network.mjs` (and the table above). On mainnet these are zero-address placeholders today; replacing them switches the dapp from "not live" to live automatically.
 - Run `ivKeeper.js` hourly (e.g. cron). It skips changes under 2 vol points and stale data, and supports `DRY_RUN=1`. The keeper key can only change IV; give it to a dedicated wallet, not the owner.
 - `npm run deploy:mainnet` targets Mezo mainnet. Don't run it until the contracts are audited.
 

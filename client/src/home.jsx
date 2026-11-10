@@ -1,7 +1,18 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useStore } from './store';
+import { getNetwork, isLive, ZERO_ADDRESS, explorerAddress } from './network.mjs';
+import NetworkToggle from './components/NetworkToggle';
+
+const shortAddr = a => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 function Addr({ label, short, href }) {
+  if (!href) return (
+    <div className="flex justify-between items-center py-3 border-b border-border last:border-b-0 font-mono text-sm">
+      <span className="text-dim font-body text-xs uppercase tracking-wider">{label}</span>
+      <span className="text-yellow-500/90 font-body text-xs">{short}</span>
+    </div>
+  );
   return (
     <a className="flex justify-between items-center py-3 border-b border-border last:border-b-0 hover:text-accent transition-colors font-mono text-sm" href={href} target="_blank" rel="noreferrer">
       <span className="text-dim font-body text-xs uppercase tracking-wider">{label}</span>
@@ -37,15 +48,18 @@ const STEPS = [
   },
 ];
 
-const CONTRACTS = [
-  ['OptionPool', '0x81Bf…9C9b', '0x81BfAF401a4C500e2e2900DDd1af2Ba9c0179C9b'],
-  ['yMUSD (LP token)', '0x3153…f3b6', '0x3153f91886ab0CE5131a2D347F03a433F7FBf3b6'],
-  ['MUSD', '0x1189…c503', '0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503'],
-  ['Skip Oracle (BTC/USD)', '0x7b7c…0015', '0x7b7c000000000000000000000000000000000015'],
+const CONTRACT_ROWS = [
+  ['OptionPool', 'pool'],
+  ['yMUSD (LP token)', 'ymusd'],
+  ['MUSD', 'musd'],
+  ['Skip Oracle (BTC/USD)', 'oracle'],
 ];
 
 export default function Home() {
   const navigate = useNavigate();
+  const network = useStore(s => s.network);
+  const net = getNetwork(network);
+  const live = isLive(net);
   return (
     <div className="min-h-screen bg-bg text-text font-body">
 
@@ -56,9 +70,12 @@ export default function Home() {
           <a href="#how" className="hover:text-text transition-colors">How it works</a>
           <a href="#pool" className="hover:text-text transition-colors">Liquidity</a>
           <a href="#contracts" className="hover:text-text transition-colors">Contracts</a>
-          <a href="https://faucet.test.mezo.org" target="_blank" rel="noreferrer" className="hover:text-text transition-colors">Faucet</a>
+          {net.faucetUrl && <a href={net.faucetUrl} target="_blank" rel="noreferrer" className="hover:text-text transition-colors">Faucet</a>}
         </div>
-        <button className="btn-primary text-sm" onClick={() => navigate('/dashboard')}>Launch App →</button>
+        <div className="flex items-center gap-3">
+          <NetworkToggle />
+          <button className="btn-primary text-sm" onClick={() => navigate('/dashboard')}>Launch App →</button>
+        </div>
       </nav>
 
       {/* hero */}
@@ -168,11 +185,16 @@ export default function Home() {
       <section id="contracts" className="px-6 py-20 border-t border-border">
         <div className="max-w-2xl mx-auto">
           <p className="text-xs tracking-widest uppercase text-dim mb-3">Deployed Contracts</p>
-          <h2 className="font-display font-bold text-3xl mb-8">Mezo Matsnet <span className="text-dim text-xl font-body font-normal">· Chain ID 31611</span></h2>
+          <h2 className="font-display font-bold text-3xl mb-8">{net.chain.name} <span className="text-dim text-xl font-body font-normal">· Chain ID {net.chain.id}</span></h2>
+          {!live && <p className="text-sm text-yellow-500/90 mb-4">Piton is not live on {net.label} yet. Mezo's own contracts are shown for reference.</p>}
           <div className="panel px-5">
-            {CONTRACTS.map(([label, short, full]) => (
-              <Addr key={label} label={label} short={short} href={`https://explorer.test.mezo.org/address/${full}`} />
-            ))}
+            {CONTRACT_ROWS.map(([label, key]) => {
+              const addr = net.addresses[key];
+              const deployed = addr && addr.toLowerCase() !== ZERO_ADDRESS;
+              return <Addr key={label} label={label}
+                short={deployed ? shortAddr(addr) : 'Not deployed yet'}
+                href={deployed ? explorerAddress(network, addr) : null} />;
+            })}
           </div>
         </div>
       </section>
@@ -180,9 +202,9 @@ export default function Home() {
       {/* footer */}
       <footer className="border-t border-border px-6 py-8 flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-dim">
         <div className="font-display font-bold text-accent">piton</div>
-        <span>Mezo Matsnet · Chain ID 31611 · Unaudited — testnet only</span>
+        <span>{net.chain.name} · Chain ID {net.chain.id} · {live ? (net.isTestnet ? 'Unaudited — testnet only' : 'Unaudited') : 'Not live yet'}</span>
         <div className="flex gap-6">
-          <a href="https://faucet.test.mezo.org" target="_blank" rel="noreferrer" className="hover:text-accent transition-colors">Faucet ↗</a>
+          {net.faucetUrl && <a href={net.faucetUrl} target="_blank" rel="noreferrer" className="hover:text-accent transition-colors">Faucet ↗</a>}
           <a href="https://mezo.org/docs/developers/" target="_blank" rel="noreferrer" className="hover:text-accent transition-colors">Docs ↗</a>
         </div>
       </footer>

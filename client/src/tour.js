@@ -1,5 +1,7 @@
 import { driver } from 'driver.js';
 import 'driver.js/dist/driver.css';
+import { useStore } from './store';
+import { getNetwork } from './network.mjs';
 
 const STEPS = [
   {
@@ -24,13 +26,21 @@ const STEPS = [
   },
   {
     element: '[data-tour="wallet"]',
-    popover: { title: 'Your Wallet', description: 'Live BTC and MUSD balances. You need MUSD to buy options or post margin — borrow it at testnet.mezo.org.' },
+    popover: { title: 'Your Wallet', description: 'Live BTC and MUSD balances. You need MUSD to buy options or post margin — borrow it on Mezo.' },
   },
   {
     element: '[data-tour="your-orders"]',
     popover: { title: 'Your Positions', description: 'All your open positions with live P/L, Greeks, and payoff curves. Use Settle to exercise, Close to cancel, or Refund after expiry.' },
   },
 ];
+
+// Name the borrow site for the selected network (testnet.mezo.org vs mezo.org/borrow).
+function withBorrowLink(steps) {
+  const host = getNetwork(useStore.getState().network).borrowUrl.replace(/^https?:\/\//, '');
+  return steps.map(s => s.element === '[data-tour="wallet"]'
+    ? { ...s, popover: { ...s.popover, description: `Live BTC and MUSD balances. You need MUSD to buy options or post margin — borrow it at ${host}.` } }
+    : s);
+}
 
 export function startTour() {
   const d = driver({
@@ -43,7 +53,7 @@ export function startTour() {
     overlayColor: '#000',
     overlayOpacity: 0.7,
     popoverClass: 'piton-tour',
-    steps: STEPS,
+    steps: withBorrowLink(STEPS),
   });
   d.drive();
 }

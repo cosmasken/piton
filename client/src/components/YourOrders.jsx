@@ -2,15 +2,15 @@ import React, { useState } from 'react';
 import { ethers } from 'ethers';
 import { toast } from 'react-toastify';
 import { useStore, STATUS, TYPE } from '../store';
+import { explorerTx } from '../network.mjs';
 import { useCountdown } from '../useCountdown';
 import { parseTxError } from '../txUtils';
 import { SkeletonRow } from './Skeleton';
 
-const EXPLORER = 'https://explorer.test.mezo.org/tx/';
 const fmt = v => v == null ? 0 : parseFloat(ethers.formatEther(v));
 
 function TxToast({ msg, hash }) {
-  return <div>{msg}{hash && <><br/><a href={`${EXPLORER}${hash}`} target="_blank" rel="noreferrer" className="text-accent text-xs underline">View on explorer ↗</a></>}</div>;
+  return <div>{msg}{hash && <><br/><a href={explorerTx(useStore.getState().network, hash)} target="_blank" rel="noreferrer" className="text-accent text-xs underline">View on explorer ↗</a></>}</div>;
 }
 
 function StatusBadge({ status, expiry }) {

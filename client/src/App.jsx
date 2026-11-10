@@ -1,7 +1,6 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 
-import Faucet    from './Faucet';
 import Dashboard from './Dashboard';
 import Home      from './home';
 
@@ -12,8 +11,9 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path='/' element={<Home />} />
-        <Route path='/faucet' element={<Faucet />} />
         <Route path='/dashboard' element={<Dashboard />} />
+        {/* Unknown paths (incl. the retired /faucet page) go home; the faucet is linked from there on testnet. */}
+        <Route path='*' element={<Navigate to='/' replace />} />
       </Routes>
     </BrowserRouter>
   );

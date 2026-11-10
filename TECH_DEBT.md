@@ -188,7 +188,7 @@ time. Verify against Mezo's BorrowerOperations; the feature may not work as desi
   optionally sets the IV keeper (`KEEPER=0x...`); seed/health/keeper read that file. `health.js` now
   checks oracle age against `PRICE_STALENESS` and shows mid/ask IV and the keeper. Verified end to end
   on a local Hardhat node (deploy → seed → health → keeper dry-run → keeper update).
-  Still manual after a real redeploy: update `client/src/store.js` ADDRESSES and the README table.
+  Still manual after a real redeploy: update `client/src/network.mjs` and the README table.
 - DEFERRED (approved): Stability Pool yield for idle LP capital — research before building.
 
 ## Security review prep (audit/)
@@ -199,3 +199,10 @@ time. Verify against Mezo's BorrowerOperations; the feature may not work as desi
 - OPEN T-1 (medium, owner power): raising `performanceFeeBps` applies retroactively to all past net yield.
 - OPEN O-2 (medium): no oracle price sanity/deviation bound.
 - OPEN O-3/O-4: IV can be set to the 25% floor; TVL and per-option caps unbounded → multisig + timelock.
+
+## Network selection (testnet / mainnet)
+- DONE: user-selectable network (toggle in home nav and dashboard; remembered; `?network=` link).
+  Single config in `client/src/network.mjs`. Mainnet uses zero-address placeholders for Piton's
+  pool/yMUSD, so the dashboard shows a "not live on Mainnet" banner, locks trading panels and never
+  calls the placeholders; prices still read Mezo's mainnet oracle. Faucet links only on testnet; the
+  `/faucet` page is removed (unknown paths redirect home). Tests: `client/src/network.test.mjs`.
