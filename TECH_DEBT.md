@@ -25,7 +25,7 @@ Still open:
     (`0x86bCF0841622a5dAC14A313a15f96A95421b9366`) wraps the same Skip oracle Piton already reads
     (`oracle()` = `0x7b7c…0015`, identical price) and adds a 60s max-age check. Mainnet PriceFeed:
     `0xc5aC5A8892230E0A3e1c473881A2de7353fFcA88`.
-  - DONE: deck with a fee model — `deck/piton-deck.html` (12 slides, arrow keys; print to PDF) and
+  - DONE: deck with a fee model — `deck/piton-deck.html` (11-slide investor deck, arrow keys; print to PDF) and
     `deck/piton-deck.pdf`. Fee model uses live BTC $74k / DVOL 39.7% on 10 Nov 2026.
   - OPEN (not checkable from the repo): video under 2:15.
 - Stale user-facing copy (describes the old Trove design or old fill flow):
