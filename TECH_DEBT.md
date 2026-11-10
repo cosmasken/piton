@@ -111,3 +111,11 @@ time. Verify against Mezo's BorrowerOperations; the feature may not work as desi
 6. Binary/digital options.
 7. Utilisation-driven IV / IV surface.
 8. Perps (largest build).
+
+## Added during Trove work
+- Client `fetchPrice` accepts an oracle price up to 90 minutes old, but the contract now rejects
+  prices older than 300s. The UI can show a price that makes transactions revert with "stale price".
+  Align the client threshold with `PRICE_STALENESS`.
+- "Protect my Trove" assumes MCR = 110% and that `getTroveDebt` includes accrued interest; verify on matsnet.
+- Trove margin ICR check uses a 150% post-draw floor; Mezo's own borrowing fee on the draw is not
+  modelled (the 150% buffer is expected to absorb it). Verify on matsnet.

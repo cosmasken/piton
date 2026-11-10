@@ -56,7 +56,7 @@ Open item to verify on matsnet before trusting: exact amount delivered by `withd
 
 Estimate: ~1 day including tests and UI.
 
-## Option B — "Protect my Trove" (read-only; build alongside A)
+## Option B — "Protect my Trove" (read-only; IMPLEMENTED)
 
 Trove holders hedge liquidation risk with a put.
 
@@ -64,6 +64,12 @@ Trove holders hedge liquidation risk with a put.
 - Liquidation price ≈ `debt * 110% / coll` (confirm Mezo's MCR on matsnet).
 - Suggest a put at or above that strike, quantity = Trove collateral, expiry chosen by the user.
 - Submit through the existing `createLongOrder`; the payout helps repay debt if BTC falls.
+
+Implemented in `client/src/components/ProtectTrove.jsx` (sizing logic and tests in
+`client/src/troveProtect.mjs`, run with `npm run test:client`). It appears above the order form on
+the Long side; "Fill order form" prefills a put and prices it at fair value +2%.
+Strike defaults to 15% above the liquidation price; coverage slider 10–100%; size is clamped to the
+pool's per-option collateral cap. Assumes Mezo MCR = 110% (confirm on matsnet).
 
 No contract changes. Strongest Mezo-specific demand story: every Trove holder is a potential buyer.
 

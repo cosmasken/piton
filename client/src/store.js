@@ -6,9 +6,10 @@ import MUSDABI      from './abi/musd.json';
 
 export const ADDRESSES = {
   31611: {
-    pool:  '0x12f9aD9212A3eb5E0796e47124076F0e63A5a20a',
-    ymusd: '0xeA342D5568C1981dfF35353c28D3Ac7f6C842177',
+    pool:  '0x37373e54C06eE7f70f2CbC3C4AE50efEf540ec6e',
+    ymusd: '0x5718c35AE04bE637D958DAc4FF2C7EB18b427d19',
     musd:  '0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503',
+    troveManager: '0xE47c80e8c23f6B4A1aE41c34837a0599D5D16bb0',
   },
 };
 

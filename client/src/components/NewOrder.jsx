@@ -4,6 +4,7 @@ import { toast } from 'react-toastify';
 import { useStore, ADDRESSES } from '../store';
 import { parseTxError } from '../txUtils';
 import Modal from './Modal';
+import ProtectTrove from './ProtectTrove';
 
 const EXPLORER = 'https://explorer.test.mezo.org/tx/';
 const BORROWER_OPS_SIGS = '0xD757e3646AF370b15f32EB557F0F8380Df7D639e';
@@ -74,6 +75,19 @@ export default function NewOrder() {
       const exp   = block.timestamp + parseInt(expiry);
       const quote = await poolContract.quotePremium(isCall, ethers.parseEther(sp.toString()), ethers.parseEther(q.toString()), exp);
       setBsQuote(parseFloat(ethers.formatEther(quote)).toFixed(4));
+    } catch {}
+  };
+
+  // Prefill a protective put from the ProtectTrove helper and price it at ~fair value (+2%).
+  const applyProtection = async ({ strike: st, qty: qy }) => {
+    setPosition('long'); setOptionType('put'); setStrike(st); setQty(qy); setMarginType('musd');
+    try {
+      const block = await poolContract.runner.provider.getBlock('latest');
+      const exp   = block.timestamp + parseInt(expiry);
+      const quote = await poolContract.quotePremium(false, ethers.parseEther(st), ethers.parseEther(qy), exp);
+      const fair  = parseFloat(ethers.formatEther(quote));
+      setBsQuote(fair.toFixed(4));
+      setPremium((fair * 1.02).toFixed(4));
     } catch {}
   };
 
@@ -155,6 +169,8 @@ export default function NewOrder() {
               className={`flex-1 py-2 uppercase tracking-wider transition-colors ${optionType === t ? 'bg-surface text-text' : 'text-dim'}`}>{t}</button>
           ))}
         </div>
+
+        {!isShort && <ProtectTrove onApply={applyProtection} />}
 
         <form onSubmit={e => { e.preventDefault(); if (!canSubmit) return; setModal(true); }} className="space-y-3">
           <Field label="Strike Price" placeholder="MUSD / 1 BTC"
