@@ -127,8 +127,8 @@ Redeployed 10 Nov 2026 from the current contracts (premium-lock NAV, deposit loc
 
 | Contract | Address |
 |---|---|
-| OptionPool | `0xe27c6a15D947757Ae7bcc945063C45C650B3F357` |
-| yMUSD (LP token) | `0x00967781f41728A8d5BD64D2EeFd75e28F5f0246` |
+| OptionPool | `0x21F83eEcF5561AB721ec4f8E96279EC1BFCb8221` |
+| yMUSD (LP token) | `0x09Da1957c5E435894D4d11451e9a7b2C9C24500c` |
 | MUSD | `0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503` |
 | Skip Oracle (BTC/USD) | `0x7b7c000000000000000000000000000000000015` |
 | Mezo TroveManager | `0xE47c80e8c23f6B4A1aE41c34837a0599D5D16bb0` |

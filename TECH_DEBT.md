@@ -259,3 +259,8 @@ keeper script · 10 Ownable2Step + guardian + `PitonTimelock` + setup script ·
 - Contract size is 24,411 of 24,576 bytes. The next feature (on-chain Pyth cross-check, liability cache, more admin setters) needs the
   Black-Scholes maths moved into a linked library, or other code removed, first.
 - The sell-back spread is a constant (10% of volatility): a setter did not fit in the size budget.
+- DONE 10 Nov 2026: redeployed matsnet with the IV limits and sell-back — OptionPool `0x21F83eEcF5561AB721ec4f8E96279EC1BFCb8221`,
+  yMUSD `0x09Da1957c5E435894D4d11451e9a7b2C9C24500c`. The previous pool `0xe27c…F357` was emptied first: both open options expired
+  and were refunded, then the deployer withdrew all 2,508.80 MUSD (2,500 seed + 8.80 earned). New pool: seeded 2,500 MUSD, IV 40%,
+  `minPoolExpiry` 900 s, keeper `0xdE33…7948` authorised. Verified live: bought a 0.005 BTC ATM put for 1.779 MUSD and sold it back
+  for 1.467 MUSD (status CLOSED, collateral released).
