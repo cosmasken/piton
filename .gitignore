@@ -53,3 +53,6 @@ scripts/*
 /out-forge
 /cache-forge
 /lib
+
+# client build output (regenerate with: npm run build --prefix client)
+/client/dist
