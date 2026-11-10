@@ -1,7 +1,7 @@
 # Piton threat model
 
 For auditors and reviewers. Describes what the contracts protect, who can do what, what we trust,
-and the risks we already know about. Last updated 10 Nov 2026, against commit `8c4c1bc`.
+and the risks we already know about. Last updated 10 Nov 2026, after the economic review in section 5.6 (E1–E3).
 
 ## 1. Scope
 
@@ -48,7 +48,7 @@ to repoint the oracle, MUSD, yMUSD or Mezo addresses (all `immutable`).
 | `setIvSpreadBps` | ≤ 50% | Set to 0 to remove the LP safety margin (same direction as above, smaller effect). |
 | `setTVLCap`, `setMaxOptionCollateral` | Unbounded | Raise exposure limits. Increases potential loss, does not transfer funds. |
 | `setProtocolFeeBps` | ≤ 5% | Applies to future fills only. |
-| `setPerformanceFeeBps` | ≤ 30% | **Retroactive (open finding T-1).** |
+| `setPerformanceFeeBps` | ≤ 30% | Fee accrued so far is charged at the old rate first, and a high-water mark means a change is never applied to past yield (fixed; was T-1). |
 | `setFeeRecipient` | Non-zero | Redirects future fees. |
 | `setIvKeeper` | Any address (0 disables) | Grants `setIV` to another key. |
 | `pausePool` / `unpausePool` | — | Blocks new deposits, orders and fills. **Cannot block exits:** `withdraw`, `settle`, `refund`, `cancelOrder` are not pausable (tested). |
@@ -128,11 +128,24 @@ keeper key has the same `setIV` risk as the owner, but no other power.
 - `clearWorthlessShares` loops over a caller-supplied list; split it if it hits the gas limit.
 - Spam orders cost the spammer premium or collateral and don't affect the pool.
 
+## 5.6 Economic review (10 Nov 2026)
+
+A focused review of every path that moves value found three issues. All are fixed and covered by tests that fail if the fix is removed (`test/OptionPool.economics.test.js`, plus a Foundry invariant):
+
+| ID | Issue | Fix |
+|---|---|---|
+| E1 (high) | The pool filled orders at ≥ 95% of its price. For in-the-money options that price is close to immediate-exercise value, so a buyer could buy and exercise at once for a profit at LPs' expense (also usable by the fee recipient). The pricing model ignores early exercise, so deep in-the-money puts were also slightly under-priced. | The pool never fills below immediate-exercise value grossed up for the 2% fee. Quotes include the same floor. |
+| E2 (medium) | LP shares were priced on raw assets, ignoring what open options would pay if exercised now. An LP could withdraw before a known loss and leave it to others; a new depositor could buy in at an inflated price. | Shares are priced on net asset value (assets minus the immediate-exercise liability of open pool options, capped at their collateral). Open pool options are capped at 50; a stale oracle assumes the full collateral is owed. |
+| E3 (medium) | Retroactive performance fee (T-1). | High-water mark; accrued fee charged at the old rate before a change. |
+
+Accepted: a seller's resting ask can go stale as the price moves (normal order-book risk; they can cancel). Beyond 50 open pool options, new buys rest as bids until options expire (cost: ~0.7M gas worst case per deposit or withdrawal).
+
 ## 6. Known open findings
 
 | ID | Severity (our view) | Finding | Suggested fix |
 |---|---|---|---|
-| T-1 | Medium (owner power) | Raising `performanceFeeBps` applies to all past net yield: the fee is `netYield × bps − paid`, so going from 15% to 30% takes an extra 15% of historical LP yield on the next settle/refund. | Settle the fee at the old rate inside the setter before changing it, or track yield since the last change. |
+| T-1 | ~~Medium~~ **Fixed** | Raising `performanceFeeBps` was retroactive. Now the accrued fee is charged at the old rate inside the setter, and fees apply only above a high-water mark. | — |
+| T-2 | Low | The performance fee is charged on premium when it is booked (at fill), before the option expires. If that option later pays out, the fee is not returned (no clawback). The fee recipient can also buy from the pool at a small effective discount funded by this. | Charge only on realised yield (track each option's net premium until it settles or expires). |
 | O-2 | Medium | No price sanity bound (e.g. max per-block deviation or min/max price) on the Skip oracle, which Mezo's own docs recommend. | Add bounds and/or read Mezo's PriceFeed; pause on large deviations. |
 | O-3 | Low–Medium | Owner/keeper can set IV to the 25% floor and buy underpriced options. | Multisig + timelock owner; rate-limit IV changes per hour on-chain. |
 | O-4 | Low | `setTVLCap` / `setMaxOptionCollateral` are unbounded. | Timelock, or hard upper bounds. |

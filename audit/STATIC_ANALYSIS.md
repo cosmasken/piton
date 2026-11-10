@@ -4,8 +4,9 @@ Scope: `contracts/OptionPool.sol`, `contracts/yMUSD.sol`. Mezo's contracts and t
 Reproduce with `./tools/static-analysis.sh` (raw reports go to `audit/out/`, gitignored).
 
 Date: 10 Nov 2026. First run: Slither 63 results, Aderyn 1 high + 9 low categories.
-After fixes: Slither 55 results, Aderyn 1 high + 5 low categories, all triaged below. The test suite
-(84 tests, including the Mezo integration suite) passes after the changes.
+After fixes: Slither 55 results, Aderyn 1 high + 5 low categories, all triaged below. Re-run after the
+economic fixes (E1–E3): identical Slither results, nothing new; Aderyn's `nonReentrant`-ordering point was fixed.
+The test suite (97 Hardhat incl. Mezo integration, 14 Foundry) passes after the changes.
 
 ## Fixed
 

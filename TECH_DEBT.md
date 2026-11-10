@@ -206,3 +206,13 @@ time. Verify against Mezo's BorrowerOperations; the feature may not work as desi
   pool/yMUSD, so the dashboard shows a "not live on Mainnet" banner, locks trading panels and never
   calls the placeholders; prices still read Mezo's mainnet oracle. Faucet links only on testnet; the
   `/faucet` page is removed (unknown paths redirect home). Tests: `client/src/network.test.mjs`.
+
+## Economic review (10 Nov 2026) — fixed
+- E1 pool sold in-the-money options below exercise value (buy-and-exercise took value from LPs, incl. via the
+  fee recipient): FIXED, immediate-exercise floor on fills and quotes.
+- E2 LP shares ignored open-option liability: FIXED, shares priced on net asset value.
+- E3 / T-1 retroactive performance fee: FIXED, high-water mark.
+- Tests: `test/OptionPool.economics.test.js` (13, each mutation-checked) and Foundry invariant
+  `invariant_flashExerciseNeverProfits` (found the exploit unaided when the fix was removed).
+- OPEN T-2 (low): performance fee is charged on booked premium, not realised yield; no clawback.
+- The contract is redeployed after these fixes; the previous matsnet pool `0x81Bf…9C9b` is retired.
