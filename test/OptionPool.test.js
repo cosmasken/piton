@@ -492,11 +492,12 @@ describe('Call payout cap (3x spot)', () => {
 
 describe('IV spread and keeper', () => {
   it('pool quotes at iv * (1 + 15%) and bsPrice stays at mid', async () => {
-    const { pool } = await deploy();
+    const { pool, lp } = await deploy();
     expect(await pool.ivSpreadBps()).to.equal(1500n);
     expect(await pool.askIv()).to.equal(E18('0.92'));
+    await pool.connect(lp).deposit(E18('10000')); // idle pool: the utilisation markup (#6) is negligible
     const exp = await expiry(86400);
-    const ask = await pool.quotePremium(true, E18('100000'), E18('1'), exp);
+    const ask = await pool.quotePremium(true, E18('100000'), E18('0.001'), exp) * 1000n;
     const mid = await pool.bsPrice(true, E18('100000'), E18('100000'), 86400);
     // ATM premium is ~linear in vol: ask/mid ≈ 1.15
     const ratio = Number(ask * 10000n / mid) / 10000;

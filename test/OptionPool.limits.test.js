@@ -138,3 +138,38 @@ describe('#7 minimum time left for pool-sold options', () => {
     expect(await fresh.minPoolExpiry()).to.equal(3600n);
   });
 });
+
+describe('#6 utilisation-based price markup', () => {
+  const quote = (pool, Q, K = E18('100000')) =>
+    now().then(t => pool.quotePremium(false, K, Q, t + 86400));
+  it('a busier pool and a bigger trade cost more per BTC', async () => {
+    const { pool, lp } = await deploy();
+    await pool.connect(lp).deposit(E18('100000'));
+    const small = (await quote(pool, E18('0.01'))) * 80n;   // 1,000 collateral = 1% of pool
+    const big   = await quote(pool, E18('0.8'));            // 80,000 collateral = 80% of pool
+    expect(big).to.be.gt(small * 108n / 100n);              // markup 0.2 * 0.64 = 12.8% of IV
+  });
+  it('with the markup off the per-BTC price does not depend on size', async () => {
+    const { pool, lp } = await deploy();
+    await pool.setUtilSpreadBps(0);
+    await pool.connect(lp).deposit(E18('100000'));
+    const small = (await quote(pool, E18('0.01'))) * 80n;
+    const big   = await quote(pool, E18('0.8'));
+    expect(big).to.be.closeTo(small, small / 200n);
+  });
+  it('existing locked collateral raises the next quote', async () => {
+    const { pool, lp, buyer } = await deploy();
+    await pool.connect(lp).deposit(E18('100000'));
+    const before = await quote(pool, E18('0.01'));
+    await pool.setRiskLimits(8000, 8000);
+    expect(await buyPut(pool, buyer, E18('100000'), E18('0.7'))).to.equal(true);
+    expect(await quote(pool, E18('0.01'))).to.be.gt(before);
+  });
+  it('is capped at 100% spread and owner-only', async () => {
+    const { pool, lp } = await deploy();
+    expect(await pool.utilSpreadBps()).to.equal(2000n);
+    await expect(pool.setUtilSpreadBps(10001)).to.be.revertedWith('spread too high');
+    await expect(pool.setUtilSpreadBps(500)).to.emit(pool, 'UtilSpreadSet').withArgs(500n);
+    await expect(pool.connect(lp).setUtilSpreadBps(1)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
+  });
+});

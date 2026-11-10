@@ -163,6 +163,10 @@ contract OptionPool is Ownable, ReentrancyGuard {
     ///         ones most exposed to stale prices and last-minute oracle moves.
     uint256 public minPoolExpiry = 1 hours;
 
+    /// @notice Extra IV spread (bps) charged at 100% utilisation; scales with utilisation squared.
+    uint256 public utilSpreadBps = 2000;
+    uint256 public constant MAX_UTIL_SPREAD_BPS = 10000;
+
     // ─── Events ──────────────────────────────────────────────────────────────
 
     event Deposited(address indexed user, uint256 musdIn, uint256 sharesOut);
@@ -184,6 +188,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
     event PausedSet(bool paused);
     event WithdrawalFeeSet(uint256 bps);
     event DepositLockSet(uint256 seconds_);
+    event UtilSpreadSet(uint256 bps);
     event MinPoolExpirySet(uint256 seconds_);
     event MaxStrikeDistanceSet(uint256 bps);
     event MinRentSet(uint256 bps);
@@ -899,9 +904,15 @@ contract OptionPool is Ownable, ReentrancyGuard {
     function _poolPrice(OptionType t, uint256 spot, uint256 strike, uint256 quantity, uint256 expiry)
         internal view returns (uint256 fair, uint256 hardFloor)
     {
-        fair = _bs(t == OptionType.CALL, spot, strike, expiry - block.timestamp, askIv()) * quantity / PRECISION;
+        uint256 collateral = _requiredCollateral(t, spot, strike, quantity);
+        // Busier pool and bigger trade -> higher price: the markup grows with the square of the
+        // utilisation this trade would leave behind (0 when idle, utilSpreadBps at 100%).
+        uint256 u = totalAssets == 0 ? 10000 : (lockedCollateral + collateral) * 10000 / totalAssets;
+        if (u > 10000) u = 10000;
+        uint256 vol = iv * (10000 + ivSpreadBps + utilSpreadBps * u * u / 1e8) / 10000;
+        fair = _bs(t == OptionType.CALL, spot, strike, expiry - block.timestamp, vol) * quantity / PRECISION;
         hardFloor = _intrinsicFloor(t, strike, quantity, spot);
-        uint256 rent = _requiredCollateral(t, spot, strike, quantity) * minRentBps * (expiry - block.timestamp)
+        uint256 rent = collateral * minRentBps * (expiry - block.timestamp)
             / (10000 * 365 days);
         if (rent > hardFloor) hardFloor = rent;
     }
@@ -976,6 +987,12 @@ contract OptionPool is Ownable, ReentrancyGuard {
         require(_seconds >= MIN_EXPIRY && _seconds <= 7 days, "out of range");
         minPoolExpiry = _seconds;
         emit MinPoolExpirySet(_seconds);
+    }
+
+    function setUtilSpreadBps(uint256 _bps) external onlyOwner {
+        require(_bps <= MAX_UTIL_SPREAD_BPS, "spread too high");
+        utilSpreadBps = _bps;
+        emit UtilSpreadSet(_bps);
     }
 
     function setDepositLock(uint256 _seconds) external onlyOwner {

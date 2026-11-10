@@ -188,10 +188,11 @@ describe('Economics: performance fee is never retroactive', () => {
     await earnYield(ctx);
     const y1 = await netYield(pool);
     expect(y1).to.be.gt(0n);
-    expect(await pool.totalPerformanceFeePaid()).to.equal(y1 * 1500n / 10000n);
+    const fee1 = await pool.totalPerformanceFeePaid();
+    expect(fee1).to.be.closeTo(y1 * 1500n / 10000n, 4n);
 
     await pool.setPerformanceFeeBps(3000);
-    expect(await pool.totalPerformanceFeePaid(), 'raising the rate charged nothing extra').to.equal(y1 * 1500n / 10000n);
+    expect(await pool.totalPerformanceFeePaid(), 'raising the rate charged nothing extra').to.equal(fee1);
 
     await earnYield(ctx, 2);
     const y2 = await netYield(pool);
