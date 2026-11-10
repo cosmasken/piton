@@ -387,7 +387,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
         if (o.premium < fair * 95 / 100) return; // below fair value, skip
 
         uint256 collateral = _requiredCollateral(o.optionType, spot, o.strike, o.quantity);
-        if (collateral > maxOptionCollateral) return;
+        if (collateral == 0 || collateral > maxOptionCollateral) return;
 
         // Check pool has enough free capital
         if (totalAssets < lockedCollateral + collateral) return;
@@ -423,6 +423,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
 
         uint256 spot       = _spot();
         uint256 collateral = _requiredCollateral(optionType, spot, strike, quantity);
+        require(collateral > 0, "zero collateral: strike too far OTM");
         require(collateral <= maxOptionCollateral, "collateral exceeds max");
 
         musd.safeTransferFrom(msg.sender, address(this), collateral);
@@ -461,6 +462,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
 
         uint256 spot       = _spot();
         uint256 collateral = _requiredCollateral(optionType, spot, strike, quantity);
+        require(collateral > 0, "zero collateral: strike too far OTM");
 
         // Verify Trove equity covers collateral
         ITroveManager tm = ITroveManager(TROVE_MANAGER);
@@ -511,6 +513,34 @@ contract OptionPool is Ownable, ReentrancyGuard {
     }
 
 
+    // ─── Fill Long Order (manual seller takes the other side) ─────────────────
+
+    /// @notice Take the short side of an open long order that the pool did not fill.
+    ///         Seller posts MUSD collateral and receives the premium (less protocol fee).
+    function fillShort(uint256 id) external nonReentrant notPaused {
+        Option storage o = options[id];
+        require(o.status == OrderStatus.OPEN, "not open");
+        require(o.long != address(0) && o.short == address(0), "not a long order");
+        require(o.expiry > block.timestamp, "expired");
+        require(msg.sender != o.long, "cannot self-fill");
+
+        uint256 collateral = _requiredCollateral(o.optionType, _spot(), o.strike, o.quantity);
+        require(collateral > 0, "zero collateral: strike too far OTM");
+        require(collateral <= maxOptionCollateral, "collateral exceeds max");
+
+        musd.safeTransferFrom(msg.sender, address(this), collateral);
+        uint256 netPremium = _takePremiumFee(o.premium);
+        musd.safeTransfer(msg.sender, netPremium);
+
+        o.short      = msg.sender;
+        o.collateral = collateral;
+        o.marginType = MarginType.MUSD;
+        o.status     = OrderStatus.FILLED;
+        userOptions[msg.sender].push(id);
+
+        emit OrderFilled(id, msg.sender, false);
+    }
+
     // ─── Settlement ───────────────────────────────────────────────────────────
 
     function settle(uint256 id) external nonReentrant {
@@ -524,9 +554,10 @@ contract OptionPool is Ownable, ReentrancyGuard {
         require(profit > 0, "not in the money");
 
         o.status = OrderStatus.SETTLED;
+        uint256 paid = profit > o.collateral ? o.collateral : profit;
 
         if (o.filledByPool) {
-            uint256 payout = profit > o.collateral ? o.collateral : profit;
+            uint256 payout = paid;
             lockedCollateral -= o.collateral;
             totalAssets      -= payout;
             totalSettlementsPaid += payout;
@@ -534,13 +565,13 @@ contract OptionPool is Ownable, ReentrancyGuard {
             musd.safeTransfer(o.long, payout);
             // remaining collateral stays in pool
         } else if (o.marginType == MarginType.MUSD) {
-            uint256 payout = profit > o.collateral ? o.collateral : profit;
+            uint256 payout = paid;
             musd.safeTransfer(o.long, payout);
             uint256 remaining = o.collateral - payout;
             if (remaining > 0) musd.safeTransfer(o.short, remaining);
         } else {
             // Trove margin — pull from trove, capped at the posted collateral
-            uint256 payout = profit > o.collateral ? o.collateral : profit;
+            uint256 payout = paid;
             IBorrowerOperationsSignatures(BORROWER_OPS_SIGS).adjustTroveWithSignature(
                 0, payout, true, address(0), address(0),
                 o.short, address(this), o.troveSig, o.troveDeadline
@@ -548,7 +579,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
             musd.safeTransfer(o.long, payout);
         }
 
-        emit Settled(id, o.long, profit);
+        emit Settled(id, o.long, paid);
     }
 
     function _profit(Option storage o, uint256 spot) internal view returns (uint256) {

@@ -349,3 +349,105 @@ describe('BS accuracy', () => {
     await expect(pool.quotePremium(true, E18('100000'), E18('1'), past)).to.be.revertedWith('expired');
   });
 });
+
+// ─── fillShort / zero-collateral / invariants ─────────────────────────────────
+
+describe('fillShort (manual seller takes an open long order)', () => {
+  // pool has no capital -> long order stays open
+  async function openLong(ctx, premium = '50') {
+    const { pool, buyer } = ctx;
+    const exp = await expiry(3600);
+    await pool.connect(buyer).createLongOrder(1, E18('100000'), E18('0.01'), exp, E18(premium));
+    return (await pool.nextId()) - 1n;
+  }
+
+  it('seller posts collateral, receives net premium, option becomes FILLED', async () => {
+    const ctx = await deploy();
+    const { pool, musd, seller, buyer } = ctx;
+    const id = await openLong(ctx);
+    expect((await pool.getOption(id)).status).to.equal(0n);
+
+    const before = await musd.balanceOf(seller.address);
+    await pool.connect(seller).fillShort(id);
+    const o = await pool.getOption(id);
+    expect(o.status).to.equal(1n);
+    expect(o.short).to.equal(seller.address);
+    expect(o.long).to.equal(buyer.address);
+    expect(o.filledByPool).to.equal(false);
+    // collateral for 0.01 BTC put @100k = 1000 MUSD; net premium = 49
+    expect(before - (await musd.balanceOf(seller.address))).to.equal(o.collateral - E18('49'));
+  });
+
+  it('long can then settle against the manual short; Settled emits the paid amount', async () => {
+    const ctx = await deploy();
+    const { pool, oracle, seller, buyer } = ctx;
+    const id = await openLong(ctx);
+    await pool.connect(seller).fillShort(id);
+    await oracle.setPrice(90000); // put ITM: 10k * 0.01 = 100
+    await expect(pool.connect(buyer).settle(id)).to.emit(pool, 'Settled').withArgs(id, buyer.address, E18('100'));
+  });
+
+  it('rejects self-fill, double fill and filled/expired orders', async () => {
+    const ctx = await deploy();
+    const { pool, buyer, seller } = ctx;
+    const id = await openLong(ctx);
+    await expect(pool.connect(buyer).fillShort(id)).to.be.revertedWith('cannot self-fill');
+    await pool.connect(seller).fillShort(id);
+    await expect(pool.connect(seller).fillShort(id)).to.be.revertedWith('not open');
+    const id2 = await openLong(ctx);
+    await time.increase(3601);
+    await expect(pool.connect(seller).fillShort(id2)).to.be.revertedWith('expired');
+  });
+
+  it('rejects filling a short order via fillShort', async () => {
+    const { pool, seller, buyer } = await deploy();
+    const exp = await expiry(3600);
+    await pool.connect(seller).createShortOrder(1, E18('100000'), E18('0.01'), exp, E18('50'));
+    const id = (await pool.nextId()) - 1n;
+    await expect(pool.connect(buyer).fillShort(id)).to.be.revertedWith('not a long order');
+  });
+});
+
+describe('Zero-collateral calls', () => {
+  it('manual short rejects a call with strike >= 2x spot', async () => {
+    const { pool, seller } = await deploy();
+    const exp = await expiry(3600);
+    await expect(
+      pool.connect(seller).createShortOrder(0, E18('200000'), E18('0.01'), exp, E18('1'))
+    ).to.be.revertedWith('zero collateral: strike too far OTM');
+  });
+
+  it('pool does not fill a zero-collateral call; order stays open', async () => {
+    const { pool, lp, buyer } = await deploy();
+    await pool.connect(lp).deposit(E18('10000'));
+    const exp = await expiry(3600);
+    await pool.connect(buyer).createLongOrder(0, E18('250000'), E18('0.01'), exp, E18('5'));
+    const id = (await pool.nextId()) - 1n;
+    expect((await pool.getOption(id)).status).to.equal(0n);
+  });
+});
+
+describe('Invariant: contract MUSD balance covers pool accounting', () => {
+  it('holds after deposit, pool fill, settle, refund and fees', async () => {
+    const { pool, musd, oracle, lp, buyer } = await deploy();
+    const addr = await pool.getAddress();
+    await pool.connect(lp).deposit(E18('10000'));
+
+    const exp = await expiry(3600);
+    const premium = await pool.quotePremium(false, E18('100000'), E18('0.05'), exp);
+    for (let i = 0; i < 2; i++) {
+      await pool.connect(buyer).createLongOrder(1, E18('100000'), E18('0.05'), exp, premium * 2n);
+    }
+    expect(await musd.balanceOf(addr)).to.be.gte(await pool.totalAssets());
+
+    await oracle.setPrice(90000);
+    await pool.connect(buyer).settle(1);
+    expect(await musd.balanceOf(addr)).to.be.gte(await pool.totalAssets());
+
+    await time.increase(3601);
+    await oracle.setPrice(100000);
+    await pool.refund(2);
+    expect(await musd.balanceOf(addr)).to.be.gte(await pool.totalAssets());
+    expect(await pool.totalAssets()).to.be.gte(await pool.lockedCollateral());
+  });
+});

@@ -5,9 +5,19 @@ contract arithmetic in Python. Trove findings (4–6) depend on Mezo's `Borrower
 behaviour and were not verified against its source. Tests, `yMUSD.sol` were not reviewed.
 
 ## Status
-Fixed: #1, #2, #3, Trove loss cap + deadline>=expiry (part of #6), performance-fee/withdraw
-underflow, `quotePremium` past-expiry revert. Still open: #4, #5, rest of #6, long-order fill path,
-zero-share dilution, pool solvency vs balance, fixed IV, capped-payout pricing.
+Fixed (commit c153b70 + follow-up): #1, #2, #3, Trove payout cap + deadline>=expiry, performance-fee/
+withdraw underflow, `quotePremium` past-expiry revert, `fillShort` added (open long orders can now be
+filled by a manual seller), zero-collateral calls rejected/not pool-filled, `Settled` event now emits
+the amount actually paid. Pool solvency vs balance: no bug found; covered by an invariant test.
+
+Open, needs a decision: #4/#5/#6 (Trove margin, see findings below), zero-share dilution policy,
+capped-payout pricing, fixed IV. UI button for `fillShort` not built.
+
+**Trove findings confirmed against Mezo's BorrowerOperationsSignatures source:** the signed digest
+commits to exact collWithdrawal, debtChange, isDebtIncrease, borrower, recipient, a per-borrower
+nonce and deadline — but NOT msg.sender. So (a) debtChange must be known at signing, which the
+variable `profit` is not, so the current settle path cannot work as written; (b) anyone who sees the
+stored sig can submit it, burning the nonce and stranding the MUSD in the pool.
 
 ## Critical
 
