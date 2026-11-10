@@ -314,10 +314,15 @@ contract OptionPool is Ownable, ReentrancyGuard {
 
     // ─── Collateral helpers ───────────────────────────────────────────────────
 
+    /// @notice Call payouts are capped: the short locks (CALL_CAP_MULTIPLE * spot - strike) * qty, so the
+    ///         long's max profit is reached if BTC rises to CALL_CAP_MULTIPLE x today's spot.
+    uint256 public constant CALL_CAP_MULTIPLE = 3;
+
     function _callCollateral(uint256 spot, uint256 strike, uint256 quantity)
         internal pure returns (uint256)
     {
-        uint256 cap = spot * 2 > strike ? spot * 2 - strike : 0;
+        uint256 capPrice = spot * CALL_CAP_MULTIPLE;
+        uint256 cap = capPrice > strike ? capPrice - strike : 0;
         return cap * quantity / PRECISION;
     }
 

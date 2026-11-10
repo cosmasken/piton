@@ -409,11 +409,11 @@ describe('fillShort (manual seller takes an open long order)', () => {
 });
 
 describe('Zero-collateral calls', () => {
-  it('manual short rejects a call with strike >= 2x spot', async () => {
+  it('manual short rejects a call with strike >= 3x spot', async () => {
     const { pool, seller } = await deploy();
     const exp = await expiry(3600);
     await expect(
-      pool.connect(seller).createShortOrder(0, E18('200000'), E18('0.01'), exp, E18('1'))
+      pool.connect(seller).createShortOrder(0, E18('300000'), E18('0.01'), exp, E18('1'))
     ).to.be.revertedWith('zero collateral: strike too far OTM');
   });
 
@@ -421,7 +421,7 @@ describe('Zero-collateral calls', () => {
     const { pool, lp, buyer } = await deploy();
     await pool.connect(lp).deposit(E18('10000'));
     const exp = await expiry(3600);
-    await pool.connect(buyer).createLongOrder(0, E18('250000'), E18('0.01'), exp, E18('5'));
+    await pool.connect(buyer).createLongOrder(0, E18('350000'), E18('0.01'), exp, E18('5'));
     const id = (await pool.nextId()) - 1n;
     expect((await pool.getOption(id)).status).to.equal(0n);
   });
@@ -449,5 +449,40 @@ describe('Invariant: contract MUSD balance covers pool accounting', () => {
     await pool.refund(2);
     expect(await musd.balanceOf(addr)).to.be.gte(await pool.totalAssets());
     expect(await pool.totalAssets()).to.be.gte(await pool.lockedCollateral());
+  });
+});
+
+describe('Call payout cap (3x spot)', () => {
+  it('locks (3*spot - strike) * qty for a pool-filled call and pays up to that cap', async () => {
+    const { pool, oracle, lp, buyer, musd } = await deploy();
+    await pool.connect(lp).deposit(E18('10000'));
+    const exp = await expiry(3600);
+    const strike = E18('100000'), qty = E18('0.01');
+    const q = await pool.quotePremium(true, strike, qty, exp);
+    await pool.connect(buyer).createLongOrder(0, strike, qty, exp, q * 105n / 100n);
+    const id = (await pool.nextId()) - 1n;
+    const o = await pool.getOption(id);
+    expect(o.collateral).to.equal(E18('2000')); // (300k - 100k) * 0.01
+    expect(await pool.CALL_CAP_MULTIPLE()).to.equal(3n);
+
+    // BTC 4x: uncapped profit would be 3000, capped at 2000
+    await oracle.setPrice(400000);
+    const before = await musd.balanceOf(buyer.address);
+    await pool.connect(buyer).settle(id);
+    expect((await musd.balanceOf(buyer.address)) - before).to.equal(E18('2000'));
+  });
+
+  it('a 2.5x move (above the old 2x cap) now pays in full', async () => {
+    const { pool, oracle, lp, buyer, musd } = await deploy();
+    await pool.connect(lp).deposit(E18('10000'));
+    const exp = await expiry(3600);
+    const strike = E18('100000'), qty = E18('0.01');
+    const q = await pool.quotePremium(true, strike, qty, exp);
+    await pool.connect(buyer).createLongOrder(0, strike, qty, exp, q * 105n / 100n);
+    const id = (await pool.nextId()) - 1n;
+    await oracle.setPrice(250000);
+    const before = await musd.balanceOf(buyer.address);
+    await pool.connect(buyer).settle(id);
+    expect((await musd.balanceOf(buyer.address)) - before).to.equal(E18('1500'));
   });
 });

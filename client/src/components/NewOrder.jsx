@@ -6,6 +6,9 @@ import { parseTxError } from '../txUtils';
 import Modal from './Modal';
 import ProtectTrove from './ProtectTrove';
 
+// Must match OptionPool.CALL_CAP_MULTIPLE: call collateral = (CAP * spot - strike) * qty
+const CALL_CAP_MULTIPLE = 3;
+
 const EXPLORER = 'https://explorer.test.mezo.org/tx/';
 const BORROWER_OPS_SIGS = '0xD757e3646AF370b15f32EB557F0F8380Df7D639e';
 const BORROWER_OPS_SIGS_ABI = [{ type: 'function', name: 'getNonce', stateMutability: 'view', inputs: [{ name: 'user', type: 'address' }], outputs: [{ type: 'uint256' }] }];
@@ -62,10 +65,12 @@ export default function NewOrder() {
     if (!sp || !q || !p) return null;
     const itm       = isCall ? p > sp : p < sp;
     const intrinsic = isCall ? Math.max(0, p - sp) * q : Math.max(0, sp - p) * q;
-    const collateral = isShort
-      ? (isCall ? `${((p * 2 - sp) * q).toFixed(2)} MUSD` : `${(sp * q).toFixed(2)} MUSD`)
-      : `${c.toFixed(2)} MUSD`;
-    return { itm, intrinsic, collateral };
+    const lockedAmt = isCall ? Math.max(0, (p * CALL_CAP_MULTIPLE - sp) * q) : sp * q;
+    const collateral = isShort ? `${lockedAmt.toFixed(2)} MUSD` : `${c.toFixed(2)} MUSD`;
+    // Long payout is capped at the short's locked collateral (calls: BTC at CAP x spot; puts: BTC at 0)
+    const maxPayout = lockedAmt;
+    const capPrice  = isCall ? p * CALL_CAP_MULTIPLE : 0;
+    return { itm, intrinsic, collateral, maxPayout, capPrice };
   }, [strike, qty, premium, btcPrice, isCall, isShort]); // eslint-disable-line
 
   const fetchBsQuote = async () => {
@@ -113,7 +118,7 @@ export default function NewOrder() {
         // Short funded by Trove debt: MUSD is drawn from the Trove at creation, BTC stays in it.
         // Puts need exactly strike*qty; calls depend on spot, so add a 5% buffer (unused margin is
         // returned at expiry).
-        const required = isCall ? (p * 2 - sp) * q * 1.05 : sp * q;
+        const required = isCall ? (p * CALL_CAP_MULTIPLE - sp) * q * 1.05 : sp * q;
         const marginWei = ethers.parseEther(required.toFixed(6));
         const bos      = new ethers.Contract(BORROWER_OPS_SIGS, BORROWER_OPS_SIGS_ABI, signer);
         const nonce    = await bos.getNonce(account);
@@ -127,7 +132,7 @@ export default function NewOrder() {
       } else {
         // Short with MUSD collateral
         const collWei = isCall
-          ? ethers.parseEther(((p * 2 - sp) * q).toFixed(6))
+          ? ethers.parseEther(((p * CALL_CAP_MULTIPLE - sp) * q).toFixed(6))
           : ethers.parseEther((sp * q).toFixed(6));
         await (await musdContract.approve(poolAddr, collWei)).wait();
         tx = await (await poolContract.createShortOrder(
@@ -228,6 +233,10 @@ export default function NewOrder() {
               <Row label="Moneyness"  value={payoff.itm ? 'ITM' : 'OTM'} accent={payoff.itm} />
               <Row label="Intrinsic"  value={payoff.intrinsic > 0 ? `$${payoff.intrinsic.toFixed(2)}` : '—'} accent={payoff.intrinsic > 0} />
               <Row label="Collateral" value={payoff.collateral} />
+              {!isShort && <Row label="Max payout" value={isCall
+                ? `${payoff.maxPayout.toFixed(2)} MUSD (BTC ≥ $${payoff.capPrice.toLocaleString('en-US', { maximumFractionDigits: 0 })})`
+                : `${payoff.maxPayout.toFixed(2)} MUSD`} />}
+              {!isShort && isCall && payoff.maxPayout === 0 && <p className="text-xs text-red">Strike is at or above the payout cap — this call can never pay out.</p>}
               {!isShort && <Row label="Settlement" value="Cash (MUSD)" />}
             </div>
           )}

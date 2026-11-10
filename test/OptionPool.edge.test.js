@@ -74,7 +74,7 @@ describe('Payout accounting', () => {
     await pool.connect(lp).deposit(E18('10000'));
 
     const strike = E18('50000');
-    const qty    = E18('0.05');
+    const qty    = E18('0.03'); // collateral (300k-50k)*0.03 = 7.5k, within the 10k per-option cap
     const exp    = await expiry(3600);
     const quote  = await pool.quotePremium(true, strike, qty, exp);
 
@@ -83,12 +83,12 @@ describe('Payout accounting', () => {
     const o  = await pool.getOption(id);
     expect(o.filledByPool).to.be.true;
 
-    // Call collateral = (2*spot - strike) * qty
-    const expectedCollateral = (E18('200000') - strike) * qty / E18('1');
+    // Call collateral = (3*spot - strike) * qty
+    const expectedCollateral = (E18('300000') - strike) * qty / E18('1');
     expect(o.collateral).to.equal(expectedCollateral);
 
-    // BTC triples: raw profit far exceeds collateral
-    await oracle.setPrice(300000);
+    // BTC quadruples: raw profit (350k*0.03 = 10.5k) exceeds collateral
+    await oracle.setPrice(400000);
 
     const before = await musd.balanceOf(buyer.address);
     await pool.connect(buyer).settle(id);

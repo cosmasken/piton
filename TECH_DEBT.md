@@ -137,3 +137,7 @@ time. Verify against Mezo's BorrowerOperations; the feature may not work as desi
   pool holds nothing, and only if the list clears the whole supply). Holders can also withdraw 0.
   Note: with current logic `totalAssets` cannot naturally reach 0 (the pool always keeps the net
   premium), so this is a defensive guard; it is tested via `OptionPoolHarness`.
+- DONE: call payout cap raised from 2x to 3x spot (`CALL_CAP_MULTIPLE = 3`); zero-collateral calls
+  are now strikes >= 3x spot. Order form shows "Max payout" (and the BTC price where it is reached)
+  for longs, and warns when a call can never pay out. Pricing still assumes an uncapped payoff; with
+  a 3x cap and <= 14 day expiries the overpricing is negligible at 80% IV.
