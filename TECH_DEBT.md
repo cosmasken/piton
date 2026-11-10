@@ -186,3 +186,12 @@ time. Verify against Mezo's BorrowerOperations; the feature may not work as desi
   on a local Hardhat node (deploy → seed → health → keeper dry-run → keeper update).
   Still manual after a real redeploy: update `client/src/store.js` ADDRESSES and the README table.
 - DEFERRED (approved): Stability Pool yield for idle LP capital — research before building.
+
+## Security review prep (audit/)
+- DONE: static analysis with Slither 0.11.6 + Aderyn 0.6.8; findings fixed or triaged in
+  `audit/STATIC_ANALYSIS.md` (incl. yMUSD pool re-settable by owner — fixed). `npm run analyze`.
+- DONE: Foundry fuzz + stateful invariant tests (`npm run fuzz:setup && npm run fuzz`).
+- DONE: `audit/THREAT_MODEL.md` for auditors.
+- OPEN T-1 (medium, owner power): raising `performanceFeeBps` applies retroactively to all past net yield.
+- OPEN O-2 (medium): no oracle price sanity/deviation bound.
+- OPEN O-3/O-4: IV can be set to the 25% floor; TVL and per-option caps unbounded → multisig + timelock.
