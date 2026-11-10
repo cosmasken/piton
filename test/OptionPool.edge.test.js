@@ -134,25 +134,30 @@ describe('Performance fee', () => {
     const quote  = await pool.quotePremium(false, strike, qty, exp);
     const premium = quote + E18('1');
 
-    // Two pool-filled puts: both premiums already count toward gross yield.
+    // Two pool-filled puts. Their premiums are booked but only count as yield once each option ends.
     await pool.connect(buyer).createLongOrder(1, strike, qty, exp, premium);
     await pool.connect(buyer).createLongOrder(1, strike, qty, exp, premium);
     const idA = (await pool.nextId()) - 2n;
     const idB = (await pool.nextId()) - 1n;
+    expect(await pool.totalPerformanceFeePaid(), 'no fee on premium that is not yet earned').to.equal(0n);
 
     await oracle.setPrice(99900); // small ITM: profit = 1, below the earned premium
     await pool.connect(buyer).settle(idA);
-    expect(await pool.totalPremiumsEarned()).to.be.gt(await pool.totalSettlementsPaid());
 
-    const netYield = (await pool.totalPremiumsEarned()) - (await pool.totalSettlementsPaid());
+    // Only A has ended: its premium minus its payout is the recognised yield; B is still open.
+    const recognised = (await pool.totalPremiumsEarned()) - (await pool.unrecognizedPremium());
+    const netYield = recognised - (await pool.totalSettlementsPaid());
     const feeAfterSettle = await pool.totalPerformanceFeePaid();
+    expect(netYield).to.be.gt(0n);
     expect(feeAfterSettle).to.equal(netYield * 1500n / 10000n);
 
-    // Refunding B creates no new yield, so no additional fee should be taken.
+    // B expires worthless: its premium is now earned and is charged exactly once.
     await time.increaseTo(exp + 1);
     await pool.connect(buyer).refund(idB);
-
-    expect(await pool.totalPerformanceFeePaid()).to.equal(feeAfterSettle);
+    const totalYield = (await pool.totalPremiumsEarned()) - (await pool.totalSettlementsPaid());
+    expect(await pool.unrecognizedPremium()).to.equal(0n);
+    expect(await pool.totalPerformanceFeePaid()).to.be.closeTo(totalYield * 1500n / 10000n, 2n);
+    expect(await pool.totalPerformanceFeePaid()).to.be.gt(feeAfterSettle);
   });
 
   it('does not charge a fee when net yield is negative', async () => {

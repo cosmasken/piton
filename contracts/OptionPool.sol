@@ -109,6 +109,13 @@ contract OptionPool is Ownable, ReentrancyGuard {
     uint256[] internal openPoolOptions;
     mapping(uint256 => uint256) internal openPoolSlot; // option id => index + 1
 
+    /// @dev Premium booked on a pool-sold option. It stays "unearned" (not LP profit) until the option
+    ///      ends, and is released gradually as expiry approaches (see _positionLiability).
+    struct PoolPos { uint128 netPremium; uint64 filledAt; }
+    mapping(uint256 => PoolPos) internal poolPos;
+    /// @notice Net premium of open pool options: booked, but not yet recognised as yield.
+    uint256 public unrecognizedPremium;
+
     // Pricing
     uint256 public iv = 8e17;         // 80% default, 18 dec — mid implied vol (set by owner or ivKeeper)
     uint256 public ivSpreadBps = 1500; // pool sells at iv * (1 + spread): 15% safety margin for LPs
@@ -364,20 +371,34 @@ contract OptionPool is Ownable, ReentrancyGuard {
 
     // ─── Net asset value ──────────────────────────────────────────────────────
 
-    /// @dev What open pool options would pay if exercised now (each capped at its collateral).
-    ///      If the oracle is unavailable, assume the worst case (full collateral owed), so exits
-    ///      keep working and are never priced too high.
+    /// @dev What one open pool option is worth as a liability of the pool: the larger of
+    ///      (a) what it would pay if exercised now, and
+    ///      (b) its unearned premium, which decays with the square root of the time left (an option's
+    ///          time value shrinks roughly like sqrt(time), so premium is released slowly at first and
+    ///          faster near expiry). Capped at the option's collateral. If the oracle is unavailable the
+    ///          worst case (full collateral) is assumed, so exits keep working and are never priced too high.
+    ///      Counting the premium as a liability stops anyone profiting by joining the pool just before a
+    ///      sale/expiry or leaving right after one.
+    function _positionLiability(uint256 id, bool oracleOk, uint256 spot) internal view returns (uint256) {
+        Option storage o = options[id];
+        if (o.expiry <= block.timestamp) return 0; // can no longer be exercised: premium is earned
+        if (!oracleOk) return o.collateral;
+        PoolPos storage p = poolPos[id];
+        uint256 rem   = o.expiry - block.timestamp;
+        uint256 total = o.expiry - p.filledAt;
+        uint256 decayed = (rem >= total || total == 0)
+            ? uint256(p.netPremium)
+            : uint256(p.netPremium) * _sqrt(rem * PRECISION / total) / PRECISION;
+        uint256 intr = _intrinsic(o.optionType, o.strike, o.quantity, spot);
+        uint256 l = intr > decayed ? intr : decayed;
+        return l > o.collateral ? o.collateral : l;
+    }
+
     function _poolLiability() internal view returns (uint256 liability) {
         uint256 n = openPoolOptions.length;
         if (n == 0) return 0;
         (bool ok, uint256 spot) = _trySpot();
-        for (uint256 i = 0; i < n; i++) {
-            Option storage o = options[openPoolOptions[i]];
-            if (o.expiry <= block.timestamp) continue; // can no longer be exercised
-            if (!ok) { liability += o.collateral; continue; }
-            uint256 p = _intrinsic(o.optionType, o.strike, o.quantity, spot);
-            liability += p > o.collateral ? o.collateral : p;
-        }
+        for (uint256 i = 0; i < n; i++) liability += _positionLiability(openPoolOptions[i], ok, spot);
     }
 
     function _netAssets() internal view returns (uint256) {
@@ -389,15 +410,17 @@ contract OptionPool is Ownable, ReentrancyGuard {
         try this.spotPrice() returns (uint256 s) { return (true, s); } catch { return (false, 0); }
     }
 
-    /// @notice Pool assets minus the immediate-exercise value of open pool options. LP shares are
-    ///         minted and redeemed at this value.
+    /// @notice Pool assets minus the liability of open pool options (exercise value or unearned
+    ///         premium, whichever is larger). LP shares are minted and redeemed at this value.
     function netAssetValue() external view returns (uint256) { return _netAssets(); }
 
     function openPoolOptionCount() external view returns (uint256) { return openPoolOptions.length; }
 
-    function _addOpenPoolOption(uint256 id) internal {
+    function _addOpenPoolOption(uint256 id, uint256 netPremium) internal {
         openPoolOptions.push(id);
         openPoolSlot[id] = openPoolOptions.length;
+        poolPos[id] = PoolPos({ netPremium: uint128(netPremium), filledAt: uint64(block.timestamp) });
+        unrecognizedPremium += netPremium;
     }
 
     function _removeOpenPoolOption(uint256 id) internal {
@@ -408,6 +431,8 @@ contract OptionPool is Ownable, ReentrancyGuard {
         openPoolSlot[last] = slot;
         openPoolOptions.pop();
         delete openPoolSlot[id];
+        unrecognizedPremium -= poolPos[id].netPremium; // the premium is now recognised as yield
+        delete poolPos[id];
     }
 
     // ─── Collateral helpers ───────────────────────────────────────────────────
@@ -466,8 +491,11 @@ contract OptionPool is Ownable, ReentrancyGuard {
     }
 
     function _takePerformanceFee() internal {
-        if (totalPremiumsEarned <= totalSettlementsPaid) return;
-        uint256 netYield = totalPremiumsEarned - totalSettlementsPaid;
+        // Only premium from options that have ended counts as yield, so the fee is never charged on
+        // premium that a still-open option may yet pay back out.
+        uint256 recognised = totalPremiumsEarned - unrecognizedPremium;
+        if (recognised <= totalSettlementsPaid) return;
+        uint256 netYield = recognised - totalSettlementsPaid;
         if (netYield <= perfFeeHighWater) return; // below the high-water mark: losses not yet recovered
         uint256 newYield = netYield - perfFeeHighWater;
         if (performanceFeeBps == 0) { perfFeeHighWater = netYield; return; } // fee-free yield stays fee-free
@@ -541,6 +569,8 @@ contract OptionPool is Ownable, ReentrancyGuard {
         if (totalAssets < lockedCollateral + collateral) return;
         if (totalAssets >= tvlCap) return;
 
+        if (o.premium > type(uint128).max) return;
+
         // Fill: credit premium to pool, lock collateral
         uint256 netPremium = _takePremiumFee(o.premium);
         totalAssets       += netPremium;
@@ -551,7 +581,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
         o.filledByPool = true;
         o.collateral   = collateral;
         o.status       = OrderStatus.FILLED;
-        _addOpenPoolOption(id);
+        _addOpenPoolOption(id, netPremium);
 
         emit OrderFilled(id, address(this), true);
     }

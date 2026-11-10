@@ -198,19 +198,22 @@ describe('Economics: performance fee is never retroactive', () => {
     expect(await pool.totalPerformanceFeePaid()).to.be.closeTo(y1 * 1500n / 10000n + (y2 - y1) * 3000n / 10000n, 4n);
   });
 
-  it('yield credited but not yet charged is charged at the old rate when the rate changes', async () => {
+  it('premium of options still open is not charged; a rate change applies when the yield is earned', async () => {
     const ctx = await deploy();
     const { pool, lp, buyer } = ctx;
     await pool.connect(lp).deposit(E18('100000'));
-    for (let i = 0; i < 3; i++) { // premiums are credited at fill; no refund/settle yet, so no fee charged
+    for (let i = 0; i < 3; i++) { // premiums are booked at fill, but the options are still open
       const exp = await expiry(3600);
       const q = await pool.quotePremium(false, E18('99000'), Q, exp);
       await pool.connect(buyer).createLongOrder(1, E18('99000'), Q, exp, q);
     }
-    expect(await pool.totalPerformanceFeePaid()).to.equal(0n);
-    const y = await netYield(pool);
+    expect(await pool.totalPerformanceFeePaid(), 'nothing earned yet').to.equal(0n);
     await pool.setPerformanceFeeBps(3000);
-    expect(await pool.totalPerformanceFeePaid(), 'charged at the old 15%').to.equal(y * 1500n / 10000n);
+    expect(await pool.totalPerformanceFeePaid(), 'a rate change charges nothing by itself').to.equal(0n);
+    await time.increase(3601);
+    for (let id = 1n; id <= 3n; id++) await pool.refund(id);
+    const y = await netYield(pool);
+    expect(await pool.totalPerformanceFeePaid(), 'charged at the rate in force when earned').to.be.closeTo(y * 3000n / 10000n, 4n);
   });
 
   it('no fee is charged while the pool is below its high-water mark, then only on new yield', async () => {
