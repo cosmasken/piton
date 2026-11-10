@@ -216,3 +216,8 @@ time. Verify against Mezo's BorrowerOperations; the feature may not work as desi
   `invariant_flashExerciseNeverProfits` (found the exploit unaided when the fix was removed).
 - OPEN T-2 (low): performance fee is charged on booked premium, not realised yield; no clawback.
 - The contract is redeployed after these fixes; the previous matsnet pool `0x81Bf…9C9b` is retired.
+
+- DONE 10 Nov 2026: redeployed after the economic review — OptionPool `0x7240a712402cd992881aE3b9dAA58955509ce582`,
+  yMUSD `0x387A9D85541CE34082C2d9F0E618ac0a3D6A49DA`; seeded 2,500 MUSD, IV set to DVOL (40.5%). Verified live: an
+  immediate-exercise round trip loses the buyer money and the pool gains it. `0x81Bf…9C9b` (briefly deployed earlier
+  the same day, before the fixes) and older pools are retired.

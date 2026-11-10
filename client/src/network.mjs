@@ -25,8 +25,8 @@ export const NETWORKS = {
     faucetUrl: 'https://faucet.test.mezo.org',
     borrowUrl: 'https://testnet.mezo.org',
     addresses: {
-      pool:            '0x81BfAF401a4C500e2e2900DDd1af2Ba9c0179C9b',
-      ymusd:           '0x3153f91886ab0CE5131a2D347F03a433F7FBf3b6',
+      pool:            '0x7240a712402cd992881aE3b9dAA58955509ce582',
+      ymusd:           '0x387A9D85541CE34082C2d9F0E618ac0a3D6A49DA',
       musd:            '0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503',
       oracle:          '0x7b7c000000000000000000000000000000000015',
       troveManager:    '0xE47c80e8c23f6B4A1aE41c34837a0599D5D16bb0',
