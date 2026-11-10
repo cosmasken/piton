@@ -192,3 +192,7 @@ Found by comparing Piton with Hegic and Derive; two weaknesses were reproduced a
 | 12 | **Adjustable open-option cap** with measured gas. | See section 5. |
 
 Remaining unaudited: all of the above is tested but not externally audited; testnet only.
+
+## 8. Off-chain operations
+
+`scripts/ops.js` holds a keeper key on a server. The keeper can set IV (within 25%-150%), exercise options their owners opted in, refund expired options and poke the breaker; it cannot pause, change other parameters or move funds. Worst case from a stolen keeper key: a wrong IV for as long as the owner takes to revoke it with `setIvKeeper(address(0))`. The pool still never sells below exercise value or the minimum rent, and the strike band and utilisation limits apply. After the timelock takes ownership, revoking the keeper is itself delayed, so the guardian pause is the fast response. Keys live in git-ignored files with mode 600.

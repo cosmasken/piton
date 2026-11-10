@@ -235,3 +235,13 @@ time. Verify against Mezo's BorrowerOperations; the feature may not work as desi
 - DONE: redeployed matsnet with these changes — OptionPool `0xe27c6a15D947757Ae7bcc945063C45C650B3F357`, yMUSD
   `0x00967781f41728A8d5BD64D2EeFd75e28F5f0246`; seeded 2,500 MUSD, IV from DVOL (40.32%), `minPoolExpiry` set to 900 s
   for quick testing (default 3600). `0x7240…` is retired and empty. OPEN: timelock and guardian not set up; no external audit.
+
+## Operations (10 Nov 2026)
+- `scripts/ops.js`: one ethers-only process for the VPS (IV keeper, auto-exercise, refunds, circuit-breaker poke, optional
+  demo trader). Keys are read from git-ignored `docs/*.json`. `scripts/genKeys.js` creates and funds the keeper, guardian and
+  governance keys. `scripts/push-ops-vps.sh` (git-ignored, holds the host) pushes it to the server under pm2.
+- DONE on matsnet: keeper `0xdE33…7948` authorised with `setIvKeeper` and verified (it set the IV on-chain); 3 bot wallets funded with
+  50 MUSD each; one demo order placed and filled by the pool.
+- NOT TESTED LIVE: auto-exercise end to end on matsnet (needs an in-the-money, opted-in option in its last 5 minutes); covered by the
+  Hardhat tests. The guardian and timelock are generated but ownership has not been handed over.
+- The demo bot is seeded activity, not real volume, and must be described that way to anyone evaluating traction.

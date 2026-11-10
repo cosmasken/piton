@@ -182,7 +182,34 @@ npx hardhat run scripts/ivKeeper.js --network matsnet  # push Deribit DVOL as th
 
 - `deployV2.js` checks its inputs before sending anything and writes addresses to `deployments/<network>.json`; the other scripts read that file.
 - After a deploy, put the new `pool` and `ymusd` addresses in `client/src/network.mjs` (and the table above). On mainnet these are zero-address placeholders today; replacing them switches the dapp from "not live" to live automatically.
-- Run `ivKeeper.js` hourly (e.g. cron). It skips changes under 2 vol points and stale data, and supports `DRY_RUN=1`. The keeper key can only change IV; give it to a dedicated wallet, not the owner.
+- `ivKeeper.js` is the one-shot version of the IV update (supports `DRY_RUN=1`; skips changes under 2 vol points and stale data). The keeper key can only change IV, so give it a dedicated wallet, never the owner key.
+- Test wallets and keys live in git-ignored files (`docs/bot-wallets.json`, `docs/governance-wallets.json`). Nothing with a private key is committed.
+
+### Keeper and demo bot (run on a server)
+
+`scripts/ops.js` is a single ethers-only process (no Hardhat needed) that runs everything the protocol needs off-chain:
+
+| Job | Every | What it does |
+|---|---|---|
+| `iv` | 1 h | Sets the pool's IV from Deribit DVOL |
+| `exercise` | 1 min | Exercises options whose owner ticked auto-exercise, in the last 5 minutes, when they are in the money. The caller earns 0.5% of the payout. |
+| `refund` | 5 min | Refunds expired pool options, which frees collateral and books the premium as yield |
+| `poke` | 10 min | Feeds the circuit breaker a fresh price, so a crash is noticed even when nobody trades |
+| `bot` | 12 min | Optional demo trader: a few test wallets buy small options from the pool (clearly seeded activity, not organic volume) |
+
+```bash
+node scripts/genKeys.js                          # creates docs/governance-wallets.json (keeper, guardian, multisig); FUND=1 also sends gas
+ONCE=1 node scripts/ops.js                       # run every job once (smoke test); DRY_RUN=1 sends nothing
+JOBS=iv,exercise,refund,poke node scripts/ops.js # keepers only, no demo trades
+```
+
+On a VPS, copy `scripts/ops.js`, `scripts/lib/`, `deployments/matsnet.json`, the pool ABI (`client/src/contracts/OptionPool.json`) and the two key files, then run it under pm2 (`pm2 start scripts/ops.js --name piton-ops`). Before the first run, the pool owner must authorise the keeper wallet: `pool.setIvKeeper(<keeper address>)` (do this before handing ownership to a timelock).
+
+### Governance (guardian and timelock)
+
+1. `node scripts/genKeys.js` generates the guardian key (can only pause) and the proposer/executor key. On testnet both are single keys; on mainnet use a Safe multisig for the proposer role and keep the guardian on a separate device.
+2. `npx hardhat run scripts/setupGovernance.js --network matsnet` (use `DELAY_HOURS=0.1` on testnet) deploys `PitonTimelock`, sets the guardian and starts the two-step ownership transfer. The timelock then accepts ownership through its own queue; the printed calldata makes that one call.
+3. After the handover every parameter change waits out the delay. Do it last.
 - `npm run deploy:mainnet` targets Mezo mainnet. Don't run it until the contracts are audited.
 
 ---
