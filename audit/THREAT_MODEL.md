@@ -138,18 +138,18 @@ A focused review of every path that moves value found three issues. All are fixe
 | E2 (medium) | LP shares were priced on raw assets, ignoring what open options would pay if exercised now. An LP could withdraw before a known loss and leave it to others; a new depositor could buy in at an inflated price. | Shares are priced on net asset value (assets minus the immediate-exercise liability of open pool options, capped at their collateral). Open pool options are capped at 50; a stale oracle assumes the full collateral is owed. |
 | E3 (medium) | Retroactive performance fee (T-1). | High-water mark; accrued fee charged at the old rate before a change. |
 
-Accepted: a seller's resting ask can go stale as the price moves (normal order-book risk; they can cancel). Beyond 50 open pool options, new buys rest as bids until options expire (cost: ~0.7M gas worst case per deposit or withdrawal).
+Accepted: a seller's resting ask can go stale as the price moves (normal order-book risk; they can cancel). Beyond `maxOpenPoolOptions` (default 50, owner-set up to 150) new buys rest as bids until options expire. Measured worst case at 150 options: about 4.2M gas per deposit or withdrawal against Mezo's 10M block limit (test `#12`). There is no snapshot cache for larger books: it would not fit the 24,576-byte contract size limit (the contract is 23,046 bytes), so the cap stays.
 
 ## 6. Known open findings
 
 | ID | Severity (our view) | Finding | Suggested fix |
 |---|---|---|---|
 | T-1 | ~~Medium~~ **Fixed** | Raising `performanceFeeBps` was retroactive. Now the accrued fee is charged at the old rate inside the setter, and fees apply only above a high-water mark. | — |
-| T-2 | Low | The performance fee is charged on premium when it is booked (at fill), before the option expires. If that option later pays out, the fee is not returned (no clawback). The fee recipient can also buy from the pool at a small effective discount funded by this. | Charge only on realised yield (track each option's net premium until it settles or expires). |
-| O-2 | Medium | No price sanity bound (e.g. max per-block deviation or min/max price) on the Skip oracle, which Mezo's own docs recommend. | Add bounds and/or read Mezo's PriceFeed; pause on large deviations. |
-| O-3 | Low–Medium | Owner/keeper can set IV to the 25% floor and buy underpriced options. | Multisig + timelock owner; rate-limit IV changes per hour on-chain. |
-| O-4 | Low | `setTVLCap` / `setMaxOptionCollateral` are unbounded. | Timelock, or hard upper bounds. |
-| O-5 | Info | ITM options not settled by expiry are forfeited. | Keeper-driven auto-exercise. |
+| T-2 | ~~Low~~ **Fixed** | The performance fee was charged on premium at fill. Now only premium of options that have ended counts as yield (`unrecognizedPremium`). | — |
+| O-2 | Medium → Low | A circuit breaker (5% move in 10 min → 30 min pause of pool fills and deposits) now bounds damage from a fast wrong price. A slow wrong price, or a wrong price that persists, is still not caught; exits and settlement stay open by design. | Also read Mezo's PriceFeed and compare. |
+| O-3 | Low–Medium | Owner/keeper can set IV to the 25% floor and buy underpriced options. Mitigated: two-step ownership, guardian-only pause, `PitonTimelock` owner (`scripts/setupGovernance.js`); the minimum rent and strike band limit the damage. Still open: the timelock and a multisig must actually be set up, and IV changes are not rate-limited on-chain. | Hand ownership to the timelock; rate-limit IV changes. |
+| O-4 | Low | `setTVLCap` / `setMaxOptionCollateral` are unbounded. Utilisation (80%) and per-option (25%) limits now apply to pool fills regardless. | Timelock, or hard upper bounds. |
+| O-5 | Info → Mitigated | ITM options not settled by expiry are forfeited unless the owner opts in to auto-exercise (`setAutoExercise`; keeper script `scripts/autoExercise.js`; 0.5% keeper fee). Options with no opt-in and no keeper running are still forfeited. | — |
 
 ## 7. Verification already done
 
@@ -170,3 +170,25 @@ Accepted: a seller's resting ask can go stale as the price moves (normal order-b
    from someone else's Trove?
 4. Economic attacks on the pool through oracle latency, IV staleness, or the 95%-of-ask fill rule.
 5. Anything the owner or keeper can do beyond the table in section 3.
+
+
+## 7. Pool-protection changes (10 Nov 2026, second review)
+
+Found by comparing Piton with Hegic and Derive; two weaknesses were reproduced against the live contract first.
+
+| # | Change | Why |
+|---|---|---|
+| 1 | **Premium-lock NAV.** An open pool option is a liability of max(exercise value, unearned premium decaying with sqrt of time left), capped at collateral. Performance fee only on recognised yield. | "Become the pool": deposit, buy from the pool, withdraw at once recovered ~88% of the premium (about 14 MUSD of edge per 0.01 BTC option). Test + fuzz invariant `invariant_navTimingNeverPays`; mutation-checked. |
+| 2 | **Deposit lock** (1 h) and **withdrawal fee** (25 bps, only while options are open, stays in the pool). yMUSD cannot be transferred during the lock. | Removes just-in-time liquidity and fresh-address workarounds. |
+| 3 | **Utilisation limit** (80%) and **per-option exposure** (25% of assets). | A 0.0032 MUSD option locked a 1,000 MUSD pool for 14 days and blocked withdrawals. |
+| 4 | **Minimum rent**, 5% a year of locked collateral. | No more near-free long-dated options. |
+| 5 | **Strike band**, ±30% of spot for pool fills. | Model is least reliable far from spot. |
+| 6 | **Utilisation markup** on IV, up to +20% at 100%. | Large trades and a busy pool cost more. |
+| 7 | **Minimum time left** for pool-sold options, 1 h. | Short options are the most exposed to stale prices. |
+| 8 | **Circuit breaker.** | See O-2. Blocks pool fills and deposits only. |
+| 9 | **Opt-in auto-exercise.** | See O-5. |
+| 10 | **Ownable2Step, guardian pause, timelock.** `renounceOwnership` is disabled. | See O-3. |
+| 11 | **Differential test** against Derive v1 Black-Scholes (540 prices; worst difference 0.014 MUSD on a 100,000 spot, 0.099% where the price exceeds 1 MUSD). | Independent check of the maths. |
+| 12 | **Adjustable open-option cap** with measured gas. | See section 5. |
+
+Remaining unaudited: all of the above is tested but not externally audited; testnet only.

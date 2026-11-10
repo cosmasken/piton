@@ -214,10 +214,23 @@ time. Verify against Mezo's BorrowerOperations; the feature may not work as desi
 - E3 / T-1 retroactive performance fee: FIXED, high-water mark.
 - Tests: `test/OptionPool.economics.test.js` (13, each mutation-checked) and Foundry invariant
   `invariant_flashExerciseNeverProfits` (found the exploit unaided when the fix was removed).
-- OPEN T-2 (low): performance fee is charged on booked premium, not realised yield; no clawback.
+- T-2: FIXED in the second review (performance fee on recognised yield only).
 - The contract is redeployed after these fixes; the previous matsnet pool `0x81Bf…9C9b` is retired.
 
 - DONE 10 Nov 2026: redeployed after the economic review — OptionPool `0x7240a712402cd992881aE3b9dAA58955509ce582`,
   yMUSD `0x387A9D85541CE34082C2d9F0E618ac0a3D6A49DA`; seeded 2,500 MUSD, IV set to DVOL (40.5%). Verified live: an
   immediate-exercise round trip loses the buyer money and the pool gains it. `0x81Bf…9C9b` (briefly deployed earlier
   the same day, before the fixes) and older pools are retired.
+
+## Second review (10 Nov 2026) — 12 pool-protection changes, one commit each
+1 premium-lock NAV · 2 deposit lock + withdrawal fee · 3 utilisation/exposure limits · 4 minimum rent ·
+5 strike band · 6 utilisation markup · 7 minimum pool expiry · 8 circuit breaker · 9 opt-in auto-exercise +
+`scripts/autoExercise.js` · 10 Ownable2Step + guardian + `PitonTimelock` + `scripts/setupGovernance.js` ·
+11 differential test vs Derive v1 · 12 adjustable open-option cap with measured gas.
+- Details and rationale: `audit/THREAT_MODEL.md` section 7. Tests: `test/OptionPool.{premiumlock,exitprotect,limits,governance,derive}.test.js`
+  and Foundry `invariant_navTimingNeverPays`. Each change was mutation-checked (removing it fails a test).
+- NOT DONE as first specified: #12 asked for a snapshot liability cache for unlimited open options. It does not fit in
+  the contract size limit (23,046 of 24,576 bytes used), so the cap is adjustable (default 50, ceiling 150) and its gas
+  is tested. A cache would need the pricing maths moved into a linked library first.
+- OPEN: the deployed matsnet pool (0x7240…) predates these changes; redeploy needed. The timelock and guardian are
+  not set up on any deployment. No external audit.

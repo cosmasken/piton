@@ -54,7 +54,14 @@ Anyone can deposit MUSD and receive **yMUSD** LP tokens.
 - LPs earn the net premium on every pool fill, and keep collateral from options that expire worthless. They pay out when options finish in the money.
 - Withdrawals are instant up to the unlocked balance; locked collateral frees up as options settle or expire.
 - **Pricing.** The pool sells at `mid IV × 1.15`. The mid IV is updated hourly by a keeper from Deribit's BTC volatility index (DVOL), within 25%–150%.
-- **Limits.** 50,000 MUSD pool cap and 10,000 MUSD collateral per option (owner-adjustable). Trading can be paused by the owner.
+- **Limits.** 50,000 MUSD pool cap and 10,000 MUSD collateral per option (owner-adjustable). Trading can be paused by the owner or a guardian key (only the owner can unpause).
+- **Pool protections** (in the contracts in this repository; the matsnet deployment below predates them until redeployed):
+  - Share price counts unearned premium as a liability, so nobody can join just before a sale or leave just after one to capture premium.
+  - 1-hour deposit lock; 0.25% withdrawal fee while options are open (stays in the pool).
+  - The pool sells only strikes within 30% of spot, with at least 1 hour left, at least 5% a year of rent on locked collateral, a price markup that rises with utilisation, and never past 80% utilisation or 25% of the pool in one option.
+  - Circuit breaker: a 5% move in 10 minutes pauses pool fills and deposits for 30 minutes. Withdrawals, settlement and refunds stay open.
+  - Opt-in auto-exercise: owners can allow a keeper to exercise in-the-money options in the last 5 minutes for 0.5% of the payout.
+  - Two-step ownership, and an optional timelock owner (`scripts/setupGovernance.js`).
 - **After a total loss**, deposits are blocked until worthless yMUSD is cleared, so new depositors are never diluted by old shares.
 
 ### Fees

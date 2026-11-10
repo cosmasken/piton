@@ -8,6 +8,8 @@ After fixes: Slither 55 results, Aderyn 1 high + 5 low categories, all triaged b
 economic fixes (E1–E3): identical Slither results, nothing new; Aderyn's `nonReentrant`-ordering point was fixed.
 The test suite (97 Hardhat incl. Mezo integration, 14 Foundry) passes after the changes.
 
+Re-run after the 12 pool-protection changes (second review): Slither 55 results, the same categories and counts as above, nothing new. Aderyn adds one item, H-2 "unsafe casting" (`uint128(netPremium)`, `uint64(block.timestamp)` in `_addOpenPoolOption`): accepted, because `_tryPoolFill` returns early if the premium exceeds `type(uint128).max` and a timestamp cannot exceed `uint64`. The suite is now 141 Hardhat and 15 Foundry tests.
+
 ## Fixed
 
 | Finding | Tool | Change |
