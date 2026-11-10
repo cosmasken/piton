@@ -34,6 +34,8 @@ async function deploy() {
 
   await ymusd.setPool(await pool.getAddress());
 
+  await pool.setDepositLock(0); await pool.setWithdrawalFeeBps(0); // exit protections have their own tests
+
   for (const w of [lp, buyer, seller]) {
     await musd.mint(w.address, E18('100000'));
     await musd.connect(w).approve(await pool.getAddress(), ethers.MaxUint256);
@@ -353,6 +355,7 @@ describe('Total loss: deposits blocked until worthless shares are cleared', () =
       await ctx.trove.getAddress(), await ctx.borrowerOps.getAddress()
     );
     await ymusd.setPool(await pool.getAddress());
+    await pool.setDepositLock(0); await pool.setWithdrawalFeeBps(0); // exit protections have their own tests
     ctx.ymusd = ymusd;
     for (const w of [ctx.lp, ctx.buyer, ctx.seller, ctx.other]) {
       await ctx.musd.mint(w.address, E18('100000'));

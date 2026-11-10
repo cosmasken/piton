@@ -34,6 +34,8 @@ async function deploy() {
 
   await ymusd.setPool(await pool.getAddress());
 
+  await pool.setDepositLock(0); await pool.setWithdrawalFeeBps(0); // exit protections have their own tests
+
   // Fund wallets
   for (const w of [lp, buyer, seller]) {
     await musd.mint(w.address, E18('100000'));

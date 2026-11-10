@@ -133,6 +133,15 @@ contract OptionPool is Ownable, ReentrancyGuard {
 
     bool public paused;
 
+    // Exit protections (see suggestion #2)
+    /// @notice Fee on withdrawals made while pool options are open. It stays in the pool for remaining LPs.
+    uint256 public withdrawalFeeBps = 25;
+    uint256 public constant MAX_WITHDRAWAL_FEE_BPS = 100;
+    /// @notice After depositing, an LP can neither withdraw nor transfer yMUSD for this long.
+    uint256 public depositLockSeconds = 1 hours;
+    uint256 public constant MAX_DEPOSIT_LOCK = 7 days;
+    mapping(address => uint256) public depositLockExpiry;
+
     // ─── Events ──────────────────────────────────────────────────────────────
 
     event Deposited(address indexed user, uint256 musdIn, uint256 sharesOut);
@@ -152,6 +161,8 @@ contract OptionPool is Ownable, ReentrancyGuard {
     event ProtocolFeeSet(uint256 bps);
     event PerformanceFeeSet(uint256 bps);
     event PausedSet(bool paused);
+    event WithdrawalFeeSet(uint256 bps);
+    event DepositLockSet(uint256 seconds_);
 
 
     // ─── Constructor ─────────────────────────────────────────────────────────
@@ -330,6 +341,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
         }
 
         totalAssets += amount; // effects before interactions
+        depositLockExpiry[msg.sender] = block.timestamp + depositLockSeconds;
         musd.safeTransferFrom(msg.sender, address(this), amount);
         ymusd.mint(msg.sender, shares);
 
@@ -340,9 +352,12 @@ contract OptionPool is Ownable, ReentrancyGuard {
         require(shares > 0, "zero shares");
         uint256 supply = ymusd.totalSupply();
         require(supply > 0, "no supply");
+        require(block.timestamp >= depositLockExpiry[msg.sender], "deposit locked");
 
         // Priced on net asset value so a leaving LP takes their share of open losses with them.
         uint256 musdOut = shares * _netAssets() / supply;
+        // Leaving while options are open costs a small fee, which stays in the pool for the LPs who remain.
+        if (openPoolOptions.length > 0) musdOut -= musdOut * withdrawalFeeBps / 10000;
         uint256 available = totalAssets - lockedCollateral;
         require(musdOut <= available, "insufficient liquidity");
 
@@ -889,6 +904,18 @@ contract OptionPool is Ownable, ReentrancyGuard {
         _takePerformanceFee(); // yield earned so far is charged at the old rate, never the new one
         performanceFeeBps = _bps;
         emit PerformanceFeeSet(_bps);
+    }
+
+    function setWithdrawalFeeBps(uint256 _bps) external onlyOwner {
+        require(_bps <= MAX_WITHDRAWAL_FEE_BPS, "max 1%");
+        withdrawalFeeBps = _bps;
+        emit WithdrawalFeeSet(_bps);
+    }
+
+    function setDepositLock(uint256 _seconds) external onlyOwner {
+        require(_seconds <= MAX_DEPOSIT_LOCK, "max 7 days");
+        depositLockSeconds = _seconds; // applies to deposits made after this call
+        emit DepositLockSet(_seconds);
     }
 
     /// @notice Pause blocks new deposits, orders and fills. Withdraw, settle, refund and cancel stay

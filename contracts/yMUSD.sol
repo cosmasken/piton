@@ -4,6 +4,8 @@ pragma solidity 0.8.28;
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
+interface IPoolLock { function depositLockExpiry(address who) external view returns (uint256); }
+
 /// @title yMUSD — Piton liquidity pool LP token
 /// @notice Yield-bearing MUSD. Minted on deposit, burned on withdrawal.
 ///         Only the OptionPool contract can mint or burn.
@@ -26,6 +28,15 @@ contract yMUSD is ERC20, Ownable {
         require(_pool != address(0), "zero address");
         pool = _pool;
         emit PoolSet(_pool);
+    }
+
+    /// @dev Shares can't be moved while their holder's deposit lock is running; otherwise the lock
+    ///      could be dodged by sending the shares to a fresh address.
+    function _update(address from, address to, uint256 value) internal override {
+        if (from != address(0) && to != address(0) && pool != address(0)) {
+            require(block.timestamp >= IPoolLock(pool).depositLockExpiry(from), "yMUSD: deposit locked");
+        }
+        super._update(from, to, value);
     }
 
     function mint(address to, uint256 amount) external onlyPool {

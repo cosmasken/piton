@@ -41,6 +41,8 @@ contract Handler is Test {
         bo.setMUSD(address(musd));
         musd.mint(address(bo), 1e30); // funds the mock Mezo borrow
         pool.setTVLCap(1e27);
+        pool.setDepositLock(0);
+        pool.setWithdrawalFeeBps(0);
         pool.setMaxOptionCollateral(1e26);
 
         for (uint256 i = 0; i < 5; i++) {

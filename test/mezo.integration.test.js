@@ -82,6 +82,7 @@ async function deployMezo() {
     await A(musd), await A(ymusd), await A(aggregator), await A(troveManager), await A(bos)
   );
   await ymusd.setPool(await A(pool));
+  await pool.setDepositLock(0); await pool.setWithdrawalFeeBps(0); // exit protections have their own tests
 
   // Whale Trove keeps the system out of Recovery Mode (TCR >= 150%).
   await openTrove({ borrowerOperations }, whale, E18('100000'), 5n);
