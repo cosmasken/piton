@@ -44,6 +44,7 @@ contract Handler is Test {
         pool.setDepositLock(0);
         pool.setWithdrawalFeeBps(0);
         pool.setMinPoolExpiry(900);
+        pool.setBreaker(600, 50000, 0);
         pool.setMaxOptionCollateral(1e26);
 
         for (uint256 i = 0; i < 5; i++) {

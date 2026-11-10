@@ -14,7 +14,7 @@ async function deploy() {
     await (await (await ethers.getContractFactory('MockTrove')).deploy()).getAddress(),
     await (await (await ethers.getContractFactory('MockBorrowerOps')).deploy()).getAddress());
   await ymusd.setPool(await pool.getAddress());
-  await pool.setDepositLock(0); await pool.setWithdrawalFeeBps(0); await pool.setMinPoolExpiry(900);
+  await pool.setDepositLock(0); await pool.setWithdrawalFeeBps(0); await pool.setMinPoolExpiry(900); await pool.setBreaker(600, 50000, 0);
   await pool.setTVLCap(E18('1000000000'));
   await pool.setMaxOptionCollateral(E18('10000000'));
   for (const w of [owner, lp, buyer, other]) {
@@ -171,5 +171,53 @@ describe('#6 utilisation-based price markup', () => {
     await expect(pool.setUtilSpreadBps(10001)).to.be.revertedWith('spread too high');
     await expect(pool.setUtilSpreadBps(500)).to.emit(pool, 'UtilSpreadSet').withArgs(500n);
     await expect(pool.connect(lp).setUtilSpreadBps(1)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
+  });
+});
+
+describe('#8 circuit breaker', () => {
+  async function armed() {
+    const c = await deploy();
+    await c.pool.setBreaker(600, 500, 1800); // 5% in 10 min -> 30 min pause (the shipped defaults)
+    await c.pool.connect(c.lp).deposit(E18('1000000'));
+    await c.pool.pokeCircuitBreaker();       // start the window at 100,000
+    return c;
+  }
+  it('a fast move pauses pool fills (orders rest as bids) and deposits; exits keep working', async () => {
+    const { pool, oracle, lp, buyer, other, ymusd } = await armed();
+    await oracle.setPrice(93000); // -7% inside the window
+    expect(await buyPut(pool, buyer, E18('90000'), E18('0.1'))).to.equal(false);
+    expect(await pool.cbUntil()).to.be.gt(0n);
+    await expect(pool.connect(other).deposit(E18('10'))).to.be.revertedWith('circuit breaker');
+    await pool.connect(lp).withdraw((await ymusd.balanceOf(lp.address)) / 10n); // LPs can always leave
+  });
+  it('pool fills and deposits resume after the cooldown', async () => {
+    const { pool, oracle, buyer, other } = await armed();
+    await oracle.setPrice(93000);
+    expect(await buyPut(pool, buyer, E18('90000'), E18('0.1'))).to.equal(false);
+    await time.increase(1801); await oracle.setPrice(93000);
+    expect(await buyPut(pool, buyer, E18('90000'), E18('0.1'))).to.equal(true);
+    await pool.connect(other).deposit(E18('10'));
+  });
+  it('a slow drift of the same size does not trip it', async () => {
+    const { pool, oracle, buyer } = await armed();
+    for (const p of [98000, 96000, 94000]) { await time.increase(400); await oracle.setPrice(p); expect(await buyPut(pool, buyer, E18('90000'), E18('0.1'))).to.equal(true); }
+  });
+  it('anyone can poke it with a fresh price; settle and refund are never blocked', async () => {
+    const { pool, oracle, buyer } = await armed();
+    expect(await buyPut(pool, buyer, E18('99000'), E18('0.1'))).to.equal(true);
+    const id = (await pool.nextId()) - 1n;
+    await oracle.setPrice(90000);
+    await pool.pokeCircuitBreaker();
+    expect(await pool.cbUntil()).to.be.gt(0n);
+    await pool.connect(buyer).settle(id); // exercising during a breaker is fine
+  });
+  it('settings are bounded and owner-only', async () => {
+    const { pool, lp } = await deploy();
+    await expect(pool.setBreaker(30, 500, 1800)).to.be.revertedWith('bad window');
+    await expect(pool.setBreaker(600, 50, 1800)).to.be.revertedWith('bad move');
+    await expect(pool.setBreaker(600, 500, 86401)).to.be.revertedWith('bad cooldown');
+    await expect(pool.setBreaker(600, 500, 1800)).to.emit(pool, 'BreakerSet').withArgs(600n, 500n, 1800n);
+    await expect(pool.connect(lp).setBreaker(600, 500, 1800)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
+    expect(await pool.cbMaxMoveBps()).to.equal(500n);
   });
 });

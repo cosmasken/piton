@@ -16,7 +16,7 @@ async function deploy() {
     await (await (await ethers.getContractFactory('MockTrove')).deploy()).getAddress(),
     await (await (await ethers.getContractFactory('MockBorrowerOps')).deploy()).getAddress());
   await ymusd.setPool(await pool.getAddress());
-  await pool.setDepositLock(0); await pool.setWithdrawalFeeBps(0); await pool.setMinPoolExpiry(900); // exit protections have their own tests
+  await pool.setDepositLock(0); await pool.setWithdrawalFeeBps(0); await pool.setMinPoolExpiry(900); await pool.setBreaker(600, 50000, 0); // exit protections have their own tests
   await pool.setTVLCap(E18('1000000000'));
   await pool.setMaxOptionCollateral(E18('10000000'));
   for (const w of [owner, honest, attacker, other]) {

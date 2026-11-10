@@ -167,6 +167,15 @@ contract OptionPool is Ownable, ReentrancyGuard {
     uint256 public utilSpreadBps = 2000;
     uint256 public constant MAX_UTIL_SPREAD_BPS = 10000;
 
+    // Circuit breaker (suggestion #8): a fast price move pauses new risk (pool fills, deposits) for a
+    // while. Exits, settlement, refunds and cancellations are never blocked.
+    uint256 public cbWindow = 10 minutes;     // moves are measured against the price at the start of this window
+    uint256 public cbMaxMoveBps = 500;        // 5% inside one window trips the breaker
+    uint256 public cbCooldown = 30 minutes;   // how long new risk stays paused after a trip
+    uint256 public cbRefPrice;
+    uint256 public cbRefTime;
+    uint256 public cbUntil;
+
     // ─── Events ──────────────────────────────────────────────────────────────
 
     event Deposited(address indexed user, uint256 musdIn, uint256 sharesOut);
@@ -188,6 +197,8 @@ contract OptionPool is Ownable, ReentrancyGuard {
     event PausedSet(bool paused);
     event WithdrawalFeeSet(uint256 bps);
     event DepositLockSet(uint256 seconds_);
+    event BreakerSet(uint256 window, uint256 maxMoveBps, uint256 cooldown);
+    event BreakerTripped(uint256 price, uint256 refPrice, uint256 until);
     event UtilSpreadSet(uint256 bps);
     event MinPoolExpirySet(uint256 seconds_);
     event MaxStrikeDistanceSet(uint256 bps);
@@ -353,6 +364,8 @@ contract OptionPool is Ownable, ReentrancyGuard {
     function deposit(uint256 amount) external nonReentrant notPaused {
         require(amount > 0, "zero amount");
         require(totalAssets + amount <= tvlCap, "tvl cap");
+        (bool oracleOk, uint256 spotNow) = _trySpot();
+        require(!(oracleOk && _breaker(spotNow)), "circuit breaker");
 
         uint256 shares;
         uint256 supply = ymusd.totalSupply();
@@ -596,7 +609,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
     function _tryPoolFill(uint256 id) internal {
         Option storage o = options[id];
         uint256 spot = _spot();
-
+        if (_breaker(spot)) return; // fast market: the order rests as an open bid instead
         if (o.expiry - block.timestamp < minPoolExpiry) return; // too short for the pool to sell
 
         uint256 dist = o.strike > spot ? o.strike - spot : spot - o.strike;
@@ -994,6 +1007,33 @@ contract OptionPool is Ownable, ReentrancyGuard {
         utilSpreadBps = _bps;
         emit UtilSpreadSet(_bps);
     }
+
+    function setBreaker(uint256 window, uint256 maxMoveBps, uint256 cooldown) external onlyOwner {
+        require(window >= 1 minutes && window <= 1 days, "bad window");
+        require(maxMoveBps >= 100 && maxMoveBps <= 50000, "bad move");
+        require(cooldown <= 1 days, "bad cooldown");
+        cbWindow = window; cbMaxMoveBps = maxMoveBps; cbCooldown = cooldown;
+        emit BreakerSet(window, maxMoveBps, cooldown);
+    }
+
+    /// @dev Records the price and reports whether new risk is currently paused. Writes state, so the
+    ///      trip sticks on every path that does not revert.
+    function _breaker(uint256 spot) internal returns (bool) {
+        if (block.timestamp < cbUntil) return true;
+        if (cbRefTime == 0 || block.timestamp - cbRefTime > cbWindow) {
+            cbRefPrice = spot; cbRefTime = block.timestamp; // start a fresh window
+            return false;
+        }
+        uint256 d = spot > cbRefPrice ? spot - cbRefPrice : cbRefPrice - spot;
+        if (d * 10000 <= cbRefPrice * cbMaxMoveBps) return false;
+        cbUntil = block.timestamp + cbCooldown;
+        emit BreakerTripped(spot, cbRefPrice, cbUntil);
+        cbRefPrice = spot; cbRefTime = block.timestamp; // the new level becomes the reference
+        return true;
+    }
+
+    /// @notice Anyone can feed the breaker a fresh price, so a crash is noticed even with no trading.
+    function pokeCircuitBreaker() external returns (bool) { return _breaker(_spot()); }
 
     function setDepositLock(uint256 _seconds) external onlyOwner {
         require(_seconds <= MAX_DEPOSIT_LOCK, "max 7 days");
