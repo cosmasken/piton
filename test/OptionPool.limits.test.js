@@ -76,7 +76,7 @@ describe('#4 minimum rent on locked collateral', () => {
   it('a nearly-free far-OTM long-dated put is no longer sold for dust', async () => {
     const { pool, lp, buyer } = await deploy();
     await pool.connect(lp).deposit(E18('1000000'));
-    const K = E18('60000'), Q = E18('1'), exp = (await now()) + 14 * 86400;
+    const K = E18('75000'), Q = E18('1'), exp = (await now()) + 14 * 86400;
     const bsOnly = await pool.quotePremium(false, K, Q, exp);
     const rent = K * 500n * BigInt(14 * 86400) / (10000n * 31536000n);
     expect(bsOnly).to.be.gte(rent - 10n * 10n ** 15n); // the quote is at least the rent (60k collateral * 5% * 14d)
@@ -92,5 +92,27 @@ describe('#4 minimum rent on locked collateral', () => {
     await expect(pool.setMinRentBps(0)).to.emit(pool, 'MinRentSet').withArgs(0n);
     await expect(pool.setMinRentBps(5001)).to.be.revertedWith('max 50%');
     await expect(pool.connect(lp).setMinRentBps(1)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
+  });
+});
+
+describe('#5 strike distance band', () => {
+  it('default 30%: the pool declines strikes further from spot than that', async () => {
+    const { pool, lp, buyer } = await deploy();
+    expect(await pool.maxStrikeDistanceBps()).to.equal(3000n);
+    await pool.connect(lp).deposit(E18('1000000'));
+    expect(await buyPut(pool, buyer, E18('68000'), E18('0.1'))).to.equal(false); // 32% below
+    expect(await buyPut(pool, buyer, E18('72000'), E18('0.1'))).to.equal(true);  // 28% below
+    const exp = (await now()) + 86400;
+    const q = await pool.quotePremium(true, E18('135000'), E18('0.1'), exp);
+    await pool.connect(buyer).createLongOrder(0, E18('135000'), E18('0.1'), exp, q * 2n);
+    expect((await pool.getOption(await pool.nextId() - 1n)).filledByPool).to.equal(false); // calls too: 35% above
+  });
+  it('owner can widen (10%..100%) and it emits', async () => {
+    const { pool, lp, buyer } = await deploy();
+    await pool.connect(lp).deposit(E18('1000000'));
+    await expect(pool.setMaxStrikeDistanceBps(5000)).to.emit(pool, 'MaxStrikeDistanceSet').withArgs(5000n);
+    expect(await buyPut(pool, buyer, E18('60000'), E18('0.1'))).to.equal(true);
+    await expect(pool.setMaxStrikeDistanceBps(999)).to.be.revertedWith('between 10% and 100%');
+    await expect(pool.connect(lp).setMaxStrikeDistanceBps(5000)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
   });
 });

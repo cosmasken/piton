@@ -155,6 +155,10 @@ contract OptionPool is Ownable, ReentrancyGuard {
     uint256 public minRentBps = 500;
     uint256 public constant MAX_MIN_RENT_BPS = 5000;
 
+    /// @notice The pool only sells options with a strike within this distance of spot (bps). Far-away
+    ///         strikes are where the model is least reliable and a wrong price costs the most.
+    uint256 public maxStrikeDistanceBps = 3000;
+
     // ─── Events ──────────────────────────────────────────────────────────────
 
     event Deposited(address indexed user, uint256 musdIn, uint256 sharesOut);
@@ -176,6 +180,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
     event PausedSet(bool paused);
     event WithdrawalFeeSet(uint256 bps);
     event DepositLockSet(uint256 seconds_);
+    event MaxStrikeDistanceSet(uint256 bps);
     event MinRentSet(uint256 bps);
     event RiskLimitsSet(uint256 maxUtilisationBps, uint256 maxOptionExposureBps);
 
@@ -582,6 +587,9 @@ contract OptionPool is Ownable, ReentrancyGuard {
         Option storage o = options[id];
         uint256 spot = _spot();
 
+        uint256 dist = o.strike > spot ? o.strike - spot : spot - o.strike;
+        if (dist * 10000 > spot * maxStrikeDistanceBps) return; // strike too far from spot for the pool
+
         // Validate premium against the pool's own price (5% tolerance on the model price)
         (uint256 fair, uint256 hardFloor) = _poolPrice(o.optionType, spot, o.strike, o.quantity, o.expiry);
         if (o.premium < fair * 95 / 100) return; // below fair value, skip
@@ -949,6 +957,12 @@ contract OptionPool is Ownable, ReentrancyGuard {
         require(_bps <= MAX_MIN_RENT_BPS, "max 50%");
         minRentBps = _bps;
         emit MinRentSet(_bps);
+    }
+
+    function setMaxStrikeDistanceBps(uint256 _bps) external onlyOwner {
+        require(_bps >= 1000 && _bps <= 10000, "between 10% and 100%");
+        maxStrikeDistanceBps = _bps;
+        emit MaxStrikeDistanceSet(_bps);
     }
 
     function setDepositLock(uint256 _seconds) external onlyOwner {
