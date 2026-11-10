@@ -305,3 +305,47 @@ describe('Owner controls', () => {
     await expect(pool.setProtocolFeeBps(600)).to.be.revertedWith('max 5%');
   });
 });
+
+// ─── BS accuracy vs reference implementation ──────────────────────────────────
+
+function normCdf(x) {
+  // Abramowitz–Stegun 7.1.26 via erf; ~1e-7 accurate, plenty for a tolerance check
+  const t = 1 / (1 + 0.3275911 * Math.abs(x) / Math.SQRT2);
+  const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x / 2);
+  return x >= 0 ? 0.5 * (1 + y) : 0.5 * (1 - y);
+}
+function refBs(isCall, S, K, secs, iv = 0.8, r = 0.05) {
+  const T = secs / (365 * 86400);
+  const d1 = (Math.log(S / K) + (r + iv * iv / 2) * T) / (iv * Math.sqrt(T));
+  const d2 = d1 - iv * Math.sqrt(T);
+  return isCall
+    ? S * normCdf(d1) - K * Math.exp(-r * T) * normCdf(d2)
+    : K * Math.exp(-r * T) * normCdf(-d2) - S * normCdf(-d1);
+}
+
+describe('BS accuracy', () => {
+  const cases = [
+    [true,  100000, 100000, 900],        // 15 min ATM
+    [false, 100000, 100000, 900],
+    [true,  100000, 102000, 3600],       // 1h OTM call
+    [false, 100000,  98000, 3600],       // 1h OTM put
+    [true,  100000,  99000, 86400],      // 1d ITM call, spot ≈ strike (spot/strike > 1)
+    [false, 100000, 101000, 86400],      // 1d ITM put (spot/strike < 1)
+    [true,  100000, 100000, 14 * 86400],
+    [false, 100000, 105000, 14 * 86400],
+  ];
+  for (const [isCall, S, K, secs] of cases) {
+    it(`${isCall ? 'call' : 'put'} S=${S} K=${K} T=${secs}s within 1% of reference`, async () => {
+      const { pool } = await deploy();
+      const got = Number(ethers.formatEther(await pool.bsPrice(isCall, E18(String(S)), E18(String(K)), secs)));
+      const want = refBs(isCall, S, K, secs);
+      expect(Math.abs(got - want) / want).to.be.lessThan(0.01);
+    });
+  }
+
+  it('quotePremium reverts for a past expiry', async () => {
+    const { pool } = await deploy();
+    const past = await expiry(-10);
+    await expect(pool.quotePremium(true, E18('100000'), E18('1'), past)).to.be.revertedWith('expired');
+  });
+});

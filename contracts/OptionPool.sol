@@ -47,7 +47,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
     address public TROVE_MANAGER;
     address public BORROWER_OPS_SIGS;
 
-    uint256 public constant PRICE_STALENESS   = 7200;
+    uint256 public constant PRICE_STALENESS   = 300;  // oracle updates every block; options can be 15 min
     uint256 public constant MIN_EXPIRY        = 15 minutes;
     uint256 public constant MAX_EXPIRY        = 14 days;
     uint256 public constant PRECISION         = 1e18;
@@ -146,32 +146,32 @@ contract OptionPool is Ownable, ReentrancyGuard {
 
     // ─── Black-Scholes (Abramowitz & Stegun) ─────────────────────────────────
 
-    /// @dev Fixed-point natural log via 2^127 scaling. Accurate to ~1e-7.
+    /// @dev Fixed-point natural log (1e18 scaled). Range-reduces x to [1/sqrt2, sqrt2)
+    ///      then uses ln(y) = 2*(z + z^3/3 + z^5/5 + z^7/7), z=(y-1)/(y+1), |z|<=0.172.
+    ///      Truncation error < 3e-8.
     function _ln(uint256 x) internal pure returns (int256) {
         require(x > 0, "ln(0)");
-        // scale x to [0.5, 1) range, count shifts
         int256 k = 0;
         uint256 y = x;
-        while (y >= 2e18) { y /= 2; k++; }
-        while (y < 1e18)  { y *= 2; k--; }
-        // Padé approximation for ln(y) where y in [1,2), y scaled 1e18
-        // ln(y) ≈ (y-1)/(y+1) * 2 * (1 + 1/3*z^2 + 1/5*z^4) where z=(y-1)/(y+1)
-        int256 yi  = int256(y);
-        int256 num = yi - 1e18;
-        int256 den = yi + 1e18;
-        int256 z   = num * 1e18 / den;
-        int256 z2  = z * z / 1e18;
-        int256 lny = 2 * z * (1e18 + z2 / 3 + z2 * z2 / (5 * 1e18)) / 1e18;
+        while (y >= 1414213562373095048) { y /= 2; k++; }
+        while (y < 707106781186547524)   { y *= 2; k--; }
+        int256 yi = int256(y);
+        int256 z  = (yi - 1e18) * 1e18 / (yi + 1e18);
+        int256 z2 = z * z / 1e18;
+        int256 z4 = z2 * z2 / 1e18;
+        int256 z6 = z4 * z2 / 1e18;
+        int256 lny = 2 * z * (1e18 + z2 / 3 + z4 / 5 + z6 / 7) / 1e18;
         int256 ln2 = 693147180559945309; // ln(2) * 1e18
         return lny + k * ln2;
     }
 
-    /// @dev sqrt via Babylonian method, input/output 1e18 scaled
+    /// @dev sqrt of a 1e18-scaled value, returned 1e18-scaled (i.e. sqrt(x/1e18)*1e18).
     function _sqrt(uint256 x) internal pure returns (uint256) {
         if (x == 0) return 0;
-        uint256 z = (x + 1e18) / 2;
-        uint256 y = x;
-        while (z < y) { y = z; z = (x * 1e18 / z + z) / 2; }
+        uint256 n = x * PRECISION;      // integer sqrt of x*1e18
+        uint256 y = n;
+        uint256 z = (n + 1) / 2;
+        while (z < y) { y = z; z = (n / z + z) / 2; }
         return y;
     }
 
@@ -330,7 +330,11 @@ contract OptionPool is Ownable, ReentrancyGuard {
         uint256 cumulativeFee = netYield * performanceFeeBps / 10000;
         if (cumulativeFee <= totalPerformanceFeePaid) return;
         uint256 fee = cumulativeFee - totalPerformanceFeePaid;
-        if (fee > 0 && fee <= totalAssets) {
+        // never dip into collateral locked for open options; any remainder is
+        // collected later because the fee is tracked cumulatively
+        uint256 free = totalAssets > lockedCollateral ? totalAssets - lockedCollateral : 0;
+        if (fee > free) fee = free;
+        if (fee > 0) {
             totalAssets -= fee;
             totalPerformanceFeePaid += fee;
             musd.safeTransfer(feeRecipient, fee);
@@ -453,7 +457,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
         require(strike > 0 && quantity > 0 && premium > 0, "invalid params");
         require(expiry > block.timestamp + MIN_EXPIRY, "expiry too soon");
         require(expiry <= block.timestamp + MAX_EXPIRY, "expiry too far");
-        require(troveSig.length > 0 && troveDeadline > block.timestamp, "invalid trove sig");
+        require(troveSig.length > 0 && troveDeadline >= expiry, "trove sig must outlive option");
 
         uint256 spot       = _spot();
         uint256 collateral = _requiredCollateral(optionType, spot, strike, quantity);
@@ -535,12 +539,13 @@ contract OptionPool is Ownable, ReentrancyGuard {
             uint256 remaining = o.collateral - payout;
             if (remaining > 0) musd.safeTransfer(o.short, remaining);
         } else {
-            // Trove margin — pull from trove
+            // Trove margin — pull from trove, capped at the posted collateral
+            uint256 payout = profit > o.collateral ? o.collateral : profit;
             IBorrowerOperationsSignatures(BORROWER_OPS_SIGS).adjustTroveWithSignature(
-                0, profit, true, address(0), address(0),
+                0, payout, true, address(0), address(0),
                 o.short, address(this), o.troveSig, o.troveDeadline
             );
-            musd.safeTransfer(o.long, profit);
+            musd.safeTransfer(o.long, payout);
         }
 
         emit Settled(id, o.long, profit);
@@ -621,6 +626,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
     function quotePremium(
         bool isCall, uint256 strike, uint256 quantity, uint256 expiry
     ) external view returns (uint256) {
+        require(expiry > block.timestamp, "expired");
         uint256 spot = _spot();
         uint256 unitPremium = bsPrice(isCall, spot, strike, expiry - block.timestamp);
         return unitPremium * quantity / PRECISION;

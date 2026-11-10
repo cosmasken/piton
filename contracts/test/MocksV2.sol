@@ -5,18 +5,18 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract MockOracle {
     int256  private _answer;
-    uint256 private _updatedAt;
+    bool    private _stale;
 
     constructor(int256 price) {
         _answer    = price * 1e8;
-        _updatedAt = block.timestamp;
     }
 
     function setPrice(int256 price) external { _answer = price * 1e8; }
-    function setStale() external { _updatedAt = block.timestamp - 10801; }
+    function setStale() external { _stale = true; }
 
     function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80) {
-        return (1, _answer, _updatedAt, _updatedAt, 1);
+        uint256 t = _stale ? block.timestamp - 10801 : block.timestamp;
+        return (1, _answer, t, t, 1);
     }
 
     function decimals() external pure returns (uint8) { return 8; }
