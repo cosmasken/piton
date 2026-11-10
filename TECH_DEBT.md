@@ -130,3 +130,10 @@ time. Verify against Mezo's BorrowerOperations; the feature may not work as desi
 - Not covered by local tests: Skip oracle behaviour on matsnet, matsnet governance parameters, and
   the actual deployed BorrowerOperationsSignatures address/domain. A matsnet smoke test after
   redeploy is still required.
+
+## Approved recommendations — progress
+- DONE: share dilution after a total loss. Deposits revert while yMUSD is outstanding and
+  `totalAssets == 0`; owner `clearWorthlessShares(holders)` burns the worthless shares (only when the
+  pool holds nothing, and only if the list clears the whole supply). Holders can also withdraw 0.
+  Note: with current logic `totalAssets` cannot naturally reach 0 (the pool always keeps the net
+  premium), so this is a defensive guard; it is tested via `OptionPoolHarness`.

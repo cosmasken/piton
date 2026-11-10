@@ -336,3 +336,62 @@ describe('Cancel', () => {
     await expect(pool.connect(other).cancelOrder(id)).to.be.revertedWith('not your order');
   });
 });
+
+describe('Total loss: deposits blocked until worthless shares are cleared', () => {
+  async function harness() {
+    const ctx = await deploy();
+    const Pool = await ethers.getContractFactory('OptionPoolHarness');
+    const pool = await Pool.deploy(
+      await ctx.musd.getAddress(), await ctx.ymusd.getAddress(), await ctx.oracle.getAddress(),
+      await ctx.trove.getAddress(), await ctx.borrowerOps.getAddress()
+    );
+    await ctx.ymusd.setPool(await pool.getAddress());
+    for (const w of [ctx.lp, ctx.buyer, ctx.seller, ctx.other]) {
+      await ctx.musd.mint(w.address, E18('100000'));
+      await ctx.musd.connect(w).approve(await pool.getAddress(), ethers.MaxUint256);
+    }
+    await pool.connect(ctx.lp).deposit(E18('1000'));
+    await pool.connect(ctx.buyer).deposit(E18('500'));
+    await pool.forceTotalAssets(0); // simulate a total loss
+    return { ...ctx, pool };
+  }
+
+  it('reverts a deposit while worthless yMUSD is outstanding', async () => {
+    const { pool, other } = await harness();
+    await expect(pool.connect(other).deposit(E18('100')))
+      .to.be.revertedWith('pool insolvent: clear old shares first');
+  });
+
+  it('owner clears all worthless shares, then a new deposit mints 1:1', async () => {
+    const { pool, ymusd, owner, lp, buyer, other } = await harness();
+    await expect(pool.connect(owner).clearWorthlessShares([lp.address, buyer.address]))
+      .to.emit(pool, 'SharesCleared').withArgs(2n, E18('1500'));
+    expect(await ymusd.totalSupply()).to.equal(0n);
+    await pool.connect(other).deposit(E18('100'));
+    expect(await ymusd.balanceOf(other.address)).to.equal(E18('100'));
+  });
+
+  it('rejects an incomplete holder list', async () => {
+    const { pool, owner, lp } = await harness();
+    await expect(pool.connect(owner).clearWorthlessShares([lp.address]))
+      .to.be.revertedWith('holders list incomplete');
+  });
+
+  it('cannot clear shares while the pool has assets, and only the owner can call it', async () => {
+    const { pool, owner, lp, buyer } = await deploy().then(async ctx => {
+      await ctx.pool.connect(ctx.lp).deposit(E18('1000'));
+      return ctx;
+    });
+    await expect(pool.connect(owner).clearWorthlessShares([lp.address]))
+      .to.be.revertedWith('pool has assets');
+    await expect(pool.connect(buyer).clearWorthlessShares([lp.address]))
+      .to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
+  });
+
+  it('holders can also exit worthless shares themselves by withdrawing', async () => {
+    const { pool, ymusd, lp } = await harness();
+    const bal = await ymusd.balanceOf(lp.address);
+    await pool.connect(lp).withdraw(bal);
+    expect(await ymusd.balanceOf(lp.address)).to.equal(0n);
+  });
+});

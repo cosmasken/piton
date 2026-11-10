@@ -262,7 +262,11 @@ contract OptionPool is Ownable, ReentrancyGuard {
 
         uint256 shares;
         uint256 supply = ymusd.totalSupply();
-        if (supply == 0 || totalAssets == 0) {
+        // After a total loss, outstanding yMUSD is worth nothing. Minting 1:1 here would hand those
+        // holders a share of the new depositor's money, so block deposits until the old shares are
+        // cleared (holders can withdraw 0, or the owner calls clearWorthlessShares).
+        require(!(supply > 0 && totalAssets == 0), "pool insolvent: clear old shares first");
+        if (supply == 0) {
             shares = amount;
             require(amount >= 1e15, "min deposit 0.001 MUSD"); // inflation attack guard
         } else {
@@ -290,6 +294,22 @@ contract OptionPool is Ownable, ReentrancyGuard {
         musd.safeTransfer(msg.sender, musdOut);
 
         emit Withdrawn(msg.sender, shares, musdOut);
+    }
+
+    event SharesCleared(uint256 holders, uint256 shares);
+
+    /// @notice After a total loss (no assets left), burn yMUSD that is worth nothing so the pool can
+    ///         take deposits again. Callable only when totalAssets == 0, so it can never touch value.
+    ///         `holders` is built off-chain from yMUSD Transfer events; reverts unless it clears all supply.
+    function clearWorthlessShares(address[] calldata holders) external onlyOwner {
+        require(totalAssets == 0 && lockedCollateral == 0, "pool has assets");
+        uint256 burned;
+        for (uint256 i = 0; i < holders.length; i++) {
+            uint256 bal = ymusd.balanceOf(holders[i]);
+            if (bal > 0) { ymusd.burn(holders[i], bal); burned += bal; }
+        }
+        require(ymusd.totalSupply() == 0, "holders list incomplete");
+        emit SharesCleared(holders.length, burned);
     }
 
     // ─── Collateral helpers ───────────────────────────────────────────────────
