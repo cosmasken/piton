@@ -20,7 +20,7 @@ async function fetchPythPrices() {
 }
 
 export default function MarketValue() {
-  const { btcPrice, oracleStale, priceSource, simpleMode, setSimpleMode } = useStore();
+  const { btcPrice, oracleStale, priceSource } = useStore();
   const [pythPrices, setPythPrices] = useState({});
 
   useEffect(() => {
@@ -66,17 +66,6 @@ export default function MarketValue() {
         </div>
       )}
 
-      {/* Simple mode toggle */}
-      <div className="border-t border-border pt-3 flex items-center justify-between">
-        <div>
-          <p className="text-xs text-dim font-body">Simple mode</p>
-          <p className="text-[10px] text-dim/50 font-body">MUSD settlement only</p>
-        </div>
-        <button onClick={() => setSimpleMode(!simpleMode)}
-          className={`w-10 h-5 rounded-full transition-colors relative ${simpleMode ? 'bg-accent' : 'bg-surface border border-border'}`}>
-          <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-bg transition-all ${simpleMode ? 'left-5' : 'left-0.5'}`} />
-        </button>
-      </div>
     </div>
   );
 }
