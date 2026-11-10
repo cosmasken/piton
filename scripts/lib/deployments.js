@@ -14,9 +14,12 @@ const KNOWN = {
     troveManager: '0xE47c80e8c23f6B4A1aE41c34837a0599D5D16bb0',
     borrowerOperationsSignatures: '0xD757e3646AF370b15f32EB557F0F8380Df7D639e',
   },
+  // Mezo mainnet addresses from mezo-org/musd solidity/artifacts/deployments/mainnet
   mainnet: {
-    musd:   '0xdD468A1DDc392dcdbEf6db6e34E89AA338F9F186',
-    oracle: '0x7b7c000000000000000000000000000000000015',
+    musd:         '0xdD468A1DDc392dcdbEf6db6e34E89AA338F9F186',
+    oracle:       '0x7b7c000000000000000000000000000000000015',
+    troveManager: '0x94AfB503dBca74aC3E4929BACEeDfCe19B93c193',
+    borrowerOperationsSignatures: '0xB57ab578BF20b3e318f3EFAA587C51DBccE5df7a',
   },
 };
 
