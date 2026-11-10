@@ -4,6 +4,8 @@ import { toast } from 'react-toastify';
 import { useStore, ADDRESSES } from '../store';
 import { explorerTx } from '../network.mjs';
 import { parseTxError } from '../txUtils';
+import { useNow } from '../useNow';
+import { fmtDuration, lockRemaining, breakerActive, withdrawEstimate } from '../poolRules.mjs';
 
 
 function TxToast({ msg, hash }) {
@@ -23,7 +25,7 @@ export default function Pool() {
   const {
     poolContract, musdContract, chainId,
     musdBalance, ymusdBalance,
-    poolTotalAssets, poolLocked, poolUtilisation, poolShareValue,
+    poolTotalAssets, poolLocked, poolUtilisation, poolShareValue, poolParams, lockExpiry,
     refresh,
   } = useStore();
 
@@ -53,7 +55,20 @@ export default function Pool() {
     return (await poolContract.withdraw(ethers.parseEther(amount))).wait();
   }, 'Withdrawn!');
 
-  const canAct = amount && parseFloat(amount) > 0 && !loading && poolContract;
+  const now      = useNow();
+  const locked   = lockRemaining(lockExpiry, now);
+  const breaker  = breakerActive(poolParams?.cbUntil, now);
+  const feeBps   = poolParams?.withdrawalFeeBps ?? 0;
+  const feeApplies = (poolParams?.openPoolOptions ?? 0) > 0 && feeBps > 0;
+  const sv       = parseFloat(poolShareValue);
+  const amt      = parseFloat(amount);
+  const est      = amt > 0 && sv > 0 ? withdrawEstimate(amt, sv, feeBps, poolParams?.openPoolOptions ?? 0) : null;
+
+  // Block what the contract would reject, and say why, instead of letting the wallet show a failed transaction.
+  const blocked = tab === 'withdraw'
+    ? (locked > 0 ? `Your deposit is locked for another ${fmtDuration(locked)}.` : null)
+    : (breaker ? `Deposits are paused until ${new Date(poolParams.cbUntil * 1000).toLocaleTimeString()} after a fast price move.` : null);
+  const canAct = amount && amt > 0 && !loading && poolContract && !blocked;
 
   return (
     <div className="panel flex flex-col overflow-hidden flex-1">
@@ -93,13 +108,14 @@ export default function Pool() {
           </div>
           <input className="input-field" type="number" step="any" placeholder="0.00"
             value={amount} onChange={e => setAmount(e.target.value)} />
-          {amount && parseFloat(amount) > 0 && poolShareValue !== '—' && (
+          {amount && amt > 0 && poolShareValue !== '—' && (
             <p className="text-xs text-dim">
               {tab === 'deposit'
-                ? `≈ ${(parseFloat(amount) / parseFloat(poolShareValue)).toFixed(4)} yMUSD`
-                : `≈ ${(parseFloat(amount) * parseFloat(poolShareValue)).toFixed(4)} MUSD`}
+                ? `≈ ${(amt / sv).toFixed(4)} yMUSD`
+                : `≈ ${est.net.toFixed(4)} MUSD${est.fee > 0 ? ` (after a ${est.fee.toFixed(4)} MUSD exit fee)` : ''}`}
             </p>
           )}
+          {blocked && <p className="text-xs text-yellow-500">{blocked}</p>}
           <button disabled={!canAct} onClick={tab === 'deposit' ? deposit : withdraw}
             className="w-full py-2.5 rounded-md font-display font-bold text-sm bg-accent/20 text-accent border border-accent/30 transition-opacity disabled:opacity-40 flex items-center justify-center gap-2">
             {loading && <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />}
@@ -107,9 +123,21 @@ export default function Pool() {
           </button>
         </div>
 
+        {poolParams && (
+          <div className="bg-surface rounded-md px-3 py-2 space-y-1 text-xs">
+            <div className="flex justify-between"><span className="text-dim">Your deposit lock</span>
+              <span className={`font-mono ${locked > 0 ? 'text-yellow-500' : 'text-text'}`}>{locked > 0 ? fmtDuration(locked) : 'unlocked'}</span></div>
+            <div className="flex justify-between"><span className="text-dim">Exit fee now</span>
+              <span className="font-mono text-text">{feeApplies ? `${(feeBps / 100).toFixed(2)}%` : '0% (no open options)'}</span></div>
+            <div className="flex justify-between"><span className="text-dim">Open pool options</span>
+              <span className="font-mono text-text">{poolParams.openPoolOptions}</span></div>
+          </div>
+        )}
+
         <p className="text-[10px] text-dim/60 leading-relaxed">
           Depositors earn yield from option premiums. yMUSD represents your share of the pool.
-          Withdrawals are instant up to available liquidity.
+          {poolParams && ` New deposits are locked for ${fmtDuration(poolParams.depositLockSeconds)}, and leaving while options are open costs ${(feeBps / 100).toFixed(2)}%, which stays in the pool for the remaining depositors.`}
+          {' '}Share value counts premium not yet earned as owed, so it rises as options expire unexercised. Withdrawals are instant up to available liquidity.
         </p>
       </div>
     </div>

@@ -4,6 +4,8 @@ import { toast } from 'react-toastify';
 import { useStore, ADDRESSES } from '../store';
 import { explorerTx } from '../network.mjs';
 import { parseTxError } from '../txUtils';
+import { useNow } from '../useNow';
+import { poolWontFill } from '../poolRules.mjs';
 import Modal from './Modal';
 import ProtectTrove from './ProtectTrove';
 
@@ -43,7 +45,7 @@ function Row({ label, value, accent }) {
 }
 
 export default function NewOrder() {
-  const { signer, account, chainId, poolContract, musdContract, btcPrice, musdBalance, oracleStale, refresh } = useStore();
+  const { signer, account, chainId, poolContract, musdContract, btcPrice, musdBalance, oracleStale, poolParams, refresh } = useStore();
 
   const [position,   setPosition]   = useState('long');
   const [optionType, setOptionType] = useState('call');
@@ -55,10 +57,17 @@ export default function NewOrder() {
   const [loading,    setLoading]    = useState(false);
   const [modal,      setModal]      = useState(false);
   const [bsQuote,    setBsQuote]    = useState(null);
+  const [autoEx,     setAutoEx]     = useState(true); // let a keeper exercise a winning option near expiry
+  const now = useNow(5000);
 
   const isShort = position === 'short';
   const isCall  = optionType === 'call';
   const sp = parseFloat(strike), q = parseFloat(qty), c = parseFloat(premium), p = btcPrice;
+
+  // Reasons the pool would not sell this order itself (it would then rest as an open bid for a seller to take)
+  const wontFill = !isShort && sp > 0 && p > 0
+    ? poolWontFill({ spot: p, strike: sp, expirySecs: parseInt(expiry), nowSec: now }, poolParams || {})
+    : [];
 
   const payoff = useMemo(() => {
     if (!sp || !q || !p) return null;
@@ -105,7 +114,7 @@ export default function NewOrder() {
       const block      = await poolContract.runner.provider.getBlock('latest');
       const expiryTs   = block.timestamp + parseInt(expiry);
       const poolAddr   = ADDRESSES[chainId].pool;
-      let tx;
+      let tx, fillMsg = 'Order placed.';
 
       if (!isShort) {
         // Long order — pool fills automatically
@@ -113,6 +122,15 @@ export default function NewOrder() {
         tx = await (await poolContract.createLongOrder(
           isCall ? 0 : 1, strikeWei, qtyWei, expiryTs, premiumWei
         )).wait();
+        const placed = await poolContract.getOption((await poolContract.nextId()) - 1n);
+        if (placed.filledByPool && autoEx) {
+          await (await poolContract.setAutoExercise(placed.id, true)).wait();
+          fillMsg = 'Filled by the pool. Auto-exercise is on: if it is in the money near expiry, a keeper exercises it for 0.5% of the payout.';
+        } else if (placed.filledByPool) {
+          fillMsg = 'Filled by the pool. Remember to exercise before it expires if it is in the money.';
+        } else {
+          fillMsg = 'Not filled by the pool. Your order is an open bid: your premium is held, and you can cancel it in Your Positions.';
+        }
       } else if (marginType === 'trove') {
         // Short funded by Trove debt: MUSD is drawn from the Trove at creation, BTC stays in it.
         // Puts need exactly strike*qty; calls depend on spot, so add a 5% buffer (unused margin is
@@ -141,7 +159,7 @@ export default function NewOrder() {
       }
 
       refresh();
-      toast.success(<TxToast msg="Order placed." hash={tx?.hash} />);
+      toast.success(<TxToast msg={fillMsg} hash={tx?.hash} />);
       setStrike(''); setPremium(''); setQty(''); setBsQuote(null);
     } catch (err) {
       toast.error(parseTxError(err));
@@ -202,7 +220,7 @@ export default function NewOrder() {
           <div>
             <label className="block text-xs text-dim font-body mb-1">Expiry</label>
             <select value={expiry} onChange={e => setExpiry(e.target.value)} className="input-field">
-              <option value="900">15 minutes</option>
+              <option value="1200">20 minutes</option>
               <option value="3600">1 hour</option>
               <option value="21600">6 hours</option>
               <option value="86400">1 day</option>
@@ -228,6 +246,21 @@ export default function NewOrder() {
                 </button>
               )}
             </div>
+          )}
+
+          {wontFill.length > 0 && (
+            <div className="rounded-md border border-yellow-700/40 bg-yellow-900/20 px-3 py-2 text-xs text-yellow-400 space-y-1">
+              <p className="font-semibold">The pool won't sell this one itself:</p>
+              <ul className="list-disc pl-4">{wontFill.map(r => <li key={r}>{r}</li>)}</ul>
+              <p className="text-yellow-400/80">Your order would rest as an open bid until a seller takes it. You can cancel it for a refund.</p>
+            </div>
+          )}
+
+          {!isShort && (
+            <label className="flex items-start gap-2 text-xs text-dim cursor-pointer">
+              <input type="checkbox" checked={autoEx} onChange={e => setAutoEx(e.target.checked)} className="mt-0.5" />
+              <span>Exercise automatically near expiry if it is in the money. A keeper does it in the last 5 minutes and keeps 0.5% of the payout. Otherwise you must exercise yourself before expiry.</span>
+            </label>
           )}
 
           {payoff && (

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
 import { toast } from 'react-toastify';
 import { useStore, STATUS, TYPE } from '../store';
@@ -42,6 +42,20 @@ function OptionRow({ o, account, btcPrice, poolContract, musdContract, refresh }
 
   const [loading, setLoading] = useState(false);
 
+  // Auto-exercise: the owner of a live option can let a keeper exercise it in the last 5 minutes if it is winning.
+  const canAuto = o.status === STATUS.FILLED && isLong && Number(o.expiry) > now;
+  const [auto, setAuto] = useState(null);
+  useEffect(() => {
+    let off = false;
+    if (canAuto && poolContract) poolContract.autoExercise(o.id).then(v => { if (!off) setAuto(v); }).catch(() => {});
+    return () => { off = true; };
+  }, [canAuto, o.id, poolContract]);
+  const toggleAuto = () => act(async () => {
+    const tx = await (await poolContract.setAutoExercise(o.id, !auto)).wait();
+    setAuto(!auto);
+    return tx;
+  }, !auto ? 'Auto-exercise on: a keeper will exercise this in its last 5 minutes if it is in the money (0.5% tip).' : 'Auto-exercise off.');
+
   const act = async (fn, msg) => {
     setLoading(true);
     try {
@@ -66,6 +80,12 @@ function OptionRow({ o, account, btcPrice, poolContract, musdContract, refresh }
       </td>
       <td className="px-3 py-2.5">
         {loading && <span className="w-3 h-3 border border-accent border-t-transparent rounded-full animate-spin inline-block" />}
+        {!loading && canAuto && auto !== null && (
+          <button onClick={toggleAuto} title="Let a keeper exercise this for you in the last 5 minutes if it is in the money (0.5% of the payout)"
+            className={`mr-2 text-[10px] px-1.5 py-0.5 rounded border ${auto ? 'text-accent border-accent/40 bg-accent/10' : 'text-dim border-border'}`}>
+            Auto {auto ? 'on' : 'off'}
+          </button>
+        )}
         {!loading && canSettle && (
           <button onClick={() => act(() => poolContract.settle(o.id).then(tx => tx.wait()), 'Settled!')}
             className="text-accent text-xs font-display font-semibold hover:opacity-70">Settle</button>

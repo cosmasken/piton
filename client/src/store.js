@@ -32,7 +32,7 @@ const initialNetwork = () => {
   catch { return DEFAULT_NETWORK; }
 };
 
-const EMPTY_POOL_STATS = { poolTotalAssets: '—', poolLocked: '—', poolUtilisation: '—', poolShareValue: '—' };
+const EMPTY_POOL_STATS = { poolTotalAssets: '—', poolLocked: '—', poolUtilisation: '—', poolShareValue: '—', poolParams: null };
 
 // status enum from contract
 export const STATUS = { OPEN: 0n, FILLED: 1n, SETTLED: 2n, REFUNDED: 3n };
@@ -77,6 +77,9 @@ export const useStore = create((set, get) => ({
   poolLocked:         '—',
   poolUtilisation:    '—',
   poolShareValue:     '—',
+  // live rules read from the contract (fees, limits, breaker); null until loaded
+  poolParams:         null,
+  lockExpiry:         0,   // connected account's deposit lock (unix seconds)
 
   tick: 0,
   refresh: () => set(s => ({ tick: s.tick + 1 })),
@@ -102,7 +105,7 @@ export const useStore = create((set, get) => ({
   reset: () => set({
     provider: null, signer: null, account: null, chainId: null,
     poolContract: null, ymusdContract: null, musdContract: null,
-    options: [], btcBalance: '—', musdBalance: '—', ymusdBalance: '—',
+    options: [], btcBalance: '—', musdBalance: '—', ymusdBalance: '—', lockExpiry: 0,
     ...EMPTY_POOL_STATS,
   }),
 
@@ -132,15 +135,17 @@ export const useStore = create((set, get) => ({
   },
 
   fetchBalances: async () => {
-    const { provider, account, musdContract, ymusdContract } = get();
+    const { provider, account, musdContract, ymusdContract, poolContract } = get();
     if (!provider || !account || !musdContract) return;
     try {
-      const [b, m, y] = await Promise.all([
+      const [b, m, y, lock] = await Promise.all([
         provider.getBalance(account),
         musdContract.balanceOf(account),
         ymusdContract ? ymusdContract.balanceOf(account) : Promise.resolve(0n),
+        poolContract ? poolContract.depositLockExpiry(account) : Promise.resolve(0n),
       ]);
       set({
+        lockExpiry:   Number(lock),
         btcBalance:   parseFloat(ethers.formatEther(b)).toFixed(4),
         musdBalance:  parseFloat(ethers.formatEther(m)).toLocaleString('en-US', { maximumFractionDigits: 2 }),
         ymusdBalance: parseFloat(ethers.formatEther(y)).toLocaleString('en-US', { maximumFractionDigits: 2 }),
@@ -156,21 +161,37 @@ export const useStore = create((set, get) => ({
     const pool  = new ethers.Contract(addrs.pool,  OptionPoolABI.abi, roProvider(network));
     const ymusd = new ethers.Contract(addrs.ymusd, yMUSD_ABI.abi,    roProvider(network));
     try {
-      const [total, locked, util, supply] = await Promise.all([
+      const [total, locked, util, supply, nav, feeBps, lockSecs, minExp, strikeBps, utilMax, expMax, cbUntil, openN] = await Promise.all([
         pool.totalAssets(),
         pool.lockedCollateral(),
         pool.utilisation(),
         ymusd.totalSupply(),
+        pool.netAssetValue(),
+        pool.withdrawalFeeBps(),
+        pool.depositLockSeconds(),
+        pool.minPoolExpiry(),
+        pool.maxStrikeDistanceBps(),
+        pool.maxUtilisationBps(),
+        pool.maxOptionExposureBps(),
+        pool.cbUntil(),
+        pool.openPoolOptionCount(),
       ]);
       if (get().network !== network) return; // switched network meanwhile
+      // Share value is the net asset value (assets minus what open options may owe), the price shares trade at
       const shareValue = supply > 0n
-        ? parseFloat(ethers.formatEther(total * ethers.parseEther('1') / supply)).toFixed(4)
+        ? parseFloat(ethers.formatEther(nav * ethers.parseEther('1') / supply)).toFixed(4)
         : '1.0000';
       set({
         poolTotalAssets: parseFloat(ethers.formatEther(total)).toLocaleString('en-US', { maximumFractionDigits: 2 }),
         poolLocked:      parseFloat(ethers.formatEther(locked)).toLocaleString('en-US', { maximumFractionDigits: 2 }),
         poolUtilisation: (parseFloat(ethers.formatEther(util)) * 100).toFixed(1),
         poolShareValue:  shareValue,
+        poolParams: {
+          withdrawalFeeBps: Number(feeBps), depositLockSeconds: Number(lockSecs), minPoolExpiry: Number(minExp),
+          strikeDistanceBps: Number(strikeBps), maxUtilisationBps: Number(utilMax), maxOptionExposureBps: Number(expMax),
+          cbUntil: Number(cbUntil), openPoolOptions: Number(openN),
+          utilisationBps: Math.round(parseFloat(ethers.formatEther(util)) * 10000),
+        },
       });
     } catch {}
   },

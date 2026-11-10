@@ -13,6 +13,8 @@ import OpenOrders  from './components/OpenOrders';
 import Wallet      from './components/Wallet';
 import YourOrders  from './components/YourOrders';
 import Pool        from './components/Pool';
+import { useNow } from './useNow';
+import { breakerActive } from './poolRules.mjs';
 
 function OracleBanner() {
   const { oracleStale, priceSource } = useStore();
@@ -21,6 +23,18 @@ function OracleBanner() {
     <div className="shrink-0 flex items-center gap-2 px-4 py-2 bg-yellow-900/40 border-b border-yellow-700/40 text-yellow-400 text-xs font-body">
       <span>⚠</span>
       <span>Skip oracle price is stale — showing <strong>Binance fallback price</strong>. On-chain actions may revert until the oracle updates.</span>
+    </div>
+  );
+}
+
+function BreakerBanner() {
+  const params = useStore(s => s.poolParams);
+  const now = useNow(5000);
+  if (!params || !breakerActive(params.cbUntil, now)) return null;
+  return (
+    <div className="shrink-0 flex items-center gap-2 px-4 py-2 bg-red/10 border-b border-red/30 text-red text-xs font-body">
+      <span>⛔</span>
+      <span><strong>Circuit breaker active</strong> after a fast price move: the pool is not selling new options and is not taking deposits until {new Date(params.cbUntil * 1000).toLocaleTimeString()}. Withdrawals, exercising and refunds still work.</span>
     </div>
   );
 }
@@ -128,6 +142,7 @@ export default function Dashboard() {
       <Navbar onDisconnect={disconnect} />
       <NotLiveBanner />
       {live && <OracleBanner />}
+      {live && <BreakerBanner />}
       {live && isNewUser && <OnboardingCard onDismiss={dismissOnboarding} />}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-[220px_1fr_280px] gap-2 p-2 lg:overflow-hidden lg:min-h-0">
         <div className="flex flex-col gap-2 lg:overflow-hidden">
