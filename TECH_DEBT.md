@@ -4,19 +4,20 @@ Reviewed `contracts/OptionPool.sol` (657 lines). Items 1–2 were confirmed by r
 contract arithmetic in Python. Trove findings (4–6) depend on Mezo's `BorrowerOperations`
 behaviour and were not verified against its source. Tests, `yMUSD.sol` were not reviewed.
 
-## Status
-Fixed (commit c153b70 + follow-up): #1, #2, #3, Trove payout cap + deadline>=expiry, performance-fee/
-withdraw underflow, `quotePremium` past-expiry revert, `fillShort` added (open long orders can now be
-filled by a manual seller), zero-collateral calls rejected/not pool-filled, `Settled` event now emits
-the amount actually paid. Pool solvency vs balance: no bug found; covered by an invariant test.
+## Status (current)
+All review findings and approved recommendations are implemented, except Stability Pool yield
+(deferred for research). Details are under "Approved recommendations — progress" below; the
+original findings are kept further down for reference.
 
-Trove margin (#4/#5/#6): FIXED by redesign — margin is drawn from the Trove at order creation with a
-signature consumed in the same tx (nothing stored, no replay, no settle-time Mezo call). See
-TROVE_PLAN.md option A. Still to verify on matsnet: exact amount delivered by
-`withdrawMUSDWithSignature` (fees/interest).
-
-Open, needs a decision: zero-share dilution policy,
-capped-payout pricing, fixed IV. UI button for `fillShort` not built.
+Still open:
+- Redeploy to matsnet, then a matsnet smoke test (Skip oracle, Mezo fee settings, deployed
+  BorrowerOperationsSignatures). Update `client/src/store.js` ADDRESSES and the README table after.
+- Browser click-through of the new UI (Trove margin signing, Protect my Trove, Sell into bids).
+- Reviewer feedback: Mezo PriceFeed read, network-switch prompt, Pyth / "Mainnet-ready" wording,
+  `/dashboard` refresh check, deck with fee model, video under 2:15.
+- Product ideas below (auto-exercise, European options, vaults, spreads, binaries, IV surface, perps;
+  Trove plan options C and D).
+- Contracts remain unaudited.
 
 **Trove findings confirmed against Mezo's BorrowerOperationsSignatures source:** the signed digest
 commits to exact collWithdrawal, debtChange, isDebtIncrease, borrower, recipient, a per-borrower
