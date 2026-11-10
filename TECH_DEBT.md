@@ -21,12 +21,16 @@ Still open:
   - ALREADY DONE: Pyth claim. BTC/USD is labelled Skip (Binance fallback); Pyth is only used, and
     labelled, for the "Mezo Ecosystem (Pyth)" multi-asset panel. README/home make no Pyth claim.
   - ALREADY DONE: "Mainnet-ready" claim. No occurrence left; home footer says "Unaudited — testnet only".
-  - OPEN: read Mezo's PriceFeed with a staleness check. Piton still reads the Skip oracle directly
-    (300s staleness). Mezo's PriceFeed wraps the same kind of feed with a 60s max delay.
-  - OPEN: deck with a fee model — no deck in the repo.
+  - OPEN (decision): read Mezo's PriceFeed. Checked live on matsnet: Mezo's MUSD PriceFeed
+    (`0x86bCF0841622a5dAC14A313a15f96A95421b9366`) wraps the same Skip oracle Piton already reads
+    (`oracle()` = `0x7b7c…0015`, identical price) and adds a 60s max-age check. Mainnet PriceFeed:
+    `0xc5aC5A8892230E0A3e1c473881A2de7353fFcA88`.
+  - DONE: deck with a fee model — `deck/piton-deck.html` (12 slides, arrow keys; print to PDF) and
+    `deck/piton-deck.pdf`. Fee model uses live BTC $74k / DVOL 39.7% on 10 Nov 2026.
   - OPEN (not checkable from the repo): video under 2:15.
 - Stale user-facing copy (describes the old Trove design or old fill flow):
-  - README "Trove Margin" section: says margin is drawn "only if the option is exercised", via
+  - DONE: README fully rewritten (commit f888b0f). Remaining stale copy is only in the app:
+  - (fixed) README "Trove Margin" section: says margin is drawn "only if the option is exercised", via
     `adjustTroveWithSignature`, "no capital lockup", and a "margin dropdown". Now: margin is borrowed
     from the Trove when the order is placed, via `withdrawMUSDWithSignature`; BTC stays in the Trove
     but the user carries the MUSD debt (+0.1% fee) until they repay.
