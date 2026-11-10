@@ -1,0 +1,98 @@
+# Checkpoint (end of 10 Nov 2026)
+
+Where the project stands, and what to pick up next. Read this first when resuming.
+
+## State
+- **Branch / last commit:** `main` @ `6e8b32b` ("Record new matsnet deployment"). Working tree clean.
+- **Live deployment (Mezo testnet, chain 31611):**
+  - OptionPool `0x21F83eEcF5561AB721ec4f8E96279EC1BFCb8221` (deploy block 16700608).
+  - yMUSD `0x09Da1957c5E435894D4d11451e9a7b2C9C24500c`.
+  - Seeded with 2,500 MUSD by the deployer `0x09aB…6D06`; IV 40%.
+  - `minPoolExpiry` is 900 s on testnet (default 3600).
+  - The IV keeper `0xdE33…7948` is authorised.
+  - One small test put (0.002 BTC) was left open; it expires about 2 hours after deploy and can be refunded by anyone.
+- **Site:** https://piton.surge.sh, pointing at the deployment above.
+- **Older pools:** emptied. Balances under 20 MUSD are ignored by agreement.
+- **Tests:** Hardhat 158, Foundry 16 (invariants and fuzz), client 33, all passing.
+- **Contract size:** 24,411 of 24,576 bytes.
+
+## Done recently
+1. Twelve pool protections:
+   - share price counts unearned premium as owed (NAV premium-lock)
+   - deposit lock and exit fee
+   - utilisation and per-option exposure limits
+   - minimum rent
+   - strike band
+   - utilisation markup on price
+   - minimum time left for pool sales
+   - circuit breaker
+   - opt-in auto-exercise
+   - two-step ownership and guardian pause
+   - Black-Scholes differential test against Derive v1
+   - adjustable open-option cap
+2. On-chain IV keeper limits: 15% per change, at most one change per 50 minutes.
+3. Sell back to the pool:
+   - `sellBack(id, minPayout)` and `quoteBuyback(id)`.
+   - Price is mid-IV Black-Scholes value less a fixed 10% volatility spread, capped at the option's collateral.
+   - Blocked while paused or while the circuit breaker is active.
+4. Trading UI rebuild:
+   - option chain by expiry, Buy/Sell form (market and limit), per-option order book
+   - payoff chart, break-even, max loss and max gain
+   - positions with mark price, P&L, greeks, sell back, auto-exercise toggle
+   - recent trades, pool "How it works" panel
+   - read-only browsing without a wallet, shareable `?i=` links
+5. Operational scripts are untracked (git-ignored `scripts/`). Private notes are in `docs/OPERATIONS.md` (also git-ignored).
+
+## Waiting on the user
+- **Manual testing:** run [WALKTHROUGH.md](WALKTHROUGH.md) and report back step by step.
+- **Step 11 (auto-exercise) needs the keeper running first.** Before the user starts it:
+  - run `JOBS=iv,exercise,refund,poke node scripts/ops.js` locally, or
+  - push it to the VPS with `scripts/push-ops-vps.sh`.
+
+## Next tasks, in suggested order
+1. **Fix whatever the walkthrough finds.** Known gap to confirm: the trade form does not warn before signing when the size
+   exceeds the per-option limit (25% of pool assets, or `maxOptionCollateral`). Add a pre-check using `maxOptionExposureBps`
+   × total assets.
+2. **Bot / keeper on the VPS** (deferred by the user until the UI is settled).
+   - `scripts/ops.js` exists: IV, exercise, refund, poke, demo bot.
+   - Before using the demo bot, change it to use the standard expiry slots from `client/src/instruments.mjs`, so its orders
+     do not create odd expiry tabs.
+3. **Make room in the contract** before adding any more contract features: move `_bs`, `_cdf`, `_ln`, `_expNeg` and `_sqrt`
+   into a linked library. This requires updating the deploy script and the test deployments (library linking).
+4. **Oracle cross-check.**
+   - First, an off-chain watchdog in `ops.js`: compare Skip with Deribit and an exchange; ask the guardian to pause if they
+     differ by more than 2%.
+   - Then on-chain Skip vs Pyth (`0x2880aB155794e7179c9eE2e38200202908C17B43`, BTC/USD feed
+     `0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43`).
+   - Blocker: the testnet Pyth BTC/USD feed was about 106 days stale. Ask the Mezo team to refresh it, and confirm how often
+     it updates on mainnet.
+5. **Open-option cap.** It is currently 50 by default, at most 150. To go higher:
+   - pack storage (cheap), then
+   - add a keeper-refreshed liability cache (needs step 3 first).
+6. **Governance handover**, done last:
+   - `DELAY_HOURS=0.1 npx hardhat run scripts/setupGovernance.js --network matsnet`, then execute `acceptOwnership` through
+     the timelock.
+   - After that, admin changes (keeper, `minPoolExpiry`) go through the timelock.
+7. **Later:**
+   - mobile layout
+   - selling back options bought from another trader (needs transferable positions)
+   - pool yield history (needs an indexer; Goldsky was deferred)
+   - ask Block Scholes about a volatility feed on Mezo
+   - external audit before any mainnet launch
+
+## Useful commands
+```bash
+npx hardhat test                    # 158 tests
+rm -rf cache-forge/invariant cache/invariant && forge test   # 16 tests
+npm run test:client                 # 33 tests
+npm run build --prefix client && surge client/dist piton.surge.sh
+npm run health:testnet              # pool status
+cp artifacts/contracts/OptionPool.sol/OptionPool.json client/src/contracts/OptionPool.json   # after any contract change
+```
+
+## Conventions agreed with the user
+- One commit per change; never amend. Ask before redeploying.
+- Never redeploy without recovering the pool funds first.
+- Operational scripts, keys and VPS details stay out of git.
+- Answers short and in plain language. Give explicit manual test steps with amounts. Be honest about what was and was not
+  verified.
