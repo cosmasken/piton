@@ -10,8 +10,12 @@ All review findings and approved recommendations are implemented, except Stabili
 original findings are kept further down for reference.
 
 Still open:
-- Redeploy to matsnet, then a matsnet smoke test (Skip oracle, Mezo fee settings, deployed
-  BorrowerOperationsSignatures). Update `client/src/store.js` ADDRESSES and the README table after.
+- DONE 10 Nov 2026: redeployed to matsnet — OptionPool `0x81BfAF401a4C500e2e2900DDd1af2Ba9c0179C9b`,
+  yMUSD `0x3153f91886ab0CE5131a2D347F03a433F7FBf3b6` (`deployments/matsnet.json`). Verified on-chain: current
+  bytecode, Mezo addresses, 300 s staleness, live price, quotes. Addresses updated in client, README, scripts.
+  Still to do on matsnet: seed the pool, set IV to market (DVOL ~40%; default is 80%), and a manual
+  Trove-margin + Protect-my-Trove test with a real testnet Trove. Old pools (`0x3737…`, `0x12f9…` holding
+  12 MUSD of LP deposits) are retired; `scripts/recover.js` targets them.
 - Browser click-through of the new UI (Trove margin signing, Protect my Trove, Sell into bids).
 - Reviewer feedback — checked against the code on 2026-11-10:
   - ALREADY DONE: network-switch prompt. `Dashboard.jsx` shows "Switch to Mezo Matsnet" with a

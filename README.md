@@ -100,12 +100,12 @@ BTC/USD comes from Mezo's **Skip oracle** at `0x7b7c0000000000000000000000000000
 
 ## Deployed Contracts — Mezo Matsnet (chainId 31611)
 
-> The deployed OptionPool predates the latest fixes in this repo (pricing maths, Trove margin redesign, bids, 3× call cap, IV keeper). A redeploy is pending; this table will be updated.
+Deployed 10 Nov 2026 from the current contracts (pricing fixes, Trove margin redesign, bids, 3× call cap, IV keeper role). Earlier deployments are retired.
 
 | Contract | Address |
 |---|---|
-| OptionPool | `0x37373e54C06eE7f70f2CbC3C4AE50efEf540ec6e` |
-| yMUSD (LP token) | `0x5718c35AE04bE637D958DAc4FF2C7EB18b427d19` |
+| OptionPool | `0x81BfAF401a4C500e2e2900DDd1af2Ba9c0179C9b` |
+| yMUSD (LP token) | `0x3153f91886ab0CE5131a2D347F03a433F7FBf3b6` |
 | MUSD | `0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503` |
 | Skip Oracle (BTC/USD) | `0x7b7c000000000000000000000000000000000015` |
 | Mezo TroveManager | `0xE47c80e8c23f6B4A1aE41c34837a0599D5D16bb0` |
