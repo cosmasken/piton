@@ -55,7 +55,7 @@ Anyone can deposit MUSD and receive **yMUSD** LP tokens.
 - Withdrawals are instant up to the unlocked balance; locked collateral frees up as options settle or expire.
 - **Pricing.** The pool sells at `mid IV × 1.15`. The mid IV is updated hourly by a keeper from Deribit's BTC volatility index (DVOL), within 25%–150%.
 - **Limits.** 50,000 MUSD pool cap and 10,000 MUSD collateral per option (owner-adjustable). Trading can be paused by the owner or a guardian key (only the owner can unpause).
-- **Pool protections** (in the contracts in this repository; the matsnet deployment below predates them until redeployed):
+- **Pool protections** (live on the matsnet deployment below; testnet sets the minimum pool expiry to 15 minutes, the default is 1 hour):
   - Share price counts unearned premium as a liability, so nobody can join just before a sale or leave just after one to capture premium.
   - 1-hour deposit lock; 0.25% withdrawal fee while options are open (stays in the pool).
   - The pool sells only strikes within 30% of spot, with at least 1 hour left, at least 5% a year of rent on locked collateral, a price markup that rises with utilisation, and never past 80% utilisation or 25% of the pool in one option.
@@ -107,12 +107,12 @@ BTC/USD comes from Mezo's **Skip oracle** at `0x7b7c0000000000000000000000000000
 
 ## Deployed Contracts — Mezo Matsnet (chainId 31611)
 
-Deployed 10 Nov 2026 from the current contracts (pricing fixes, Trove margin redesign, bids, 3× call cap, IV keeper role, immediate-exercise price floor, NAV-based LP shares, high-water-mark performance fee). Earlier deployments are retired.
+Redeployed 10 Nov 2026 from the current contracts (premium-lock NAV, deposit lock and withdrawal fee, utilisation and strike limits, minimum rent, circuit breaker, auto-exercise, guardian; earlier: pricing fixes, Trove margin redesign, bids, 3× call cap, IV keeper role, immediate-exercise price floor, NAV-based LP shares, high-water-mark performance fee). Earlier deployments are retired.
 
 | Contract | Address |
 |---|---|
-| OptionPool | `0x7240a712402cd992881aE3b9dAA58955509ce582` |
-| yMUSD (LP token) | `0x387A9D85541CE34082C2d9F0E618ac0a3D6A49DA` |
+| OptionPool | `0xe27c6a15D947757Ae7bcc945063C45C650B3F357` |
+| yMUSD (LP token) | `0x00967781f41728A8d5BD64D2EeFd75e28F5f0246` |
 | MUSD | `0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503` |
 | Skip Oracle (BTC/USD) | `0x7b7c000000000000000000000000000000000015` |
 | Mezo TroveManager | `0xE47c80e8c23f6B4A1aE41c34837a0599D5D16bb0` |

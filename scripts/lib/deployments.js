@@ -7,8 +7,8 @@ const DIR = path.join(__dirname, '../../deployments');
 
 const KNOWN = {
   matsnet: {
-    pool:         '0x7240a712402cd992881aE3b9dAA58955509ce582',
-    ymusd:        '0x387A9D85541CE34082C2d9F0E618ac0a3D6A49DA',
+    pool:         '0xe27c6a15D947757Ae7bcc945063C45C650B3F357',
+    ymusd:        '0x00967781f41728A8d5BD64D2EeFd75e28F5f0246',
     musd:         '0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503',
     oracle:       '0x7b7c000000000000000000000000000000000015',
     troveManager: '0xE47c80e8c23f6B4A1aE41c34837a0599D5D16bb0',

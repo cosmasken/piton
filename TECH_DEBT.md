@@ -232,5 +232,6 @@ time. Verify against Mezo's BorrowerOperations; the feature may not work as desi
 - NOT DONE as first specified: #12 asked for a snapshot liability cache for unlimited open options. It does not fit in
   the contract size limit (23,046 of 24,576 bytes used), so the cap is adjustable (default 50, ceiling 150) and its gas
   is tested. A cache would need the pricing maths moved into a linked library first.
-- OPEN: the deployed matsnet pool (0x7240…) predates these changes; redeploy needed. The timelock and guardian are
-  not set up on any deployment. No external audit.
+- DONE: redeployed matsnet with these changes — OptionPool `0xe27c6a15D947757Ae7bcc945063C45C650B3F357`, yMUSD
+  `0x00967781f41728A8d5BD64D2EeFd75e28F5f0246`; seeded 2,500 MUSD, IV from DVOL (40.32%), `minPoolExpiry` set to 900 s
+  for quick testing (default 3600). `0x7240…` is retired and empty. OPEN: timelock and guardian not set up; no external audit.
