@@ -803,9 +803,44 @@ contract OptionPool is Ownable, ReentrancyGuard {
     // ─── Settlement ───────────────────────────────────────────────────────────
 
     function settle(uint256 id) external nonReentrant {
+        require(msg.sender == options[id].long, "only long can settle");
+        _settle(id, address(0));
+    }
+
+    // ─── Auto-exercise ────────────────────────────────────────────────────────
+
+    /// @notice In-the-money options that their owner opted in are exercised by anyone in the last
+    ///         `AUTO_EXERCISE_WINDOW` before expiry; the caller earns `keeperFeeBps` of the payout.
+    uint256 public constant AUTO_EXERCISE_WINDOW = 5 minutes;
+    uint256 public keeperFeeBps = 50;
+    uint256 public constant MAX_KEEPER_FEE_BPS = 200;
+    mapping(uint256 => bool) public autoExercise;
+    event AutoExerciseSet(uint256 indexed id, bool on);
+    event KeeperFeeSet(uint256 bps);
+
+    function setAutoExercise(uint256 id, bool on) external {
+        Option storage o = options[id];
+        require(msg.sender == o.long && o.status == OrderStatus.FILLED, "not your open option");
+        autoExercise[id] = on;
+        emit AutoExerciseSet(id, on);
+    }
+
+    function settleFor(uint256 id) external nonReentrant {
+        Option storage o = options[id];
+        require(autoExercise[id], "auto-exercise not enabled");
+        require(o.expiry > block.timestamp && o.expiry - block.timestamp <= AUTO_EXERCISE_WINDOW, "not in exercise window");
+        _settle(id, msg.sender);
+    }
+
+    function setKeeperFeeBps(uint256 _bps) external onlyOwner {
+        require(_bps <= MAX_KEEPER_FEE_BPS, "max 2%");
+        keeperFeeBps = _bps;
+        emit KeeperFeeSet(_bps);
+    }
+
+    function _settle(uint256 id, address keeper) internal {
         Option storage o = options[id];
         require(o.status == OrderStatus.FILLED, "not filled");
-        require(msg.sender == o.long, "only long can settle");
         require(o.expiry > block.timestamp, "expired");
 
         uint256 spot   = _spot();
@@ -814,22 +849,22 @@ contract OptionPool is Ownable, ReentrancyGuard {
 
         o.status = OrderStatus.SETTLED;
         uint256 paid = profit > o.collateral ? o.collateral : profit;
+        uint256 tip  = keeper == address(0) ? 0 : paid * keeperFeeBps / 10000; // comes out of the long's payout
 
         if (o.filledByPool) {
-            uint256 payout = paid;
             _removeOpenPoolOption(id);
             lockedCollateral -= o.collateral;
-            totalAssets      -= payout;
-            totalSettlementsPaid += payout;
+            totalAssets      -= paid;
+            totalSettlementsPaid += paid;
             _takePerformanceFee();
-            musd.safeTransfer(o.long, payout);
             // remaining collateral stays in pool
         } else {
             // Manual short (MUSD or Trove-funded margin: both are MUSD held by the pool)
-            musd.safeTransfer(o.long, paid);
             uint256 remaining = o.collateral - paid;
             if (remaining > 0) musd.safeTransfer(o.short, remaining);
         }
+        musd.safeTransfer(o.long, paid - tip);
+        if (tip > 0) musd.safeTransfer(keeper, tip);
 
         emit Settled(id, o.long, paid);
     }

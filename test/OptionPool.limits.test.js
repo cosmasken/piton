@@ -221,3 +221,52 @@ describe('#8 circuit breaker', () => {
     expect(await pool.cbMaxMoveBps()).to.equal(500n);
   });
 });
+
+describe('#9 auto-exercise', () => {
+  async function itmPut() {
+    const c = await deploy();
+    await c.pool.connect(c.lp).deposit(E18('1000000'));
+    expect(await buyPut(c.pool, c.buyer, E18('100000'), E18('0.1'), 3600)).to.equal(true);
+    const id = (await c.pool.nextId()) - 1n;
+    return { ...c, id, exp: Number((await c.pool.getOption(id)).expiry) };
+  }
+  it('a keeper exercises an opted-in ITM option in the last 5 minutes and earns 0.5%', async () => {
+    const { pool, oracle, musd, buyer, other, id, exp } = await itmPut();
+    await pool.connect(buyer).setAutoExercise(id, true);
+    await oracle.setPrice(90000); // put is 10,000 ITM per BTC -> 1,000 payout
+    await expect(pool.connect(other).settleFor(id)).to.be.revertedWith('not in exercise window');
+    await time.increaseTo(exp - 200); await oracle.setPrice(90000);
+    const b = await musd.balanceOf(buyer.address), k = await musd.balanceOf(other.address);
+    await pool.connect(other).settleFor(id);
+    expect((await musd.balanceOf(buyer.address)) - b).to.equal(E18('995'));
+    expect((await musd.balanceOf(other.address)) - k).to.equal(E18('5'));
+    expect((await pool.getOption(id)).status).to.equal(2n); // SETTLED
+  });
+  it('does nothing unless the owner opted in; only the owner can opt in', async () => {
+    const { pool, oracle, buyer, other, id, exp } = await itmPut();
+    await time.increaseTo(exp - 200); await oracle.setPrice(90000);
+    await expect(pool.connect(other).settleFor(id)).to.be.revertedWith('auto-exercise not enabled');
+    await expect(pool.connect(other).setAutoExercise(id, true)).to.be.revertedWith('not your open option');
+    await pool.connect(buyer).setAutoExercise(id, true);
+    await pool.connect(buyer).setAutoExercise(id, false);
+    await expect(pool.connect(other).settleFor(id)).to.be.revertedWith('auto-exercise not enabled');
+  });
+  it('refuses out-of-the-money options and options already past expiry', async () => {
+    const { pool, oracle, buyer, other, id, exp } = await itmPut();
+    await pool.connect(buyer).setAutoExercise(id, true);
+    await time.increaseTo(exp - 200);
+    await oracle.setPrice(110000);
+    await expect(pool.connect(other).settleFor(id)).to.be.revertedWith('not in the money');
+    await time.increaseTo(exp + 1); await oracle.setPrice(90000);
+    await expect(pool.connect(other).settleFor(id)).to.be.revertedWith('not in exercise window');
+  });
+  it('manual settle still works as before and the fee is capped', async () => {
+    const { pool, oracle, musd, buyer, id } = await itmPut();
+    await oracle.setPrice(90000);
+    const b = await musd.balanceOf(buyer.address);
+    await pool.connect(buyer).settle(id);
+    expect((await musd.balanceOf(buyer.address)) - b).to.equal(E18('1000'));
+    await expect(pool.setKeeperFeeBps(201)).to.be.revertedWith('max 2%');
+    await expect(pool.setKeeperFeeBps(100)).to.emit(pool, 'KeeperFeeSet').withArgs(100n);
+  });
+});
