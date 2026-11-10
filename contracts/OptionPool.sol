@@ -3,7 +3,7 @@ pragma solidity 0.8.28;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./yMUSD.sol";
 
@@ -39,7 +39,7 @@ interface IBorrowerOperationsSignatures {
 
 
 /// @title OptionPool — Piton V2 unified options engine + liquidity pool
-contract OptionPool is Ownable, ReentrancyGuard {
+contract OptionPool is Ownable2Step, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     // ─── Constants ───────────────────────────────────────────────────────────
@@ -1078,6 +1078,19 @@ contract OptionPool is Ownable, ReentrancyGuard {
 
     /// @notice Pause blocks new deposits, orders and fills. Withdraw, settle, refund and cancel stay
     ///         open, so users can always exit.
-    function pausePool()   external onlyOwner { paused = true;  emit PausedSet(true); }
+    /// @notice Pausing is the one action a low-privilege "guardian" key may take (e.g. a hot monitoring
+    ///         bot or multisig signer). It cannot unpause, change parameters or touch funds.
+    address public guardian;
+    event GuardianSet(address indexed guardian);
+
+    function setGuardian(address g) external onlyOwner { guardian = g; emit GuardianSet(g); }
+
+    function pausePool() external {
+        require(msg.sender == owner() || msg.sender == guardian, "not owner or guardian");
+        paused = true; emit PausedSet(true);
+    }
     function unpausePool() external onlyOwner { paused = false; emit PausedSet(false); }
+
+    /// @dev Renouncing would freeze every parameter forever, including the ability to pause.
+    function renounceOwnership() public view override onlyOwner { revert("renounce disabled"); }
 }

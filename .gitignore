@@ -38,6 +38,7 @@ scripts/*
 !scripts/lib/
 !scripts/ivKeeper.js
 !scripts/autoExercise.js
+!scripts/setupGovernance.js
 !scripts/deployV2.js
 !scripts/seedV2.js
 !scripts/health.js
