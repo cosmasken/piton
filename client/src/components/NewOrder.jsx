@@ -9,18 +9,16 @@ const EXPLORER = 'https://explorer.test.mezo.org/tx/';
 const BORROWER_OPS_SIGS = '0xD757e3646AF370b15f32EB557F0F8380Df7D639e';
 const BORROWER_OPS_SIGS_ABI = [{ type: 'function', name: 'getNonce', stateMutability: 'view', inputs: [{ name: 'user', type: 'address' }], outputs: [{ type: 'uint256' }] }];
 
-async function signTroveAdjust(signer, contractAddress, borrower, debtChange, nonce, deadline, chainId) {
-  const domain = { name: 'BorrowerOperationsSignatures', version: '1', chainId, verifyingContract: contractAddress };
-  const types  = { AdjustTrove: [
-    { name: 'collWithdrawal', type: 'uint256' }, { name: 'debtChange',     type: 'uint256' },
-    { name: 'isDebtIncrease', type: 'bool'    }, { name: 'assetAmount',    type: 'uint256' },
-    { name: 'borrower',       type: 'address' }, { name: 'recipient',      type: 'address' },
-    { name: 'nonce',          type: 'uint256' }, { name: 'deadline',       type: 'uint256' },
+// Mezo WithdrawMUSD typed data. The signature commits to the exact amount and recipient, and is
+// consumed by the pool in the same transaction (never stored), so it expires after 10 minutes.
+async function signTroveWithdraw(signer, sigsAddress, borrower, amount, recipient, nonce, deadline, chainId) {
+  const domain = { name: 'BorrowerOperationsSignatures', version: '1', chainId, verifyingContract: sigsAddress };
+  const types  = { WithdrawMUSD: [
+    { name: 'amount',    type: 'uint256' }, { name: 'borrower', type: 'address' },
+    { name: 'recipient', type: 'address' }, { name: 'nonce',    type: 'uint256' },
+    { name: 'deadline',  type: 'uint256' },
   ]};
-  return signer.signTypedData(domain, types, {
-    collWithdrawal: 0n, debtChange, isDebtIncrease: true, assetAmount: 0n,
-    borrower, recipient: contractAddress, nonce, deadline: BigInt(deadline),
-  });
+  return signer.signTypedData(domain, types, { amount, borrower, recipient, nonce, deadline: BigInt(deadline) });
 }
 
 function TxToast({ msg, hash }) {
@@ -98,16 +96,17 @@ export default function NewOrder() {
           isCall ? 0 : 1, strikeWei, qtyWei, expiryTs, premiumWei
         )).wait();
       } else if (marginType === 'trove') {
-        // Short with Trove margin
+        // Short funded by Trove debt: MUSD is drawn from the Trove at creation, BTC stays in it.
+        // Puts need exactly strike*qty; calls depend on spot, so add a 5% buffer (unused margin is
+        // returned at expiry).
+        const required = isCall ? (p * 2 - sp) * q * 1.05 : sp * q;
+        const marginWei = ethers.parseEther(required.toFixed(6));
         const bos      = new ethers.Contract(BORROWER_OPS_SIGS, BORROWER_OPS_SIGS_ABI, signer);
         const nonce    = await bos.getNonce(account);
-        const deadline = Math.floor(Date.now() / 1000) + 86400 * 30;
-        const collWei  = isCall
-          ? ethers.parseEther(((p * 2 - sp) * q).toFixed(6))
-          : ethers.parseEther((sp * q).toFixed(6));
-        const sig = await signTroveAdjust(signer, poolAddr, account, collWei, nonce, deadline, chainId);
+        const deadline = Math.floor(Date.now() / 1000) + 600;
+        const sig = await signTroveWithdraw(signer, BORROWER_OPS_SIGS, account, marginWei, poolAddr, nonce, deadline, chainId);
         tx = await (await poolContract.createShortOrderTrove(
-          isCall ? 0 : 1, strikeWei, qtyWei, expiryTs, premiumWei, sig, deadline
+          isCall ? 0 : 1, strikeWei, qtyWei, expiryTs, premiumWei, marginWei, sig, deadline
         )).wait();
       } else {
         // Short with MUSD collateral
@@ -196,7 +195,7 @@ export default function NewOrder() {
                   <span className="text-xs font-display font-semibold text-accent">✦ Trove Margin</span>
                   {marginType === 'trove' && <span className="text-xs text-accent">Selected</span>}
                 </div>
-                <p className="text-xs text-dim mt-0.5">Use your Mezo Trove as margin — no capital lockup.</p>
+                <p className="text-xs text-dim mt-0.5">Borrow the margin from your Mezo Trove — your BTC stays in it. Unused margin comes back as MUSD at expiry; repay your Trove then.</p>
               </button>
               {marginType === 'trove' && (
                 <button type="button" onClick={() => setMarginType('musd')} className="text-xs text-dim hover:text-text transition-colors">

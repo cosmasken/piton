@@ -10,7 +10,12 @@ withdraw underflow, `quotePremium` past-expiry revert, `fillShort` added (open l
 filled by a manual seller), zero-collateral calls rejected/not pool-filled, `Settled` event now emits
 the amount actually paid. Pool solvency vs balance: no bug found; covered by an invariant test.
 
-Open, needs a decision: #4/#5/#6 (Trove margin, see findings below), zero-share dilution policy,
+Trove margin (#4/#5/#6): FIXED by redesign — margin is drawn from the Trove at order creation with a
+signature consumed in the same tx (nothing stored, no replay, no settle-time Mezo call). See
+TROVE_PLAN.md option A. Still to verify on matsnet: exact amount delivered by
+`withdrawMUSDWithSignature` (fees/interest).
+
+Open, needs a decision: zero-share dilution policy,
 capped-payout pricing, fixed IV. UI button for `fillShort` not built.
 
 **Trove findings confirmed against Mezo's BorrowerOperationsSignatures source:** the signed digest

@@ -23,10 +23,11 @@ interface ITroveManager {
 }
 
 interface IBorrowerOperationsSignatures {
-    function adjustTroveWithSignature(
-        uint256 _collWithdrawal,
-        uint256 _debtChange,
-        bool    _isDebtIncrease,
+    /// @dev Mezo's signed borrow. The digest commits to exact amount, borrower, recipient,
+    ///      a per-borrower nonce and a deadline — NOT to msg.sender — so a signature must be
+    ///      consumed in the same tx it is received (never stored).
+    function withdrawMUSDWithSignature(
+        uint256 _amount,
         address _upperHint,
         address _lowerHint,
         address _borrower,
@@ -71,9 +72,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
         uint256     premium;        // 18 dec MUSD
         uint256     quantity;       // 18 dec BTC
         uint256     expiry;         // unix timestamp
-        uint256     collateral;     // MUSD locked
-        bytes       troveSig;       // EIP-712 sig (TROVE margin only)
-        uint256     troveDeadline;
+        uint256     collateral;     // MUSD locked (for TROVE margin: drawn from the Trove at creation)
     }
 
     // ─── State ───────────────────────────────────────────────────────────────
@@ -445,48 +444,59 @@ contract OptionPool is Ownable, ReentrancyGuard {
         emit OrderCreated(id, optionType, msg.sender, false);
     }
 
-    /// @notice Place a short order with Trove margin (EIP-712).
+    /// @notice Place a short order funded by Mezo Trove debt.
+    ///         The short signs (off-chain) a Mezo `WithdrawMUSD` for exactly `marginAmount`
+    ///         with recipient = this contract. The signature is consumed here, in the same tx,
+    ///         so it is never stored and cannot be replayed. From then on the margin is ordinary
+    ///         MUSD collateral held by the pool. The short's BTC stays in their Trove.
+    /// @param marginAmount MUSD to draw; must be >= required collateral (signed amount must match).
     function createShortOrderTrove(
         OptionType optionType,
         uint256    strike,
         uint256    quantity,
         uint256    expiry,
         uint256    premium,
+        uint256    marginAmount,
         bytes calldata troveSig,
         uint256    troveDeadline
     ) external nonReentrant notPaused returns (uint256 id) {
         require(strike > 0 && quantity > 0 && premium > 0, "invalid params");
         require(expiry > block.timestamp + MIN_EXPIRY, "expiry too soon");
         require(expiry <= block.timestamp + MAX_EXPIRY, "expiry too far");
-        require(troveSig.length > 0 && troveDeadline >= expiry, "trove sig must outlive option");
+        require(troveSig.length > 0 && troveDeadline > block.timestamp, "invalid trove sig");
 
-        uint256 spot       = _spot();
-        uint256 collateral = _requiredCollateral(optionType, spot, strike, quantity);
-        require(collateral > 0, "zero collateral: strike too far OTM");
+        uint256 spot     = _spot();
+        uint256 required = _requiredCollateral(optionType, spot, strike, quantity);
+        require(required > 0, "zero collateral: strike too far OTM");
+        require(marginAmount >= required, "margin below required");
+        require(marginAmount <= maxOptionCollateral, "collateral exceeds max");
 
-        // Verify Trove equity covers collateral
+        // Trove must stay healthy AFTER the draw (stricter than Mezo's own minimum ratio).
         ITroveManager tm = ITroveManager(TROVE_MANAGER);
         require(tm.getTroveStatus(msg.sender) == 1, "no active trove");
         uint256 collVal = tm.getTroveColl(msg.sender) * spot / PRECISION;
-        uint256 debt    = tm.getTroveDebt(msg.sender);
-        require(collVal > debt, "trove underwater");
-        require(collVal * PRECISION / debt >= MIN_ICR, "trove ICR too low");
-        require(collVal - debt >= collateral, "insufficient trove equity");
+        uint256 newDebt = tm.getTroveDebt(msg.sender) + marginAmount;
+        require(collVal * PRECISION >= newDebt * MIN_ICR, "trove ICR too low after draw");
+
+        // Consume the signature now and verify we actually received the margin.
+        uint256 balBefore = musd.balanceOf(address(this));
+        IBorrowerOperationsSignatures(BORROWER_OPS_SIGS).withdrawMUSDWithSignature(
+            marginAmount, address(0), address(0), msg.sender, address(this), troveSig, troveDeadline
+        );
+        require(musd.balanceOf(address(this)) - balBefore >= marginAmount, "trove draw short");
 
         id = nextId++;
         Option storage o = options[id];
-        o.id            = id;
-        o.optionType    = optionType;
-        o.status        = OrderStatus.OPEN;
-        o.short         = msg.sender;
-        o.strike        = strike;
-        o.premium       = premium;
-        o.quantity      = quantity;
-        o.expiry        = expiry;
-        o.collateral    = collateral;
-        o.marginType    = MarginType.TROVE;
-        o.troveSig      = troveSig;
-        o.troveDeadline = troveDeadline;
+        o.id         = id;
+        o.optionType = optionType;
+        o.status     = OrderStatus.OPEN;
+        o.short      = msg.sender;
+        o.strike     = strike;
+        o.premium    = premium;
+        o.quantity   = quantity;
+        o.expiry     = expiry;
+        o.collateral = marginAmount;
+        o.marginType = MarginType.TROVE;
 
         userOptions[msg.sender].push(id);
         emit OrderCreated(id, optionType, msg.sender, false);
@@ -564,19 +574,11 @@ contract OptionPool is Ownable, ReentrancyGuard {
             _takePerformanceFee();
             musd.safeTransfer(o.long, payout);
             // remaining collateral stays in pool
-        } else if (o.marginType == MarginType.MUSD) {
-            uint256 payout = paid;
-            musd.safeTransfer(o.long, payout);
-            uint256 remaining = o.collateral - payout;
-            if (remaining > 0) musd.safeTransfer(o.short, remaining);
         } else {
-            // Trove margin — pull from trove, capped at the posted collateral
-            uint256 payout = paid;
-            IBorrowerOperationsSignatures(BORROWER_OPS_SIGS).adjustTroveWithSignature(
-                0, payout, true, address(0), address(0),
-                o.short, address(this), o.troveSig, o.troveDeadline
-            );
-            musd.safeTransfer(o.long, payout);
+            // Manual short (MUSD or Trove-funded margin: both are MUSD held by the pool)
+            musd.safeTransfer(o.long, paid);
+            uint256 remaining = o.collateral - paid;
+            if (remaining > 0) musd.safeTransfer(o.short, remaining);
         }
 
         emit Settled(id, o.long, paid);
@@ -603,10 +605,9 @@ contract OptionPool is Ownable, ReentrancyGuard {
             lockedCollateral -= o.collateral;
             // collateral stays in pool as yield
             _takePerformanceFee();
-        } else if (o.marginType == MarginType.MUSD) {
+        } else {
             musd.safeTransfer(o.short, o.collateral);
         }
-        // Trove margin: nothing to return, lien released by status change
 
         emit Refunded(id, o.short);
     }
@@ -624,8 +625,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
         } else if (o.short == msg.sender && o.long == address(0)) {
             // short order, unfilled — return collateral
             o.status = OrderStatus.REFUNDED;
-            if (o.marginType == MarginType.MUSD)
-                musd.safeTransfer(o.short, o.collateral);
+            musd.safeTransfer(o.short, o.collateral);
         } else {
             revert("not your order");
         }

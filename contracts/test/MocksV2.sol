@@ -40,20 +40,22 @@ contract MockBorrowerOps {
     event TrovePulled(address borrower, uint256 amount, address recipient);
 
     IERC20 public musd;
+    uint256 public deliverBps = 10000; // test knob: deliver less than requested
 
     function setMUSD(address _musd) external { musd = IERC20(_musd); }
+    function setDeliverBps(uint256 bps) external { deliverBps = bps; }
 
-    /// @dev Mirrors BorrowerOperationsSignatures: pulls `_debtChange` MUSD from the
-    ///      borrower's Trove and sends it to `_recipient`. Requires this mock to be
-    ///      pre-funded with MUSD in tests.
-    function adjustTroveWithSignature(
-        uint256, uint256 _debtChange, bool,
-        address, address, address _borrower, address _recipient,
+    /// @dev Mirrors BorrowerOperationsSignatures.withdrawMUSDWithSignature: borrows
+    ///      `_amount` MUSD against `_borrower`'s Trove and sends it to `_recipient`.
+    ///      Requires this mock to be pre-funded with MUSD in tests.
+    function withdrawMUSDWithSignature(
+        uint256 _amount, address, address,
+        address _borrower, address _recipient,
         bytes calldata, uint256
     ) external {
-        emit TrovePulled(_borrower, _debtChange, _recipient);
-        if (address(musd) != address(0) && _debtChange > 0) {
-            require(musd.transfer(_recipient, _debtChange), "mock transfer failed");
+        emit TrovePulled(_borrower, _amount, _recipient);
+        if (address(musd) != address(0) && _amount > 0) {
+            require(musd.transfer(_recipient, _amount * deliverBps / 10000), "mock transfer failed");
         }
     }
 }
