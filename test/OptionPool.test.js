@@ -291,7 +291,7 @@ describe('Owner controls', () => {
   it('setIV rejects out-of-range values', async () => {
     const { pool } = await deploy();
     await expect(pool.setIV(E18('2'))).to.be.revertedWith('iv out of range');
-    await expect(pool.setIV(E18('0.4'))).to.be.revertedWith('iv out of range');
+    await expect(pool.setIV(E18('0.2'))).to.be.revertedWith('iv out of range');
   });
 
   it('paused pool rejects deposits', async () => {
@@ -484,5 +484,49 @@ describe('Call payout cap (3x spot)', () => {
     const before = await musd.balanceOf(buyer.address);
     await pool.connect(buyer).settle(id);
     expect((await musd.balanceOf(buyer.address)) - before).to.equal(E18('1500'));
+  });
+});
+
+describe('IV spread and keeper', () => {
+  it('pool quotes at iv * (1 + 15%) and bsPrice stays at mid', async () => {
+    const { pool } = await deploy();
+    expect(await pool.ivSpreadBps()).to.equal(1500n);
+    expect(await pool.askIv()).to.equal(E18('0.92'));
+    const exp = await expiry(86400);
+    const ask = await pool.quotePremium(true, E18('100000'), E18('1'), exp);
+    const mid = await pool.bsPrice(true, E18('100000'), E18('100000'), 86400);
+    // ATM premium is ~linear in vol: ask/mid ≈ 1.15
+    const ratio = Number(ask * 10000n / mid) / 10000;
+    expect(ratio).to.be.closeTo(1.15, 0.01);
+  });
+
+  it('pool rejects a long priced at mid fair value but accepts one at the ask', async () => {
+    const { pool, lp, buyer } = await deploy();
+    await pool.connect(lp).deposit(E18('10000'));
+    const exp = await expiry(86400);
+    const mid = await pool.bsPrice(false, E18('100000'), E18('100000'), 86400) / 100n; // 0.01 BTC
+    await pool.connect(buyer).createLongOrder(1, E18('100000'), E18('0.01'), exp, mid);
+    expect((await pool.getOption((await pool.nextId()) - 1n)).filledByPool).to.equal(false);
+    const ask = await pool.quotePremium(false, E18('100000'), E18('0.01'), exp);
+    await pool.connect(buyer).createLongOrder(1, E18('100000'), E18('0.01'), exp, ask);
+    expect((await pool.getOption((await pool.nextId()) - 1n)).filledByPool).to.equal(true);
+  });
+
+  it('keeper can set IV within [25%, 150%]; others cannot; keeper cannot change anything else', async () => {
+    const { pool, owner, seller: keeper, buyer } = await deploy();
+    await pool.connect(owner).setIvKeeper(keeper.address);
+    await expect(pool.connect(keeper).setIV(E18('0.4'))).to.emit(pool, 'IVUpdated').withArgs(E18('0.4'), keeper.address);
+    expect(await pool.iv()).to.equal(E18('0.4'));
+    await expect(pool.connect(keeper).setIV(E18('0.2'))).to.be.revertedWith('iv out of range');
+    await expect(pool.connect(buyer).setIV(E18('0.5'))).to.be.revertedWith('not owner or keeper');
+    await expect(pool.connect(keeper).setIvSpreadBps(0)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
+    await expect(pool.connect(keeper).setTVLCap(0)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
+  });
+
+  it('owner can tune the spread up to 50%', async () => {
+    const { pool } = await deploy();
+    await pool.setIvSpreadBps(2500);
+    expect(await pool.askIv()).to.equal(E18('1'));
+    await expect(pool.setIvSpreadBps(5001)).to.be.revertedWith('spread too high');
   });
 });

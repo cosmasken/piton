@@ -99,7 +99,14 @@ contract OptionPool is Ownable, ReentrancyGuard {
     uint256 public totalPerformanceFeePaid;
 
     // Pricing
-    uint256 public iv = 8e17;         // 80% default, 18 dec
+    uint256 public iv = 8e17;         // 80% default, 18 dec — mid implied vol (set by owner or ivKeeper)
+    uint256 public ivSpreadBps = 1500; // pool sells at iv * (1 + spread): 15% safety margin for LPs
+    address public ivKeeper;           // bot allowed to update iv (cannot touch anything else)
+    uint256 public constant MIN_IV = 25e16;  // 25%
+    uint256 public constant MAX_IV = 15e17;  // 150%
+    uint256 public constant MAX_IV_SPREAD_BPS = 5000;
+
+    event IVUpdated(uint256 iv, address indexed by);
     uint256 public constant R = 5e16; // 5% risk-free rate, 18 dec
 
     // Limits
@@ -216,22 +223,37 @@ contract OptionPool is Ownable, ReentrancyGuard {
         return PRECISION * PRECISION / result;
     }
 
-    /// @dev Black-Scholes premium, all inputs 1e18 scaled
+    /// @dev Black-Scholes premium at the mid IV, all inputs 1e18 scaled
     function bsPrice(
         bool    isCall,
         uint256 spot,
         uint256 strike,
         uint256 timeToExpirySeconds
     ) public view returns (uint256) {
+        return _bs(isCall, spot, strike, timeToExpirySeconds, iv);
+    }
+
+    /// @notice IV the pool actually sells at (mid IV plus the LP safety margin).
+    function askIv() public view returns (uint256) {
+        return iv * (10000 + ivSpreadBps) / 10000;
+    }
+
+    function _bs(
+        bool    isCall,
+        uint256 spot,
+        uint256 strike,
+        uint256 timeToExpirySeconds,
+        uint256 vol
+    ) internal pure returns (uint256) {
         if (timeToExpirySeconds == 0 || spot == 0 || strike == 0) return 0;
         // T in years, 1e18 scaled
         uint256 T    = timeToExpirySeconds * PRECISION / 365 days;
         uint256 sqrtT = _sqrt(T);
-        uint256 ivSqrtT = iv * sqrtT / PRECISION;
+        uint256 ivSqrtT = vol * sqrtT / PRECISION;
 
         // d1 = (ln(S/K) + (r + iv²/2)*T) / (iv*√T)
         int256 lnSK  = _ln(spot * PRECISION / strike);
-        uint256 iv2  = iv * iv / PRECISION;
+        uint256 iv2  = vol * vol / PRECISION;
         int256 drift = int256((R + iv2 / 2) * T / PRECISION);
         int256 d1    = (lnSK + drift) * int256(PRECISION) / int256(ivSqrtT);
         int256 d2    = d1 - int256(ivSqrtT);
@@ -406,7 +428,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
 
         // Validate premium against BS price (5% tolerance)
         // bsPrice returns per-BTC premium; scale by quantity
-        uint256 fairUnit = bsPrice(o.optionType == OptionType.CALL, spot, o.strike, o.expiry - block.timestamp);
+        uint256 fairUnit = _bs(o.optionType == OptionType.CALL, spot, o.strike, o.expiry - block.timestamp, askIv());
         uint256 fair     = fairUnit * o.quantity / PRECISION;
         if (o.premium < fair * 95 / 100) return; // below fair value, skip
 
@@ -687,15 +709,24 @@ contract OptionPool is Ownable, ReentrancyGuard {
     ) external view returns (uint256) {
         require(expiry > block.timestamp, "expired");
         uint256 spot = _spot();
-        uint256 unitPremium = bsPrice(isCall, spot, strike, expiry - block.timestamp);
+        uint256 unitPremium = _bs(isCall, spot, strike, expiry - block.timestamp, askIv());
         return unitPremium * quantity / PRECISION;
     }
 
     // ─── Owner ────────────────────────────────────────────────────────────────
 
-    function setIV(uint256 _iv) external onlyOwner {
-        require(_iv >= 5e17 && _iv <= 15e17, "iv out of range");
+    function setIV(uint256 _iv) external {
+        require(msg.sender == owner() || msg.sender == ivKeeper, "not owner or keeper");
+        require(_iv >= MIN_IV && _iv <= MAX_IV, "iv out of range");
         iv = _iv;
+        emit IVUpdated(_iv, msg.sender);
+    }
+
+    function setIvKeeper(address _keeper) external onlyOwner { ivKeeper = _keeper; }
+
+    function setIvSpreadBps(uint256 _bps) external onlyOwner {
+        require(_bps <= MAX_IV_SPREAD_BPS, "spread too high");
+        ivSpreadBps = _bps;
     }
 
     function setTVLCap(uint256 _cap) external onlyOwner { tvlCap = _cap; }

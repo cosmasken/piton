@@ -141,3 +141,8 @@ time. Verify against Mezo's BorrowerOperations; the feature may not work as desi
   are now strikes >= 3x spot. Order form shows "Max payout" (and the BTC price where it is reached)
   for longs, and warns when a call can never pay out. Pricing still assumes an uncapped payoff; with
   a 3x cap and <= 14 day expiries the overpricing is negligible at 80% IV.
+- DONE: IV safety margin + keeper. Pool fills and `quotePremium` use `askIv() = iv * (1 + ivSpreadBps)`,
+  default spread 15% (owner-tunable, max 50%); `bsPrice` stays at mid IV. New `ivKeeper` role can call
+  `setIV` and nothing else. `scripts/ivKeeper.js` reads Deribit BTC DVOL and pushes it hourly (cron),
+  skipping changes < 2 vol points and stale data. IV floor lowered from 50% to 25%: live DVOL was
+  ~39.7% when this was written, so a 50% floor would have kept the pool ~45% overpriced.
