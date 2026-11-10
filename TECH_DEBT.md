@@ -225,7 +225,7 @@ time. Verify against Mezo's BorrowerOperations; the feature may not work as desi
 ## Second review (10 Nov 2026) — 12 pool-protection changes, one commit each
 1 premium-lock NAV · 2 deposit lock + withdrawal fee · 3 utilisation/exposure limits · 4 minimum rent ·
 5 strike band · 6 utilisation markup · 7 minimum pool expiry · 8 circuit breaker · 9 opt-in auto-exercise +
-`scripts/autoExercise.js` · 10 Ownable2Step + guardian + `PitonTimelock` + `scripts/setupGovernance.js` ·
+keeper script · 10 Ownable2Step + guardian + `PitonTimelock` + setup script ·
 11 differential test vs Derive v1 · 12 adjustable open-option cap with measured gas.
 - Details and rationale: `audit/THREAT_MODEL.md` section 7. Tests: `test/OptionPool.{premiumlock,exitprotect,limits,governance,derive}.test.js`
   and Foundry `invariant_navTimingNeverPays`. Each change was mutation-checked (removing it fails a test).
@@ -237,11 +237,8 @@ time. Verify against Mezo's BorrowerOperations; the feature may not work as desi
   for quick testing (default 3600). `0x7240…` is retired and empty. OPEN: timelock and guardian not set up; no external audit.
 
 ## Operations (10 Nov 2026)
-- `scripts/ops.js`: one ethers-only process for the VPS (IV keeper, auto-exercise, refunds, circuit-breaker poke, optional
-  demo trader). Keys are read from git-ignored `docs/*.json`. `scripts/genKeys.js` creates and funds the keeper, guardian and
-  governance keys. `scripts/push-ops-vps.sh` (git-ignored, holds the host) pushes it to the server under pm2.
-- DONE on matsnet: keeper `0xdE33…7948` authorised with `setIvKeeper` and verified (it set the IV on-chain); 3 bot wallets funded with
-  50 MUSD each; one demo order placed and filled by the pool.
-- NOT TESTED LIVE: auto-exercise end to end on matsnet (needs an in-the-money, opted-in option in its last 5 minutes); covered by the
-  Hardhat tests. The guardian and timelock are generated but ownership has not been handed over.
+- Deploy, keeper, bot and key-generation scripts are kept privately (git-ignored); notes are in the local `docs/` folder.
+- DONE on matsnet: IV keeper wallet authorised and verified on-chain; demo orders placed and filled by the pool.
+- NOT TESTED LIVE: auto-exercise end to end on matsnet (needs an in-the-money, opted-in option in its last 5 minutes); covered
+  by the Hardhat tests. Guardian and timelock are generated but ownership has not been handed over.
 - The demo bot is seeded activity, not real volume, and must be described that way to anyone evaluating traction.

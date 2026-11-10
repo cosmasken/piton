@@ -61,7 +61,7 @@ Anyone can deposit MUSD and receive **yMUSD** LP tokens.
   - The pool sells only strikes within 30% of spot, with at least 1 hour left, at least 5% a year of rent on locked collateral, a price markup that rises with utilisation, and never past 80% utilisation or 25% of the pool in one option.
   - Circuit breaker: a 5% move in 10 minutes pauses pool fills and deposits for 30 minutes. Withdrawals, settlement and refunds stay open.
   - Opt-in auto-exercise: owners can allow a keeper to exercise in-the-money options in the last 5 minutes for 0.5% of the payout.
-  - Two-step ownership, and an optional timelock owner (`scripts/setupGovernance.js`).
+  - Two-step ownership, and an optional timelock owner (`PitonTimelock`).
 - **After a total loss**, deposits are blocked until worthless yMUSD is cleared, so new depositors are never diluted by old shares.
 
 ### Fees
@@ -172,45 +172,9 @@ The Mezo integration suite deploys Mezo's actual Trove, MUSD and signature contr
 
 ## Deploying and Operating
 
-```bash
-npm run deploy:testnet                     # deploy yMUSD + OptionPool to matsnet
-KEEPER=0x... npm run deploy:testnet        # ...and authorise an IV keeper address
-npx hardhat run scripts/seedV2.js --network matsnet    # deposit SEED (default 1000) MUSD into the pool
-npm run health:testnet                     # pool, oracle and fee status
-npx hardhat run scripts/ivKeeper.js --network matsnet  # push Deribit DVOL as the pool's IV
-```
+Deployment, keeper and monitoring scripts are operational tooling and are not part of this repository; they are kept privately. The contracts take five constructor arguments (MUSD, yMUSD, Skip oracle, TroveManager, BorrowerOperationsSignatures); the Mezo addresses are in the tables above. After a deploy, put the new `pool` and `ymusd` addresses in `client/src/network.mjs` (on mainnet they are zero-address placeholders today; replacing them switches the dapp from "not live" to live automatically).
 
-- `deployV2.js` checks its inputs before sending anything and writes addresses to `deployments/<network>.json`; the other scripts read that file.
-- After a deploy, put the new `pool` and `ymusd` addresses in `client/src/network.mjs` (and the table above). On mainnet these are zero-address placeholders today; replacing them switches the dapp from "not live" to live automatically.
-- `ivKeeper.js` is the one-shot version of the IV update (supports `DRY_RUN=1`; skips changes under 2 vol points and stale data). The keeper key can only change IV, so give it a dedicated wallet, never the owner key.
-- Test wallets and keys live in git-ignored files (`docs/bot-wallets.json`, `docs/governance-wallets.json`). Nothing with a private key is committed.
-
-### Keeper and demo bot (run on a server)
-
-`scripts/ops.js` is a single ethers-only process (no Hardhat needed) that runs everything the protocol needs off-chain:
-
-| Job | Every | What it does |
-|---|---|---|
-| `iv` | 1 h | Sets the pool's IV from Deribit DVOL |
-| `exercise` | 1 min | Exercises options whose owner ticked auto-exercise, in the last 5 minutes, when they are in the money. The caller earns 0.5% of the payout. |
-| `refund` | 5 min | Refunds expired pool options, which frees collateral and books the premium as yield |
-| `poke` | 10 min | Feeds the circuit breaker a fresh price, so a crash is noticed even when nobody trades |
-| `bot` | 12 min | Optional demo trader: a few test wallets buy small options from the pool (clearly seeded activity, not organic volume) |
-
-```bash
-node scripts/genKeys.js                          # creates docs/governance-wallets.json (keeper, guardian, multisig); FUND=1 also sends gas
-ONCE=1 node scripts/ops.js                       # run every job once (smoke test); DRY_RUN=1 sends nothing
-JOBS=iv,exercise,refund,poke node scripts/ops.js # keepers only, no demo trades
-```
-
-On a VPS, copy `scripts/ops.js`, `scripts/lib/`, `deployments/matsnet.json`, the pool ABI (`client/src/contracts/OptionPool.json`) and the two key files, then run it under pm2 (`pm2 start scripts/ops.js --name piton-ops`). Before the first run, the pool owner must authorise the keeper wallet: `pool.setIvKeeper(<keeper address>)` (do this before handing ownership to a timelock).
-
-### Governance (guardian and timelock)
-
-1. `node scripts/genKeys.js` generates the guardian key (can only pause) and the proposer/executor key. On testnet both are single keys; on mainnet use a Safe multisig for the proposer role and keep the guardian on a separate device.
-2. `npx hardhat run scripts/setupGovernance.js --network matsnet` (use `DELAY_HOURS=0.1` on testnet) deploys `PitonTimelock`, sets the guardian and starts the two-step ownership transfer. The timelock then accepts ownership through its own queue; the printed calldata makes that one call.
-3. After the handover every parameter change waits out the delay. Do it last.
-- `npm run deploy:mainnet` targets Mezo mainnet. Don't run it until the contracts are audited.
+What has to run off-chain for the protocol to work well: a keeper that sets the pool's IV from Deribit DVOL (a dedicated key that can only change IV), a keeper that exercises options whose owners opted in during the last 5 minutes (earns 0.5% of the payout), and periodic refunds of expired pool options. Ownership is two-step and can move to a timelock; a guardian key can pause but not unpause. Don't deploy to mainnet until the contracts are audited.
 
 ---
 

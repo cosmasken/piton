@@ -1,5 +1,5 @@
 const { expect } = require('chai');
-const { latestDvol, clampIvPct, planUpdate, isStale } = require('../scripts/lib/iv');
+const { latestDvol, clampIvPct, planUpdate, isStale } = require('../tools/iv');
 
 const E16 = 10n ** 16n;
 

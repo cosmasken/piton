@@ -33,17 +33,8 @@ brand-picker.html
 # internal docs
 docs/
 
-# bot scripts (contain wallet keys) — ignored by default; safe, key-free scripts are re-included below
-scripts/*
-!scripts/lib/
-!scripts/ivKeeper.js
-!scripts/autoExercise.js
-!scripts/setupGovernance.js
-!scripts/genKeys.js
-!scripts/ops.js
-!scripts/deployV2.js
-!scripts/seedV2.js
-!scripts/health.js
+# operations scripts (deploy, keepers, bots, key generation) are kept local, not on GitHub
+scripts/
 
 # Mezo protocol contracts fetched by tools/fetch-mezo.sh (GPL-3.0, not vendored)
 /contracts/mezo
