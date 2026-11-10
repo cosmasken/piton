@@ -150,3 +150,6 @@ time. Verify against Mezo's BorrowerOperations; the feature may not work as desi
   `fillShort` after approving the collateral (calls +2% buffer since the contract recomputes it from
   spot). Modal shows premium received (net of 2% fee), collateral locked and max loss. Built, not
   click-tested in a browser.
+- DONE: client oracle staleness aligned with the contract (`PRICE_STALENESS_S = 300` in store.js, was
+  90 min). While stale, the order button is disabled with a "retrying" label instead of letting
+  users sign a transaction that reverts; the existing banner still shows the Binance fallback price.

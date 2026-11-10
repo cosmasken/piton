@@ -44,7 +44,7 @@ function Row({ label, value, accent }) {
 }
 
 export default function NewOrder() {
-  const { signer, account, chainId, poolContract, musdContract, btcPrice, musdBalance, refresh } = useStore();
+  const { signer, account, chainId, poolContract, musdContract, btcPrice, musdBalance, oracleStale, refresh } = useStore();
 
   const [position,   setPosition]   = useState('long');
   const [optionType, setOptionType] = useState('call');
@@ -158,7 +158,9 @@ export default function NewOrder() {
     </div>
   );
 
-  const canSubmit = strike && premium && qty && !loading && poolContract;
+  // The contract reverts with "stale price" when the oracle is older than PRICE_STALENESS, so don't let
+  // users sign a transaction that is guaranteed to fail.
+  const canSubmit = strike && premium && qty && !loading && poolContract && !oracleStale;
 
   return (
     <div className="panel flex flex-col overflow-hidden flex-1">
@@ -246,7 +248,7 @@ export default function NewOrder() {
               isShort ? 'bg-red/20 text-red border border-red/30' : 'bg-accent/20 text-accent border border-accent/30'
             }`}>
             {loading && <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />}
-            {loading ? 'Waiting…' : isShort ? 'Place Sell Order' : 'Place Buy Order'}
+            {loading ? 'Waiting…' : oracleStale ? 'Oracle price stale — retrying…' : isShort ? 'Place Sell Order' : 'Place Buy Order'}
           </button>
         </form>
       </div>

@@ -24,6 +24,9 @@ const SKIP_ORACLE_ABI  = [
   { name: 'decimals', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint8' }] },
 ];
 
+// Must match OptionPool.PRICE_STALENESS: the contract rejects oracle prices older than this.
+export const PRICE_STALENESS_S = 300;
+
 const RO_PROVIDER = new ethers.JsonRpcProvider('https://rpc.test.mezo.org');
 
 // status enum from contract
@@ -91,7 +94,7 @@ export const useStore = create((set, get) => ({
         const dec   = await oracle.decimals();
         const price = parseFloat(ethers.formatUnits(answer, dec));
         const age   = Math.floor(Date.now() / 1000) - Number(updatedAt);
-        if (age <= 90 * 60) {
+        if (age <= PRICE_STALENESS_S) {
           set({ btcPrice: price, oracleStale: false, priceSource: 'oracle' });
           return;
         }
