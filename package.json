@@ -17,7 +17,10 @@
     "dapp": "npm start --prefix client",
     "client-install": "npm install --prefix client",
     "fetch:mezo": "./tools/fetch-mezo.sh",
-    "test:mezo": "hardhat test test/mezo.integration.test.js"
+    "test:mezo": "hardhat test test/mezo.integration.test.js",
+    "fuzz:setup": "forge install foundry-rs/forge-std@v1.17.0 --no-git",
+    "fuzz": "forge test",
+    "analyze": "./tools/static-analysis.sh"
   },
   "keywords": [],
   "author": "",

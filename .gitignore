@@ -48,3 +48,8 @@ scripts/*
 
 # static-analysis raw output (regenerate with tools/static-analysis.sh)
 /audit/out
+
+# Foundry (fuzz/invariant tests): build output and forge-std (npm run fuzz:setup)
+/out-forge
+/cache-forge
+/lib
