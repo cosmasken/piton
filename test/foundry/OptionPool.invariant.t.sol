@@ -27,6 +27,8 @@ contract Handler is Test {
     bool public ghost_feeRecipientDecreased;
     bool public ghost_flashExerciseProfit;
     bool public ghost_navTimingProfit;
+    bool public ghost_sellBackProfit;
+    bool public ghost_sellBackAboveMid;
     uint256 public ghost_lastFeeBalance;
     mapping(bytes32 => uint256) public calls;
 
@@ -121,6 +123,42 @@ contract Handler is Test {
         vm.prank(a);
         try pool.withdraw(sh) { calls["becomePool"]++; } catch { return; } // pool too utilised to exit: fine
         if (musd.balanceOf(a) + quote * 9 / 10 > cashBefore) ghost_navTimingProfit = true;
+        _trackFees();
+    }
+
+    /// Sell a live pool-sold option back to the pool. The bid must never exceed the mid-volatility value.
+    function sellBack(uint256 seed) external {
+        (uint256 id, bool ok) = _find(seed, 2);
+        if (!ok) return;
+        OptionPool.Option memory o = pool.getOption(id);
+        if (!o.filledByPool) return;
+        uint256 mid = pool.bsPrice(o.optionType == OptionPool.OptionType.CALL, _spot(), o.strike, o.expiry - block.timestamp) * o.quantity / 1e18;
+        if (mid > o.collateral) mid = o.collateral;
+        uint256 bal = musd.balanceOf(o.long);
+        vm.prank(o.long);
+        try pool.sellBack(id, 0) { calls["sellBack"]++; } catch { return; }
+        // tolerance of 1 part in a million: the on-chain normal-CDF approximation is not exactly monotonic where vega is ~0 (deep in the money)
+        if (musd.balanceOf(o.long) - bal > mid + mid / 1e6) ghost_sellBackAboveMid = true;
+        _trackFees();
+    }
+
+    /// Buy from the pool at its quote and sell straight back: the trader must lose money, whatever the inputs.
+    function buyAndSellBackNow(uint256 actorSeed, bool isCall, uint256 strikeSeed, uint256 qtySeed) external {
+        address a = _actor(actorSeed);
+        uint256 strike = _spot() * bound(strikeSeed, 70, 130) / 100;
+        uint256 qty = bound(qtySeed, 1e15, 0.05e18);
+        uint256 exp = block.timestamp + 1 days;
+        uint256 quote;
+        try pool.quotePremium(isCall, strike, qty, exp) returns (uint256 v) { quote = v; } catch { return; }
+        if (quote == 0) return;
+        uint256 before = musd.balanceOf(a);
+        vm.prank(a);
+        try pool.createLongOrder(isCall ? OptionPool.OptionType.CALL : OptionPool.OptionType.PUT, strike, qty, exp, quote) {} catch { return; }
+        uint256 id = pool.nextId() - 1;
+        if (!pool.getOption(id).filledByPool) { vm.prank(a); pool.cancelOrder(id); return; }
+        vm.prank(a);
+        try pool.sellBack(id, 0) { calls["roundTrip"]++; } catch { return; }
+        if (musd.balanceOf(a) > before) ghost_sellBackProfit = true;
         _trackFees();
     }
 
@@ -299,7 +337,7 @@ contract OptionPoolInvariants is StdInvariant, Test {
             if (o.status == OptionPool.OrderStatus.OPEN) {
                 // unfilled long holds the buyer's premium; unfilled short holds the seller's collateral
                 owed += o.short == address(0) ? o.premium : o.collateral;
-            } else if (o.status == OptionPool.OrderStatus.FILLED) {
+            } else if (o.status == OptionPool.OrderStatus.FILLED) {  // CLOSED options owe nothing: the pool paid out and freed the collateral
                 if (o.filledByPool) lockedByPool += o.collateral;
                 else owed += o.collateral;
             }
@@ -353,6 +391,12 @@ contract OptionPoolInvariants is StdInvariant, Test {
         assertFalse(h.ghost_navTimingProfit(), "free option via NAV timing");
     }
 
+    /// Buying from the pool and selling straight back always loses money, and a bid never exceeds mid value.
+    function invariant_sellBackNeverProfits() public view {
+        assertFalse(h.ghost_sellBackProfit(), "round trip made money");
+        assertFalse(h.ghost_sellBackAboveMid(), "bid above mid value");
+    }
+
     /// Net asset value (what LP shares are redeemed at) never exceeds raw assets, and is never
     /// below assets minus the collateral locked behind open pool options.
     function invariant_navBounds() public view {
@@ -381,7 +425,7 @@ contract HandlerCoverage is Test {
             r = uint256(keccak256(abi.encode(r)));
             uint256 a = r >> 8; uint256 b = r >> 40; uint256 c = r >> 72; uint256 d = r >> 104; uint256 e = r >> 136;
             bytes memory call;
-            uint256 pick = r % 15;
+            uint256 pick = r % 17;
             if (pick == 0) call = abi.encodeCall(h.deposit, (a, b));
             else if (pick == 1) call = abi.encodeCall(h.withdraw, (a, b));
             else if (pick == 2) call = abi.encodeCall(h.createLong, (a, b % 2 == 0, c, d, e, b));
@@ -396,12 +440,14 @@ contract HandlerCoverage is Test {
             else if (pick == 11) call = abi.encodeCall(h.warp, (b % 6 hours));
             else if (pick == 12) call = abi.encodeCall(h.setIV, (b));
             else if (pick == 13) call = abi.encodeCall(h.buyAndExerciseNow, (a, b % 2 == 0, c, d));
-            else call = abi.encodeCall(h.becomeThePool, (a, b, c));
+            else if (pick == 14) call = abi.encodeCall(h.becomeThePool, (a, b, c));
+            else if (pick == 15) call = abi.encodeCall(h.sellBack, (b));
+            else call = abi.encodeCall(h.buyAndSellBackNow, (a, b % 2 == 0, c, d));
             (bool ok,) = address(h).call(call);
             ok; // reverts are expected for some random inputs
         }
-        string[11] memory k = ["deposit", "withdraw", "createLong", "createShort", "createShortTrove",
-            "fillLong", "fillShort", "settle", "refund", "buyExercise", "becomePool"];
+        string[13] memory k = ["deposit", "withdraw", "createLong", "createShort", "createShortTrove",
+            "fillLong", "fillShort", "settle", "refund", "buyExercise", "becomePool", "sellBack", "roundTrip"];
         for (uint256 i = 0; i < k.length; i++) {
             uint256 n = h.calls(bytes32(bytes(k[i])));
             emit log_named_uint(k[i], n);

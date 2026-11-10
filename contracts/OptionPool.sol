@@ -59,7 +59,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
 
     enum OptionType  { CALL, PUT }
     enum MarginType  { MUSD, TROVE }
-    enum OrderStatus { OPEN, FILLED, SETTLED, REFUNDED }
+    enum OrderStatus { OPEN, FILLED, SETTLED, REFUNDED, CLOSED }
 
     struct Option {
         uint256     id;
@@ -876,6 +876,44 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
         if (tip > 0) musd.safeTransfer(keeper, tip);
 
         emit Settled(id, o.long, paid);
+    }
+
+    // ─── Sell back to the pool (close a long position early) ──────────────────
+
+    /// @notice The pool buys back options it sold, at the mid-IV Black-Scholes value less a fixed 10% spread on
+    ///         the volatility. It sells at mid x (1 + 15% + utilisation markup), so every
+    ///         round trip leaves the pool a margin, and it never pays above mid value.
+    uint256 public constant BID_SPREAD_BPS = 1000;
+    event SoldBack(uint256 indexed id, address indexed long, uint256 payout);
+
+    /// @notice What the pool would pay now to take back option `id` (0 if it cannot be sold back).
+    function quoteBuyback(uint256 id) public view returns (uint256) {
+        Option storage o = options[id];
+        if (o.status != OrderStatus.FILLED || !o.filledByPool || o.expiry <= block.timestamp) return 0;
+        (bool ok, uint256 spot) = _trySpot();
+        if (!ok) return 0;
+        uint256 vol = iv * (10000 - BID_SPREAD_BPS) / 10000;
+        uint256 value = _bs(o.optionType == OptionType.CALL, spot, o.strike, o.expiry - block.timestamp, vol) * o.quantity / PRECISION;
+        return value > o.collateral ? o.collateral : value;
+    }
+
+    /// @notice Sell option `id` back to the pool for at least `minPayout`. Only the pool's own sales can be
+    ///         sold back; the premium the pool already booked stays with LPs, minus this payout.
+    function sellBack(uint256 id, uint256 minPayout) external nonReentrant notPaused {
+        Option storage o = options[id];
+        require(msg.sender == o.long, "only long can sell back");
+        require(!_breaker(_spot()), "circuit breaker");
+        uint256 payout = quoteBuyback(id);
+        require(payout > 0 && payout >= minPayout, "no bid");
+
+        o.status = OrderStatus.CLOSED;
+        _removeOpenPoolOption(id);
+        lockedCollateral -= o.collateral;
+        totalAssets      -= payout;
+        totalSettlementsPaid += payout;
+        _takePerformanceFee();
+        musd.safeTransfer(msg.sender, payout);
+        emit SoldBack(id, msg.sender, payout);
     }
 
     function _profit(Option storage o, uint256 spot) internal view returns (uint256) {
