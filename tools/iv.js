@@ -36,4 +36,16 @@ function isStale(tsMs, nowMs, maxAgeMs = 3 * 3600 * 1000) {
   return nowMs - tsMs > maxAgeMs;
 }
 
-module.exports = { MIN_IV_PCT, MAX_IV_PCT, latestDvol, clampIvPct, planUpdate, isStale };
+/**
+ * The contract lets the keeper move IV by at most `stepBps` (relative, e.g. 1500 = 15%) per change.
+ * Move toward the target without exceeding that, so the transaction never reverts.
+ * Returns the wei value to send (equal to targetWei when the target is within reach).
+ */
+function limitStep(currentWei, targetWei, stepBps) {
+  const cur = BigInt(currentWei), tgt = BigInt(targetWei), step = BigInt(stepBps);
+  const maxMove = cur * step / 10000n;
+  if (tgt > cur) return tgt - cur <= maxMove ? tgt : cur + maxMove;
+  return cur - tgt <= maxMove ? tgt : cur - maxMove;
+}
+
+module.exports = { limitStep, MIN_IV_PCT, MAX_IV_PCT, latestDvol, clampIvPct, planUpdate, isStale };

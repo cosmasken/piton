@@ -122,6 +122,11 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     uint256 public iv = 8e17;         // 80% default, 18 dec — mid implied vol (set by owner or ivKeeper)
     uint256 public ivSpreadBps = 1500; // pool sells at iv * (1 + spread): 15% safety margin for LPs
     address public ivKeeper;           // bot allowed to update iv (cannot touch anything else)
+    /// @notice The keeper (not the owner) may change IV at most this often and by at most this share of
+    ///         the current value per change. Bounds what a stolen keeper key can do.
+    uint256 public ivMinInterval = 50 minutes;
+    uint256 public maxIvStepBps  = 1500;
+    uint256 public lastIvUpdate;
     uint256 public constant MIN_IV = 25e16;  // 25%
     uint256 public constant MAX_IV = 15e17;  // 150%
     uint256 public constant MAX_IV_SPREAD_BPS = 5000;
@@ -199,6 +204,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     event PausedSet(bool paused);
     event WithdrawalFeeSet(uint256 bps);
     event DepositLockSet(uint256 seconds_);
+    event IvLimitsSet(uint256 minInterval, uint256 stepBps);
     event MaxOpenPoolOptionsSet(uint256 n);
     event BreakerSet(uint256 window, uint256 maxMoveBps, uint256 cooldown);
     event BreakerTripped(uint256 price, uint256 refPrice, uint256 until);
@@ -971,10 +977,26 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     // ─── Owner ────────────────────────────────────────────────────────────────
 
     function setIV(uint256 _iv) external {
-        require(msg.sender == owner() || msg.sender == ivKeeper, "not owner or keeper");
+        bool isOwner = msg.sender == owner();
+        require(isOwner || msg.sender == ivKeeper, "not owner or keeper");
         require(_iv >= MIN_IV && _iv <= MAX_IV, "iv out of range");
+        if (!isOwner) {
+            // A stolen keeper key can only walk the price slowly, giving the owner/guardian time to react
+            require(block.timestamp >= lastIvUpdate + ivMinInterval, "iv updated too recently");
+            uint256 d = _iv > iv ? _iv - iv : iv - _iv;
+            require(d * 10000 <= iv * maxIvStepBps, "iv step too large");
+        }
+        lastIvUpdate = block.timestamp;
         iv = _iv;
         emit IVUpdated(_iv, msg.sender);
+    }
+
+    function setIvLimits(uint256 minInterval, uint256 stepBps) external onlyOwner {
+        require(minInterval <= 1 days, "interval too long");
+        require(stepBps >= 100 && stepBps <= 5000, "step out of range");
+        ivMinInterval = minInterval;
+        maxIvStepBps = stepBps;
+        emit IvLimitsSet(minInterval, stepBps);
     }
 
     /// @dev address(0) is allowed on purpose: it disables the keeper (owner can still set IV).

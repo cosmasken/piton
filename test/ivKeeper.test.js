@@ -1,5 +1,5 @@
 const { expect } = require('chai');
-const { latestDvol, clampIvPct, planUpdate, isStale } = require('../tools/iv');
+const { latestDvol, clampIvPct, planUpdate, isStale, limitStep } = require('../tools/iv');
 
 const E16 = 10n ** 16n;
 
@@ -30,5 +30,17 @@ describe('IV keeper logic', () => {
   it('flags stale data', () => {
     expect(isStale(0, 4 * 3600 * 1000)).to.equal(true);
     expect(isStale(0, 3600 * 1000)).to.equal(false);
+  });
+});
+
+describe('limitStep (contract caps keeper moves at 15% per change)', () => {
+  const E = v => BigInt(Math.round(v * 100)) * 10n ** 16n;
+  it('reaches the target when it is within the cap', () => {
+    expect(limitStep(E(0.8), E(0.7), 1500)).to.equal(E(0.7));
+    expect(limitStep(E(0.8), E(0.92), 1500)).to.equal(E(0.92));
+  });
+  it('stops at the cap when the target is further, both directions', () => {
+    expect(limitStep(E(0.8), E(0.4), 1500)).to.equal(E(0.68));
+    expect(limitStep(E(0.4), E(0.9), 1500)).to.equal(E(0.46));
   });
 });

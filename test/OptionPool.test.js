@@ -519,8 +519,8 @@ describe('IV spread and keeper', () => {
   it('keeper can set IV within [25%, 150%]; others cannot; keeper cannot change anything else', async () => {
     const { pool, owner, seller: keeper, buyer } = await deploy();
     await pool.connect(owner).setIvKeeper(keeper.address);
-    await expect(pool.connect(keeper).setIV(E18('0.4'))).to.emit(pool, 'IVUpdated').withArgs(E18('0.4'), keeper.address);
-    expect(await pool.iv()).to.equal(E18('0.4'));
+    await expect(pool.connect(keeper).setIV(E18('0.7'))).to.emit(pool, 'IVUpdated').withArgs(E18('0.7'), keeper.address);
+    expect(await pool.iv()).to.equal(E18('0.7'));
     await expect(pool.connect(keeper).setIV(E18('0.2'))).to.be.revertedWith('iv out of range');
     await expect(pool.connect(buyer).setIV(E18('0.5'))).to.be.revertedWith('not owner or keeper');
     await expect(pool.connect(keeper).setIvSpreadBps(0)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
