@@ -105,7 +105,9 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
 
     /// @notice Open pool-sold options, so LP shares can be priced net of what they would pay out now.
     ///         Bounded so the pricing loop always fits in a block.
-    uint256 public constant MAX_OPEN_POOL_OPTIONS = 50;
+    ///         Owner-adjustable up to a hard ceiling whose worst-case gas is checked in the test suite.
+    uint256 public maxOpenPoolOptions = 50;
+    uint256 public constant MAX_OPEN_POOL_OPTIONS_CEILING = 150; // ~4.3M gas to price the book; Mezo's block gas limit is 10M
     uint256[] internal openPoolOptions;
     mapping(uint256 => uint256) internal openPoolSlot; // option id => index + 1
 
@@ -197,6 +199,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     event PausedSet(bool paused);
     event WithdrawalFeeSet(uint256 bps);
     event DepositLockSet(uint256 seconds_);
+    event MaxOpenPoolOptionsSet(uint256 n);
     event BreakerSet(uint256 window, uint256 maxMoveBps, uint256 cooldown);
     event BreakerTripped(uint256 price, uint256 refPrice, uint256 until);
     event UtilSpreadSet(uint256 bps);
@@ -621,7 +624,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
         // Never sell below the hard floors (immediate-exercise value after the fee, minimum rent):
         // otherwise buying and exercising at once, or very cheap long-dated options, would cost LPs.
         if (o.premium < hardFloor) return;
-        if (openPoolOptions.length >= MAX_OPEN_POOL_OPTIONS) return;
+        if (openPoolOptions.length >= maxOpenPoolOptions) return;
 
         uint256 collateral = _requiredCollateral(o.optionType, spot, o.strike, o.quantity);
         if (collateral == 0 || collateral > maxOptionCollateral) return;
@@ -1069,6 +1072,12 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
 
     /// @notice Anyone can feed the breaker a fresh price, so a crash is noticed even with no trading.
     function pokeCircuitBreaker() external returns (bool) { return _breaker(_spot()); }
+
+    function setMaxOpenPoolOptions(uint256 n) external onlyOwner {
+        require(n >= 1 && n <= MAX_OPEN_POOL_OPTIONS_CEILING, "out of range");
+        maxOpenPoolOptions = n; // lowering never closes existing options; it only stops new pool fills
+        emit MaxOpenPoolOptionsSet(n);
+    }
 
     function setDepositLock(uint256 _seconds) external onlyOwner {
         require(_seconds <= MAX_DEPOSIT_LOCK, "max 7 days");

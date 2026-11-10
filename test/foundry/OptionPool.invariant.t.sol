@@ -26,6 +26,7 @@ contract Handler is Test {
     bool public ghost_withdrawAboveShare;
     bool public ghost_feeRecipientDecreased;
     bool public ghost_flashExerciseProfit;
+    bool public ghost_navTimingProfit;
     uint256 public ghost_lastFeeBalance;
     mapping(bytes32 => uint256) public calls;
 
@@ -97,6 +98,30 @@ contract Handler is Test {
         uint256 b = musd.balanceOf(address(this));
         if (b < ghost_lastFeeBalance) ghost_feeRecipientDecreased = true;
         ghost_lastFeeBalance = b;
+    }
+
+    /// "Become the pool": deposit a large amount, buy an at-the-money put from the pool at the quote, then
+    /// withdraw everything. Because unearned premium counts as a liability, the attacker must lose
+    /// (almost) the whole premium; keeping the option for less than that is a free option.
+    function becomeThePool(uint256 actorSeed, uint256 size, uint256 qSeed) external {
+        address a = _actor(actorSeed);
+        uint256 qty = _qty(qSeed);
+        uint256 exp = block.timestamp + 1 days;
+        uint256 quote;
+        try pool.quotePremium(false, _spot(), qty, exp) returns (uint256 v) { quote = v; } catch { return; }
+        if (quote == 0) return;
+        uint256 cashBefore = musd.balanceOf(a);
+        uint256 sharesBefore = y.balanceOf(a);
+        vm.prank(a);
+        try pool.deposit(bound(size, 1e18, 1e24)) {} catch { return; }
+        vm.prank(a);
+        try pool.createLongOrder(OptionPool.OptionType.PUT, _spot(), qty, exp, quote) {} catch { return; }
+        if (!pool.getOption(pool.nextId() - 1).filledByPool) return; // not sold by the pool: nothing to check
+        uint256 sh = y.balanceOf(a) - sharesBefore; // only the shares bought for this attack
+        vm.prank(a);
+        try pool.withdraw(sh) { calls["becomePool"]++; } catch { return; } // pool too utilised to exit: fine
+        if (musd.balanceOf(a) + quote * 9 / 10 > cashBefore) ghost_navTimingProfit = true;
+        _trackFees();
     }
 
     // ── LP actions ───────────────────────────────────────────────────────────
@@ -323,6 +348,11 @@ contract OptionPoolInvariants is StdInvariant, Test {
         assertFalse(h.ghost_flashExerciseProfit(), "buy-and-exercise took value from LPs");
     }
 
+    /// Depositing, buying from the pool and withdrawing at once never makes the option cheaper than 10% of its price.
+    function invariant_navTimingNeverPays() public view {
+        assertFalse(h.ghost_navTimingProfit(), "free option via NAV timing");
+    }
+
     /// Net asset value (what LP shares are redeemed at) never exceeds raw assets, and is never
     /// below assets minus the collateral locked behind open pool options.
     function invariant_navBounds() public view {
@@ -351,7 +381,7 @@ contract HandlerCoverage is Test {
             r = uint256(keccak256(abi.encode(r)));
             uint256 a = r >> 8; uint256 b = r >> 40; uint256 c = r >> 72; uint256 d = r >> 104; uint256 e = r >> 136;
             bytes memory call;
-            uint256 pick = r % 14;
+            uint256 pick = r % 15;
             if (pick == 0) call = abi.encodeCall(h.deposit, (a, b));
             else if (pick == 1) call = abi.encodeCall(h.withdraw, (a, b));
             else if (pick == 2) call = abi.encodeCall(h.createLong, (a, b % 2 == 0, c, d, e, b));
@@ -365,12 +395,13 @@ contract HandlerCoverage is Test {
             else if (pick == 10) call = abi.encodeCall(h.movePrice, (b));
             else if (pick == 11) call = abi.encodeCall(h.warp, (b % 6 hours));
             else if (pick == 12) call = abi.encodeCall(h.setIV, (b));
-            else call = abi.encodeCall(h.buyAndExerciseNow, (a, b % 2 == 0, c, d));
+            else if (pick == 13) call = abi.encodeCall(h.buyAndExerciseNow, (a, b % 2 == 0, c, d));
+            else call = abi.encodeCall(h.becomeThePool, (a, b, c));
             (bool ok,) = address(h).call(call);
             ok; // reverts are expected for some random inputs
         }
-        string[10] memory k = ["deposit", "withdraw", "createLong", "createShort", "createShortTrove",
-            "fillLong", "fillShort", "settle", "refund", "buyExercise"];
+        string[11] memory k = ["deposit", "withdraw", "createLong", "createShort", "createShortTrove",
+            "fillLong", "fillShort", "settle", "refund", "buyExercise", "becomePool"];
         for (uint256 i = 0; i < k.length; i++) {
             uint256 n = h.calls(bytes32(bytes(k[i])));
             emit log_named_uint(k[i], n);
