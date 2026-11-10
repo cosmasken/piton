@@ -44,6 +44,50 @@ function Row({ label, value, tone }) {
 const fmt = (v, d = 2) => v == null || Number.isNaN(v) ? '—' : v.toLocaleString('en-US', { maximumFractionDigits: d });
 const E18 = v => ethers.parseEther(Number(v).toFixed(8));
 
+/** Positions the user holds in the selected option that the pool will buy back, with the live bid. */
+function CloseBox({ inst, options, account, poolContract, refresh }) {
+  const mine = useMemo(() => options.filter(o =>
+    o.status === 1n && o.filledByPool && o.long?.toLowerCase() === account?.toLowerCase() &&
+    (o.optionType === 0n) === inst.isCall && Math.round(Number(o.strike) / 1e18) === Math.round(inst.strike) && Number(o.expiry) === inst.expiry), [options, account, inst]);
+  const [bids, setBids] = useState({});
+  const [busy, setBusy] = useState(null);
+  useEffect(() => {
+    let off = false;
+    const load = async () => {
+      const out = {};
+      for (const o of mine) { try { out[String(o.id)] = parseFloat(ethers.formatEther(await poolContract.quoteBuyback(o.id))); } catch { /* ignore */ } }
+      if (!off) setBids(out);
+    };
+    if (mine.length && poolContract) { load(); const id = setInterval(load, 15_000); return () => { off = true; clearInterval(id); }; }
+    return () => { off = true; };
+  }, [mine, poolContract]);
+  if (!mine.length) return null;
+  const sell = async o => {
+    setBusy(o.id);
+    try {
+      const tx = await (await poolContract.sellBack(o.id, E18((bids[String(o.id)] || 0) * 0.98))).wait();
+      refresh(); toast.success(<TxToast msg="Sold back to the pool." hash={tx?.hash} />);
+    } catch (e) { toast.error(parseTxError(e)); } finally { setBusy(null); }
+  };
+  return (
+    <div className="rounded-md border border-accent/30 bg-accent/5 px-3 py-2 space-y-1.5">
+      <p className="text-xs font-display font-semibold text-accent">Close your position</p>
+      {mine.map(o => {
+        const q = parseFloat(ethers.formatEther(o.quantity)), bid = bids[String(o.id)];
+        return (
+          <div key={String(o.id)} className="flex items-center justify-between gap-2 text-xs">
+            <span className="text-dim">You hold <span className="font-mono text-text">{q.toFixed(4)} BTC</span>{bid != null && <> · pool bid <span className="font-mono text-text">{bid.toFixed(2)} MUSD</span></>}</span>
+            <button type="button" disabled={busy != null || !(bid > 0)} onClick={() => sell(o)} className="px-2 py-1 rounded border border-accent/40 text-accent hover:bg-accent/10 disabled:opacity-40">
+              {busy === o.id ? '…' : 'Sell back'}
+            </button>
+          </div>
+        );
+      })}
+      <p className="text-[10px] text-dim">The pool buys back at its mid price less a volatility spread, so you get a little less than the mark. Exercising or holding to expiry is always an option.</p>
+    </div>
+  );
+}
+
 export default function TradePanel() {
   const {
     signer, account, chainId, poolContract, musdContract, btcPrice: spot, options, poolParams,
@@ -197,6 +241,8 @@ export default function TradePanel() {
               <Row label="Expires in" value={expired ? 'expired' : fmtDuration(secs)} />
               <Row label="Spot / delta" value={`$${fmt(spot, 0)} · Δ ${dlt ?? '—'}`} />
             </div>
+
+            {!buy && <CloseBox inst={inst} options={options} account={account} poolContract={poolContract} refresh={refresh} />}
 
             {buy && (
               <div className="flex rounded-md overflow-hidden border border-border text-[11px] font-display font-semibold" role="tablist" aria-label="Order type">

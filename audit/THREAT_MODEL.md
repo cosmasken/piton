@@ -191,7 +191,12 @@ Found by comparing Piton with Hegic and Derive; two weaknesses were reproduced a
 | 11 | **Differential test** against Derive v1 Black-Scholes (540 prices; worst difference 0.014 MUSD on a 100,000 spot, 0.099% where the price exceeds 1 MUSD). | Independent check of the maths. |
 | 12 | **Adjustable open-option cap** with measured gas. | See section 5. |
 
+| 13 | **IV keeper rate limit.** The keeper (not the owner) may change IV by at most 15% per update and once per 50 minutes. | See O-3. Walking IV from 80% to the 25% floor takes at least 8 hours. |
+| 14 | **Sell back to the pool.** Options the pool sold can be bought back at the Black-Scholes value at mid IV less 10% of the volatility, capped at the option's collateral. Blocked while paused or while the circuit breaker is active; exercising is never blocked. | Lets traders close early. The pool sells at mid +15% plus a utilisation markup and buys at mid -10%, so a round trip loses money to the buyer; the Foundry invariant `invariant_sellBackNeverProfits` checks that buying and selling back immediately never makes money and that no bid exceeds mid value. The payout is booked as a settlement, so the performance fee and NAV stay consistent. |
+
 Remaining unaudited: all of the above is tested but not externally audited; testnet only.
+
+Sell-back risks to keep in mind: a stale IV lets a trader buy cheap and hold (this existed before; sell-back does not widen it because the bid sits below mid). A fast, correct price move is handled by the circuit breaker, but a slow oracle lag lets a trader sell back an option at a value computed from a lagging price; the pool's edge on the round trip (about 25% of the option's volatility value) is the buffer. The contract is within 165 bytes of the 24,576-byte size limit, so further features need the pricing maths moved to a library first.
 
 ## 8. Off-chain operations
 

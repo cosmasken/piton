@@ -35,8 +35,8 @@ const initialNetwork = () => {
 
 const EMPTY_POOL_STATS = { poolTotalAssets: '—', poolLocked: '—', poolUtilisation: '—', poolShareValue: '—', poolParams: null };
 
-// status enum from contract
-export const STATUS = { OPEN: 0n, FILLED: 1n, SETTLED: 2n, REFUNDED: 3n };
+// status enum from contract (0=OPEN 1=FILLED 2=SETTLED 3=REFUNDED 4=CLOSED)
+export const STATUS = { OPEN: 0n, FILLED: 1n, SETTLED: 2n, REFUNDED: 3n, CLOSED: 4n }; // CLOSED = sold back to the pool
 export const TYPE   = { CALL: 0n, PUT: 1n };
 
 export const useStore = create((set, get) => ({

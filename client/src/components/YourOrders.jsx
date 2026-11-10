@@ -22,7 +22,8 @@ function TxToast({ msg, hash }) {
 function StatusBadge({ o, live }) {
   const base = 'text-[10px] px-1.5 py-0.5 rounded';
   if (o.status === STATUS.SETTLED)  return <span className={`${base} text-accent bg-accent/10`}>Exercised</span>;
-  if (o.status === STATUS.REFUNDED) return <span className={`${base} text-dim bg-surface`}>Expired / closed</span>;
+  if (o.status === STATUS.REFUNDED) return <span className={`${base} text-dim bg-surface`}>Expired / cancelled</span>;
+  if (o.status === STATUS.CLOSED)   return <span className={`${base} text-accent bg-accent/10`}>Sold back</span>;
   if (o.status === STATUS.OPEN)     return <span className={`${base} text-dim bg-surface`}>{o.short === ethers.ZeroAddress ? 'Bid resting' : 'Ask resting'}</span>;
   return live ? <span className={`${base} text-accent bg-accent/10`}>Live</span> : <span className={`${base} text-yellow-500 bg-yellow-500/10`}>Expired: refund</span>;
 }
@@ -45,6 +46,16 @@ function OptionRow({ o, account, spot, iv, poolContract, refresh }) {
   const canSettle = filledLive && isLong && itm;
   const canRefund = o.status === STATUS.FILLED && !live;
   const canCancel = o.status === STATUS.OPEN;
+
+  // Sell back: the pool buys back options it sold, at a bid under the mid value
+  const canSellBack = filledLive && isLong && o.filledByPool;
+  const [bid, setBid] = useState(null);
+  useEffect(() => {
+    let off = false;
+    const load = () => poolContract.quoteBuyback(o.id).then(v => { if (!off) setBid(fmtE(v)); }).catch(() => {});
+    if (canSellBack && poolContract) { load(); const id = setInterval(load, 15_000); return () => { off = true; clearInterval(id); }; }
+    return () => { off = true; };
+  }, [canSellBack, o.id, poolContract]);
 
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -83,12 +94,16 @@ function OptionRow({ o, account, spot, iv, poolContract, refresh }) {
         <td className="px-3 py-2.5 font-mono text-xs">
           {pnl != null ? <span className={pnl >= 0 ? 'text-accent' : 'text-red'}>{signed(pnl)}</span> : <StatusBadge o={o} live={live} />}
         </td>
-        <td className="px-3 py-2.5 font-mono text-xs">{o.status === STATUS.SETTLED || o.status === STATUS.REFUNDED ? '—' : exp}</td>
+        <td className="px-3 py-2.5 font-mono text-xs">{o.status === STATUS.SETTLED || o.status === STATUS.REFUNDED || o.status === STATUS.CLOSED ? '—' : exp}</td>
         <td className="px-3 py-2.5 whitespace-nowrap" onClick={e => e.stopPropagation()}>
           {loading && <span className="w-3 h-3 border border-accent border-t-transparent rounded-full animate-spin inline-block" />}
           {!loading && canAuto && auto !== null && (
             <button onClick={toggleAuto} title="Let a keeper exercise this for you in the last 5 minutes if it is in the money (0.5% of the payout)"
               className={`mr-2 text-[10px] px-1.5 py-0.5 rounded border ${auto ? 'text-accent border-accent/40 bg-accent/10' : 'text-dim border-border'}`}>Auto {auto ? 'on' : 'off'}</button>
+          )}
+          {!loading && canSellBack && bid > 0 && (
+            <button onClick={() => act(() => poolContract.sellBack(o.id, ethers.parseEther((bid * 0.98).toFixed(8))).then(tx => tx.wait()), `Sold back to the pool for about ${money(bid)} MUSD.`)}
+              title="Sell this option back to the pool now, at its bid price" className="mr-2 text-xs font-display font-semibold text-accent hover:opacity-70">Sell back {money(bid)}</button>
           )}
           {!loading && canSettle && <button onClick={() => act(() => poolContract.settle(o.id).then(tx => tx.wait()), 'Exercised!')} className="text-accent text-xs font-display font-semibold hover:opacity-70">Exercise</button>}
           {!loading && canRefund && <button onClick={() => act(() => poolContract.refund(o.id).then(tx => tx.wait()), 'Refunded!')} className="text-dim text-xs hover:text-text">Refund</button>}
@@ -106,6 +121,7 @@ function OptionRow({ o, account, spot, iv, poolContract, refresh }) {
                   <div className="flex justify-between"><span className="text-dim">Max loss / max gain</span><span className="font-mono">{money(maxLoss(leg))} / {money(maxGain(leg))}</span></div>
                   <div className="flex justify-between"><span className="text-dim">Break-even at expiry</span><span className="font-mono">{breakEven(leg) ? `$${money(breakEven(leg), 0)}` : 'none'}</span></div>
                 </>}
+                {canSellBack && <div className="flex justify-between"><span className="text-dim">Pool bid (sell back now)</span><span className="font-mono">{bid != null ? `${money(bid)} MUSD` : '—'}</span></div>}
                 <div className="flex justify-between"><span className="text-dim">Exercise value now</span><span className={`font-mono ${itm ? 'text-accent' : ''}`}>{money(intrinsic)} MUSD {itm ? '(in the money)' : ''}</span></div>
                 {g.delta != null && filledLive && <div className="flex justify-between"><span className="text-dim">Delta · theta/day</span><span className="font-mono">{g.delta} · {g.theta}</span></div>}
                 <div className="flex justify-between"><span className="text-dim">Order #{String(o.id)}</span><span className="font-mono text-dim">{o.filledByPool ? 'sold by the pool' : 'peer to peer'}</span></div>
@@ -127,7 +143,7 @@ export default function YourOrders() {
   const mine = useMemo(() => options.filter(o =>
     o.long?.toLowerCase() === account?.toLowerCase() || o.short?.toLowerCase() === account?.toLowerCase()), [options, account]);
   const active = mine.filter(o => o.status === STATUS.OPEN || (o.status === STATUS.FILLED && Number(o.expiry) > now) || (o.status === STATUS.FILLED && Number(o.expiry) <= now));
-  const history = mine.filter(o => o.status === STATUS.SETTLED || o.status === STATUS.REFUNDED);
+  const history = mine.filter(o => o.status === STATUS.SETTLED || o.status === STATUS.REFUNDED || o.status === STATUS.CLOSED);
   const list = (tab === 'active' ? active : history).slice().sort((a, b) => Number(b.id - a.id));
   const iv = poolParams?.iv || 0.8;
 
@@ -184,7 +200,7 @@ export default function YourOrders() {
           </table>
         )}
       </div>
-      {account && list.length > 0 && <p className="px-4 py-1.5 text-[10px] text-dim/60 border-t border-border">Entry and mark are MUSD per 1 BTC. Mark uses the pool's mid volatility; click a row for the payoff at expiry.</p>}
+      {account && list.length > 0 && <p className="px-4 py-1.5 text-[10px] text-dim/60 border-t border-border">Entry and mark are MUSD per 1 BTC. Mark uses the pool's mid volatility; Sell back pays the pool's bid, a little under mark. Click a row for the payoff at expiry.</p>}
     </div>
   );
 }

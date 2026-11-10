@@ -24,6 +24,8 @@ const REVERT_MAP = {
   'auto-exercise not enabled':               'The owner has not enabled auto-exercise on this option.',
   'not your open option':                    'Only the owner of a live option can change its auto-exercise setting.',
   'pool insolvent':                          'The pool has no value left; deposits reopen once the operator clears old shares.',
+  'no bid':                                  'The pool has no bid for this option right now, or its price moved below your minimum. Only options the pool sold, still live, can be sold back.',
+  'only long can sell back':                 'Only the owner of the option can sell it back.',
   'user rejected':                           'Transaction rejected in wallet.',
   'User rejected':                           'Transaction rejected in wallet.',
   'ACTION_REJECTED':                         'Transaction rejected in wallet.',
