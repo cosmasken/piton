@@ -116,6 +116,17 @@ time. Verify against Mezo's BorrowerOperations; the feature may not work as desi
 - Client `fetchPrice` accepts an oracle price up to 90 minutes old, but the contract now rejects
   prices older than 300s. The UI can show a price that makes transactions revert with "stale price".
   Align the client threshold with `PRICE_STALENESS`.
-- "Protect my Trove" assumes MCR = 110% and that `getTroveDebt` includes accrued interest; verify on matsnet.
-- Trove margin ICR check uses a 150% post-draw floor; Mezo's own borrowing fee on the draw is not
-  modelled (the 150% buffer is expected to absorb it). Verify on matsnet.
+- ~~"Protect my Trove" assumes MCR = 110% and `getTroveDebt` includes interest~~ — confirmed against
+  Mezo's source and in `test/mezo.integration.test.js` (MCR = 1.1e18; `getTroveDebt` = principal +
+  interest owed + accrued).
+- ~~Exact amount delivered by `withdrawMUSDWithSignature`~~ — confirmed: recipient gets exactly the
+  signed amount; Trove debt rises by amount × (1 + borrowingRate), borrowingRate = 0.1%. The 150%
+  floor ignores the 0.1% fee (negligible). Matsnet governance could change the rate; not re-checked live.
+- FIXED: front-running the Trove signature from the mempool used to strand MUSD in the pool
+  (recipient was the pool). Recipient is now the seller; the pool pulls via transferFrom.
+- Integration tests run Piton against Mezo's real MUSD contracts (mezo-org/musd @ da7888a) on the
+  Hardhat network: `npm run fetch:mezo && npm run test:mezo`. Mezo sources are GPL-3.0 and gitignored;
+  `PCV.sol` gets a local ReentrancyGuardUpgradeable shim because OZ-upgradeable 5.6 dropped it.
+- Not covered by local tests: Skip oracle behaviour on matsnet, matsnet governance parameters, and
+  the actual deployed BorrowerOperationsSignatures address/domain. A matsnet smoke test after
+  redeploy is still required.

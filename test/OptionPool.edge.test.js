@@ -229,9 +229,10 @@ describe('Trove margin (draw at creation)', () => {
     const ctx = await deploy();
     const { pool, musd, borrowerOps, seller } = ctx;
     const before = await musd.balanceOf(await pool.getAddress());
+    const sellerBefore = await musd.balanceOf(seller.address);
 
     await expect(trovePut(ctx)).to.emit(borrowerOps, 'TrovePulled')
-      .withArgs(seller.address, E18('1000'), await pool.getAddress());
+      .withArgs(seller.address, E18('1000'), seller.address); // borrowed into the seller's wallet, then pulled
 
     const id = (await pool.nextId()) - 1n;
     const o = await pool.getOption(id);
@@ -239,6 +240,7 @@ describe('Trove margin (draw at creation)', () => {
     expect(o.collateral).to.equal(E18('1000'));
     expect(o).to.not.have.property('troveSig');
     expect((await musd.balanceOf(await pool.getAddress())) - before).to.equal(E18('1000'));
+    expect(await musd.balanceOf(seller.address)).to.equal(sellerBefore); // net zero for the seller's wallet
   });
 
   it('settles from pool-held margin: long paid, remainder to the short; no Mezo call at settle', async () => {

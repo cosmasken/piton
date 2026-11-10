@@ -16,8 +16,14 @@ Based on Mezo's `BorrowerOperationsSignatures.sol` (mezo-org/musd):
 - Troves are tied to the borrower address and are not transferable. Stability Pool positions cannot
   be used as margin either.
 
-Status: Option A is implemented (contract, tests, client signing flow). Redeploy is still required
-for it to take effect on matsnet.
+Status: Option A is implemented (contract, tests, client signing flow) and verified against Mezo's
+real MUSD contracts on the Hardhat network (`npm run fetch:mezo && npm run test:mezo`). Redeploy is
+still required for it to take effect on matsnet.
+
+Design change found during integration testing: the WithdrawMUSD recipient is the seller (not the
+pool), and the pool pulls the margin with transferFrom. Otherwise anyone could copy the signature
+from the mempool, submit it directly to Mezo, and strand the seller's borrowed MUSD in the pool.
+The client now signs with recipient = the user's wallet and approves the pool for the margin.
 
 ## Option A — Trove-funded margin at order creation (IMPLEMENTED)
 

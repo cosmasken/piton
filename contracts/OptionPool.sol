@@ -445,10 +445,12 @@ contract OptionPool is Ownable, ReentrancyGuard {
     }
 
     /// @notice Place a short order funded by Mezo Trove debt.
-    ///         The short signs (off-chain) a Mezo `WithdrawMUSD` for exactly `marginAmount`
-    ///         with recipient = this contract. The signature is consumed here, in the same tx,
-    ///         so it is never stored and cannot be replayed. From then on the margin is ordinary
-    ///         MUSD collateral held by the pool. The short's BTC stays in their Trove.
+    ///         The short signs (off-chain) a Mezo `WithdrawMUSD` for exactly `marginAmount` with
+    ///         recipient = THEMSELVES, and approves this pool for `marginAmount` MUSD. Here we submit
+    ///         the signature (borrowing against their Trove into their own wallet) and immediately
+    ///         pull the margin. Nothing is stored. If someone front-runs the signature from the
+    ///         mempool, the MUSD still lands in the short's own wallet — no funds can be stranded.
+    ///         The short's BTC stays in their Trove.
     /// @param marginAmount MUSD to draw; must be >= required collateral (signed amount must match).
     function createShortOrderTrove(
         OptionType optionType,
@@ -478,12 +480,13 @@ contract OptionPool is Ownable, ReentrancyGuard {
         uint256 newDebt = tm.getTroveDebt(msg.sender) + marginAmount;
         require(collVal * PRECISION >= newDebt * MIN_ICR, "trove ICR too low after draw");
 
-        // Consume the signature now and verify we actually received the margin.
-        uint256 balBefore = musd.balanceOf(address(this));
+        // Borrow into the short's own wallet, verify the amount, then pull it as margin.
+        uint256 balBefore = musd.balanceOf(msg.sender);
         IBorrowerOperationsSignatures(BORROWER_OPS_SIGS).withdrawMUSDWithSignature(
-            marginAmount, address(0), address(0), msg.sender, address(this), troveSig, troveDeadline
+            marginAmount, address(0), address(0), msg.sender, msg.sender, troveSig, troveDeadline
         );
-        require(musd.balanceOf(address(this)) - balBefore >= marginAmount, "trove draw short");
+        require(musd.balanceOf(msg.sender) - balBefore >= marginAmount, "trove draw short");
+        musd.safeTransferFrom(msg.sender, address(this), marginAmount);
 
         id = nextId++;
         Option storage o = options[id];

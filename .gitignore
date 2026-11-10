@@ -35,3 +35,6 @@ docs/
 
 # bot scripts (contain wallet keys)
 scripts/
+
+# Mezo protocol contracts fetched by tools/fetch-mezo.sh (GPL-3.0, not vendored)
+/contracts/mezo

@@ -118,7 +118,9 @@ export default function NewOrder() {
         const bos      = new ethers.Contract(BORROWER_OPS_SIGS, BORROWER_OPS_SIGS_ABI, signer);
         const nonce    = await bos.getNonce(account);
         const deadline = Math.floor(Date.now() / 1000) + 600;
-        const sig = await signTroveWithdraw(signer, BORROWER_OPS_SIGS, account, marginWei, poolAddr, nonce, deadline, chainId);
+        // Recipient is the user's own wallet; the pool pulls the margin via transferFrom.
+        const sig = await signTroveWithdraw(signer, BORROWER_OPS_SIGS, account, marginWei, account, nonce, deadline, chainId);
+        await (await musdContract.approve(poolAddr, marginWei)).wait();
         tx = await (await poolContract.createShortOrderTrove(
           isCall ? 0 : 1, strikeWei, qtyWei, expiryTs, premiumWei, marginWei, sig, deadline
         )).wait();
