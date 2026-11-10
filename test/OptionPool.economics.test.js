@@ -16,7 +16,7 @@ async function deploy() {
   const pool = await (await ethers.getContractFactory('OptionPool')).deploy(
     await musd.getAddress(), await ymusd.getAddress(), await oracle.getAddress(), await trove.getAddress(), await bo.getAddress());
   await ymusd.setPool(await pool.getAddress());
-  await pool.setDepositLock(0); await pool.setWithdrawalFeeBps(0); // exit protections have their own tests
+  await pool.setDepositLock(0); await pool.setWithdrawalFeeBps(0); await pool.setMinPoolExpiry(900); // exit protections have their own tests
   for (const w of [owner, lp, buyer, seller, lp2]) {
     await musd.mint(w.address, E18('10000000'));
     await musd.connect(w).approve(await pool.getAddress(), ethers.MaxUint256);

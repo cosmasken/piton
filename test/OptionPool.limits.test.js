@@ -14,7 +14,7 @@ async function deploy() {
     await (await (await ethers.getContractFactory('MockTrove')).deploy()).getAddress(),
     await (await (await ethers.getContractFactory('MockBorrowerOps')).deploy()).getAddress());
   await ymusd.setPool(await pool.getAddress());
-  await pool.setDepositLock(0); await pool.setWithdrawalFeeBps(0);
+  await pool.setDepositLock(0); await pool.setWithdrawalFeeBps(0); await pool.setMinPoolExpiry(900);
   await pool.setTVLCap(E18('1000000000'));
   await pool.setMaxOptionCollateral(E18('10000000'));
   for (const w of [owner, lp, buyer, other]) {
@@ -114,5 +114,27 @@ describe('#5 strike distance band', () => {
     expect(await buyPut(pool, buyer, E18('60000'), E18('0.1'))).to.equal(true);
     await expect(pool.setMaxStrikeDistanceBps(999)).to.be.revertedWith('between 10% and 100%');
     await expect(pool.connect(lp).setMaxStrikeDistanceBps(5000)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
+  });
+});
+
+describe('#7 minimum time left for pool-sold options', () => {
+  it('default is 1 hour; shorter options rest as open bids instead of being sold by the pool', async () => {
+    const { pool, lp, buyer } = await deploy();
+    await pool.setMinPoolExpiry(3600);
+    await pool.connect(lp).deposit(E18('1000000'));
+    expect(await buyPut(pool, buyer, E18('95000'), E18('0.1'), 1800)).to.equal(false);
+    expect(await buyPut(pool, buyer, E18('95000'), E18('0.1'), 3700)).to.equal(true);
+  });
+  it('fresh deployment defaults to 1 hour; owner range is 15 min .. 7 days', async () => {
+    const [o] = await ethers.getSigners();
+    const { pool, lp } = await deploy();
+    await expect(pool.setMinPoolExpiry(899)).to.be.revertedWith('out of range');
+    await expect(pool.setMinPoolExpiry(7 * 86400 + 1)).to.be.revertedWith('out of range');
+    await expect(pool.setMinPoolExpiry(1800)).to.emit(pool, 'MinPoolExpirySet').withArgs(1800n);
+    await expect(pool.connect(lp).setMinPoolExpiry(1800)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
+    const fresh = await (await ethers.getContractFactory('OptionPool')).deploy(
+      ethers.Wallet.createRandom().address, ethers.Wallet.createRandom().address, ethers.Wallet.createRandom().address,
+      ethers.Wallet.createRandom().address, ethers.Wallet.createRandom().address);
+    expect(await fresh.minPoolExpiry()).to.equal(3600n);
   });
 });

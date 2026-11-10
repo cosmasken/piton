@@ -159,6 +159,10 @@ contract OptionPool is Ownable, ReentrancyGuard {
     ///         strikes are where the model is least reliable and a wrong price costs the most.
     uint256 public maxStrikeDistanceBps = 3000;
 
+    /// @notice The pool only sells options with at least this much time left. Very short options are the
+    ///         ones most exposed to stale prices and last-minute oracle moves.
+    uint256 public minPoolExpiry = 1 hours;
+
     // ─── Events ──────────────────────────────────────────────────────────────
 
     event Deposited(address indexed user, uint256 musdIn, uint256 sharesOut);
@@ -180,6 +184,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
     event PausedSet(bool paused);
     event WithdrawalFeeSet(uint256 bps);
     event DepositLockSet(uint256 seconds_);
+    event MinPoolExpirySet(uint256 seconds_);
     event MaxStrikeDistanceSet(uint256 bps);
     event MinRentSet(uint256 bps);
     event RiskLimitsSet(uint256 maxUtilisationBps, uint256 maxOptionExposureBps);
@@ -587,6 +592,8 @@ contract OptionPool is Ownable, ReentrancyGuard {
         Option storage o = options[id];
         uint256 spot = _spot();
 
+        if (o.expiry - block.timestamp < minPoolExpiry) return; // too short for the pool to sell
+
         uint256 dist = o.strike > spot ? o.strike - spot : spot - o.strike;
         if (dist * 10000 > spot * maxStrikeDistanceBps) return; // strike too far from spot for the pool
 
@@ -963,6 +970,12 @@ contract OptionPool is Ownable, ReentrancyGuard {
         require(_bps >= 1000 && _bps <= 10000, "between 10% and 100%");
         maxStrikeDistanceBps = _bps;
         emit MaxStrikeDistanceSet(_bps);
+    }
+
+    function setMinPoolExpiry(uint256 _seconds) external onlyOwner {
+        require(_seconds >= MIN_EXPIRY && _seconds <= 7 days, "out of range");
+        minPoolExpiry = _seconds;
+        emit MinPoolExpirySet(_seconds);
     }
 
     function setDepositLock(uint256 _seconds) external onlyOwner {
