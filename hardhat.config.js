@@ -37,6 +37,11 @@ module.exports = {
         settings: { evmVersion: 'london', viaIR: true, optimizer: { enabled: true, runs: 200 } },
       },
       {
+        // Derive v1 Black-Scholes, vendored as a pricing reference (contracts/test/vendor/derive)
+        version: '0.8.16',
+        settings: { optimizer: { enabled: true, runs: 200 } },
+      },
+      {
         // Mezo MUSD protocol (contracts/mezo, fetched by tools/fetch-mezo.sh) pins 0.8.24
         version: '0.8.24',
         // cancun: OZ 5.6 Bytes.sol uses mcopy (Mezo itself targets london; irrelevant for in-process tests)
