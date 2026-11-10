@@ -26,6 +26,7 @@ export const NETWORKS = {
     borrowUrl: 'https://testnet.mezo.org',
     addresses: {
       pool:            '0xe27c6a15D947757Ae7bcc945063C45C650B3F357',
+      deployBlock:     16698861, // first block to scan for trade history
       ymusd:           '0x00967781f41728A8d5BD64D2EeFd75e28F5f0246',
       musd:            '0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503',
       oracle:          '0x7b7c000000000000000000000000000000000015',

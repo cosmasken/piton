@@ -46,6 +46,21 @@ Payouts are capped at the locked collateral. The order form shows the max payout
 
 ---
 
+## Using the Dapp
+
+Anyone can browse without a wallet; connect only to trade.
+
+- **Option chain.** Pick an expiry, then click a strike. Calls are on the left, puts on the right, with the pool's price (marked with a dot), resting bids and asks, and delta. Click an ask to buy or a bid to sell into it.
+- **Trade panel.** Buy at the pool's price (market) or with a limit price; sell by posting collateral and a price. Before signing you see the cost, the worst case, the best case, the break-even and a profit-and-loss chart at expiry. If the pool won't sell an order itself (strike too far from spot, too little time left, circuit breaker, pool too busy) it says why and the order rests as a bid.
+- **Order book and trades.** The selected option's resting orders sit under the trade form; all orders and recent fills have their own tabs.
+- **Positions.** Entry price, mark price, profit and loss, delta, break-even and a payoff chart per position; exercise a winning option, turn on auto-exercise, cancel a resting order, or refund after expiry.
+- **Share a trade.** The address bar carries the selected option (`?i=P-74000-<expiry>`).
+- Expiries are standard slots (the next hours, daily 08:00 UTC, Fridays out to two weeks) so orders for the same option meet in one book. Prices are MUSD per 1 BTC option.
+
+Not yet built: closing a position by selling it back (positions are exercised or expire), and historical charts of pool yield (those need an indexer).
+
+---
+
 ## Liquidity Pool
 
 Anyone can deposit MUSD and receive **yMUSD** LP tokens.

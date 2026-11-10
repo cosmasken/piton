@@ -2,14 +2,15 @@ import React, { useEffect, useState } from 'react';
 import { useAccount, useConnect, useDisconnect, useSwitchChain, useWalletClient } from 'wagmi';
 import { injected } from 'wagmi/connectors';
 import { useStore } from './store';
+import { parseInstrumentId } from './instruments.mjs';
 import { getNetwork, isLive } from './network.mjs';
 import { NotLiveBanner, LockedWhenNotLive } from './components/NotLive';
 
 import Navbar      from './components/Navbar';
 import MarketValue from './components/MarketValue';
-import NewOrder    from './components/NewOrder';
+import TradePanel   from './components/TradePanel';
 import Graph       from './components/graph';
-import OpenOrders  from './components/OpenOrders';
+import MarketPanel  from './components/MarketPanel';
 import Wallet      from './components/Wallet';
 import YourOrders  from './components/YourOrders';
 import Pool        from './components/Pool';
@@ -78,7 +79,7 @@ function MobileBanner({ onDismiss }) {
     <div className="fixed inset-0 bg-bg z-50 flex flex-col items-center justify-center gap-6 p-8 text-center">
       <p className="font-display font-bold text-2xl text-accent">piton</p>
       <p className="text-text font-display font-semibold text-lg">Best experienced on desktop</p>
-      <p className="text-dim text-sm font-body max-w-xs">Piton is a trading terminal optimised for larger screens. Mobile support is coming soon.</p>
+      <p className="text-dim text-sm font-body max-w-xs">Piton is a trading terminal designed for larger screens. On a phone the panels stack and tables scroll sideways.</p>
       <button onClick={onDismiss} className="btn-ghost text-sm px-6 py-2">Continue anyway</button>
     </div>
   );
@@ -91,7 +92,7 @@ export default function Dashboard() {
   const { switchChain } = useSwitchChain();
   const { data: walletClient } = useWalletClient();
 
-  const { init, reset, fetchPrice, fetchBalances, fetchOptions, fetchPoolStats, btcBalance, options, tick, network } = useStore();
+  const { init, reset, fetchPrice, fetchBalances, fetchOptions, fetchPoolStats, fetchTrades, setSelected, btcBalance, options, tick, network } = useStore();
   const net  = getNetwork(network);
   const live = isLive(net);
   const onSelectedChain = chainId === net.chain.id;
@@ -107,9 +108,15 @@ export default function Dashboard() {
   }, [walletClient, chainId, network]); // eslint-disable-line
 
   useEffect(() => {
+    const link = parseInstrumentId(new URLSearchParams(window.location.search).get('i'));
+    if (link && link.expiry > Math.floor(Date.now() / 1000)) setSelected({ ...link, side: 'buy' });
+  }, []); // eslint-disable-line
+
+  useEffect(() => {
     fetchPrice();
     fetchOptions();
     fetchPoolStats();
+    fetchTrades();
     const id = setInterval(() => { fetchPrice(); fetchPoolStats(); }, 30_000);
     return () => clearInterval(id);
   }, [network]); // eslint-disable-line
@@ -120,22 +127,7 @@ export default function Dashboard() {
 
   const dismissOnboarding = () => { localStorage.setItem('piton_onboarding_dismissed', '1'); setShowOnboarding(false); };
 
-  // Wallet prompts only make sense where Piton is live; elsewhere show the read-only dashboard + banner.
-  if (live && !isConnected) return (
-    <div className="flex flex-col items-center justify-center h-screen gap-4 bg-bg">
-      <p className="font-display text-2xl text-accent">piton</p>
-      <p className="text-dim text-sm font-body">Connect your wallet to start trading</p>
-      <button className="btn-primary" onClick={() => connect({ connector: injected() })}>Connect Wallet</button>
-    </div>
-  );
-
-  if (live && !onSelectedChain) return (
-    <div className="flex flex-col items-center justify-center h-screen gap-4 bg-bg">
-      <p className="text-dim text-sm font-body">Switch your wallet to <span className="text-accent">{net.chain.name}</span> (Chain ID {net.chain.id})</p>
-      <button className="btn-primary" onClick={() => switchChain({ chainId: net.chain.id })}>Switch Network</button>
-    </div>
-  );
-
+  // Anyone can browse the chain, book and pool without a wallet; connecting is only needed to trade.
   return (
     <div className="flex flex-col lg:h-screen lg:overflow-hidden bg-bg">
       {showMobile && <MobileBanner onDismiss={() => setShowMobile(false)} />}
@@ -144,19 +136,19 @@ export default function Dashboard() {
       {live && <OracleBanner />}
       {live && <BreakerBanner />}
       {live && isNewUser && <OnboardingCard onDismiss={dismissOnboarding} />}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[220px_1fr_280px] gap-2 p-2 lg:overflow-hidden lg:min-h-0">
-        <div className="flex flex-col gap-2 lg:overflow-hidden">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[230px_minmax(0,1fr)_340px] gap-2 p-2 lg:overflow-hidden lg:min-h-0">
+        <div className="flex flex-col gap-2 lg:overflow-y-auto lg:min-h-0">
           <div data-tour="market-value"><MarketValue /></div>
           <LockedWhenNotLive><div data-tour="wallet"><Wallet /></div></LockedWhenNotLive>
-          <LockedWhenNotLive className="flex flex-col flex-1 overflow-hidden"><div data-tour="new-order" className="flex flex-col flex-1 overflow-hidden"><NewOrder /></div></LockedWhenNotLive>
+          <LockedWhenNotLive><div data-tour="pool" className="flex flex-col"><Pool /></div></LockedWhenNotLive>
         </div>
-        <div className="flex flex-col gap-2 lg:overflow-hidden">
-          <div data-tour="chart" className="flex flex-col flex-1 overflow-hidden"><Graph /></div>
-          <LockedWhenNotLive className="flex flex-col flex-1 overflow-hidden"><div data-tour="open-orders" className="flex flex-col flex-1 overflow-hidden"><OpenOrders /></div></LockedWhenNotLive>
+        <div className="flex flex-col gap-2 lg:overflow-hidden lg:min-h-0">
+          <div data-tour="chart" className="flex flex-col h-64 lg:h-auto lg:flex-[2] lg:min-h-0 overflow-hidden"><Graph /></div>
+          <LockedWhenNotLive className="flex flex-col min-h-[420px] lg:min-h-0 lg:flex-[4] overflow-hidden"><div data-tour="open-orders" className="flex flex-col flex-1 min-h-0 overflow-hidden"><MarketPanel /></div></LockedWhenNotLive>
         </div>
-        <div className="flex flex-col gap-2 lg:overflow-hidden">
-          <LockedWhenNotLive><div data-tour="pool" className="flex flex-col overflow-hidden"><Pool /></div></LockedWhenNotLive>
-          <LockedWhenNotLive className="flex flex-col flex-1 overflow-hidden"><div data-tour="your-orders" className="flex flex-col flex-1 overflow-hidden"><YourOrders /></div></LockedWhenNotLive>
+        <div className="flex flex-col gap-2 lg:overflow-hidden lg:min-h-0">
+          <LockedWhenNotLive className="flex flex-col min-h-[520px] lg:min-h-0 lg:flex-[3] overflow-hidden"><div data-tour="new-order" className="flex flex-col flex-1 min-h-0 overflow-hidden"><TradePanel /></div></LockedWhenNotLive>
+          <LockedWhenNotLive className="flex flex-col min-h-[260px] lg:min-h-0 lg:flex-[2] overflow-hidden"><div data-tour="your-orders" className="flex flex-col flex-1 min-h-0 overflow-hidden"><YourOrders /></div></LockedWhenNotLive>
         </div>
       </div>
     </div>

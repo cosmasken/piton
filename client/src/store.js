@@ -3,6 +3,7 @@ import { ethers } from 'ethers';
 import OptionPoolABI from './contracts/OptionPool.json';
 import yMUSD_ABI    from './contracts/yMUSD.json';
 import MUSDABI      from './abi/musd.json';
+import { instrumentId, parseInstrumentId } from './instruments.mjs';
 import { NETWORKS, DEFAULT_NETWORK, NETWORK_STORAGE_KEY, getNetwork, isLive, networkByChainId, resolveInitialNetwork } from './network.mjs';
 
 // Contract addresses by chain id, from the single network config (network.mjs).
@@ -80,6 +81,28 @@ export const useStore = create((set, get) => ({
   // live rules read from the contract (fees, limits, breaker); null until loaded
   poolParams:         null,
   lockExpiry:         0,   // connected account's deposit lock (unix seconds)
+
+  // Instrument chosen in the option chain (drives the order form and book). Shareable via ?i=C-75000-<expiry>
+  selected: null,
+  setSelected: (sel) => {
+    set({ selected: sel });
+    try {
+      const u = new URL(window.location.href);
+      if (sel) u.searchParams.set('i', instrumentId(sel)); else u.searchParams.delete('i');
+      window.history.replaceState(null, '', u);
+    } catch { /* non-browser */ }
+  },
+
+  // Pool ask prices per 1 BTC (small reference size) for the selected expiry: { expiry, at, byStrike: { [strike]: { call, put } } }
+  chain: null,
+  trades: [],
+
+  /** Read-only pool contract for the selected network (works without a wallet), or null when not live. */
+  roPool: () => {
+    const { network } = get();
+    const net = getNetwork(network);
+    return isLive(net) ? new ethers.Contract(net.addresses.pool, OptionPoolABI.abi, roProvider(network)) : null;
+  },
 
   tick: 0,
   refresh: () => set(s => ({ tick: s.tick + 1 })),
@@ -161,7 +184,7 @@ export const useStore = create((set, get) => ({
     const pool  = new ethers.Contract(addrs.pool,  OptionPoolABI.abi, roProvider(network));
     const ymusd = new ethers.Contract(addrs.ymusd, yMUSD_ABI.abi,    roProvider(network));
     try {
-      const [total, locked, util, supply, nav, feeBps, lockSecs, minExp, strikeBps, utilMax, expMax, cbUntil, openN] = await Promise.all([
+      const [total, locked, util, supply, nav, feeBps, lockSecs, minExp, strikeBps, utilMax, expMax, cbUntil, openN, ivMid, ivAsk, premEarned, settlePaid, perfPaid, unrecog, maxColl] = await Promise.all([
         pool.totalAssets(),
         pool.lockedCollateral(),
         pool.utilisation(),
@@ -175,6 +198,13 @@ export const useStore = create((set, get) => ({
         pool.maxOptionExposureBps(),
         pool.cbUntil(),
         pool.openPoolOptionCount(),
+        pool.iv(),
+        pool.askIv(),
+        pool.totalPremiumsEarned(),
+        pool.totalSettlementsPaid(),
+        pool.totalPerformanceFeePaid(),
+        pool.unrecognizedPremium(),
+        pool.maxOptionCollateral(),
       ]);
       if (get().network !== network) return; // switched network meanwhile
       // Share value is the net asset value (assets minus what open options may owe), the price shares trade at
@@ -189,7 +219,10 @@ export const useStore = create((set, get) => ({
         poolParams: {
           withdrawalFeeBps: Number(feeBps), depositLockSeconds: Number(lockSecs), minPoolExpiry: Number(minExp),
           strikeDistanceBps: Number(strikeBps), maxUtilisationBps: Number(utilMax), maxOptionExposureBps: Number(expMax),
-          cbUntil: Number(cbUntil), openPoolOptions: Number(openN),
+          cbUntil: Number(cbUntil), openPoolOptions: Number(openN), maxOptionCollateral: parseFloat(ethers.formatEther(maxColl)),
+          iv: parseFloat(ethers.formatEther(ivMid)), askIv: parseFloat(ethers.formatEther(ivAsk)),
+          premiumsEarned: parseFloat(ethers.formatEther(premEarned)), settlementsPaid: parseFloat(ethers.formatEther(settlePaid)),
+          performanceFeesPaid: parseFloat(ethers.formatEther(perfPaid)), unearnedPremium: parseFloat(ethers.formatEther(unrecog)),
           utilisationBps: Math.round(parseFloat(ethers.formatEther(util)) * 10000),
         },
       });
@@ -229,10 +262,52 @@ export const useStore = create((set, get) => ({
     finally { if (get().network === network) set({ ordersLoading: false }); }
   },
 
+  /** Pool ask price per BTC for every strike of one expiry (calls and puts), read from the contract's own quote. */
+  fetchChain: async (expiry, strikes) => {
+    const { network } = get();
+    const net = getNetwork(network);
+    if (!isLive(net) || !expiry || !strikes?.length) return;
+    const pool = new ethers.Contract(net.addresses.pool, OptionPoolABI.abi, roProvider(network));
+    const REF = ethers.parseEther('0.01'); // small reference size; bigger orders cost more (utilisation markup)
+    const cells = strikes.flatMap(k => [true, false].map(isCall => ({ k, isCall })));
+    const res = await Promise.allSettled(cells.map(c => pool.quotePremium(c.isCall, ethers.parseEther(String(c.k)), REF, expiry)));
+    if (get().network !== network) return;
+    const byStrike = {};
+    cells.forEach((c, i) => {
+      const cell = (byStrike[c.k] ||= {});
+      cell[c.isCall ? 'call' : 'put'] = res[i].status === 'fulfilled' ? parseFloat(ethers.formatEther(res[i].value)) * 100 : null;
+    });
+    set({ chain: { expiry, at: Date.now(), byStrike } });
+  },
+
+  /** Recent fills from OrderFilled events (scanned in 9,000-block chunks; the RPC rejects bigger ranges). */
+  fetchTrades: async () => {
+    const { network } = get();
+    const net = getNetwork(network);
+    if (!isLive(net)) { set({ trades: [] }); return; }
+    const provider = roProvider(network);
+    const pool = new ethers.Contract(net.addresses.pool, OptionPoolABI.abi, provider);
+    try {
+      const head = await provider.getBlockNumber();
+      const floor = Math.max(net.addresses.deployBlock || 0, head - 9000 * 12); // at most ~108k blocks back
+      const logs = [];
+      for (let to = head; to >= floor && logs.length < 60; to -= 9000) {
+        const from = Math.max(floor, to - 8999);
+        logs.push(...await pool.queryFilter(pool.filters.OrderFilled(), from, to));
+      }
+      const recent = logs.sort((a, b) => b.blockNumber - a.blockNumber || b.index - a.index).slice(0, 30);
+      const blocks = await Promise.all([...new Set(recent.map(l => l.blockNumber))].map(n => provider.getBlock(n)));
+      const ts = Object.fromEntries(blocks.filter(Boolean).map(b => [b.number, b.timestamp]));
+      if (get().network !== network) return;
+      set({ trades: recent.map(l => ({ id: l.args[0], filler: l.args[1], byPool: l.args[2], time: ts[l.blockNumber] || 0, tx: l.transactionHash })) });
+    } catch { /* history is a nice-to-have */ }
+  },
+
   fetchAll: () => {
     get().fetchPrice();
     get().fetchBalances();
     get().fetchOptions();
     get().fetchPoolStats();
+    get().fetchTrades();
   },
 }));

@@ -34,3 +34,15 @@ export function greeks(isCall, spot, strike, timeToExpiryHours, vol = 0.80, r = 
 
   return { delta: parseFloat(delta.toFixed(3)), theta: parseFloat(theta.toFixed(2)) };
 }
+
+/** Black-Scholes price per 1 BTC (same model as the contract; used for mark prices and the payoff preview). */
+export function bsPrice(isCall, spot, strike, timeToExpiryHours, vol = 0.80, r = 0.05) {
+  const T = timeToExpiryHours / 8760;
+  if (spot <= 0 || strike <= 0) return 0;
+  if (T <= 0) return Math.max(0, isCall ? spot - strike : strike - spot);
+  const sqrtT = Math.sqrt(T);
+  const d1 = (Math.log(spot / strike) + (r + 0.5 * vol * vol) * T) / (vol * sqrtT);
+  const d2 = d1 - vol * sqrtT;
+  const disc = strike * Math.exp(-r * T);
+  return isCall ? spot * cdf(d1) - disc * cdf(d2) : disc * cdf(-d2) - spot * cdf(-d1);
+}

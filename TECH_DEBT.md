@@ -242,3 +242,13 @@ keeper script · 10 Ownable2Step + guardian + `PitonTimelock` + setup script ·
 - NOT TESTED LIVE: auto-exercise end to end on matsnet (needs an in-the-money, opted-in option in its last 5 minutes); covered
   by the Hardhat tests. Guardian and timelock are generated but ownership has not been handed over.
 - The demo bot is seeded activity, not real volume, and must be described that way to anyone evaluating traction.
+
+## Trading UI rebuild (10 Nov 2026)
+- DONE: option chain by expiry (standard slots), Buy/Sell form with market and limit orders, instrument order book, payoff chart,
+  break-even, max loss/gain, positions with mark/P&L/greeks, recent trades from OrderFilled events, pool "how it works" modal,
+  read-only browsing without a wallet, shareable `?i=` links, testnet label, clearer errors.
+- Logic that can be tested without a browser is in `client/src/{instruments,payoff,poolRules}.mjs` (21 tests).
+- NOT DONE: close a position by selling it back (needs a contract design: pool bid or transferable positions); pool yield history
+  and per-user trade history beyond ~100k blocks (needs an indexer); a real mobile layout; exercising from the chain without wallet.
+- NOT TESTED: wallet flows (buy, sell, hit a bid or ask, Trove margin, auto-exercise toggle) in a browser; only the read-only page
+  was rendered and inspected headlessly.

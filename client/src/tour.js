@@ -10,7 +10,7 @@ const STEPS = [
   },
   {
     element: '[data-tour="new-order"]',
-    popover: { title: 'Place an Order', description: 'Choose Long or Short, Call or Put. Set your strike price, premium, and quantity — then confirm to post to the on-chain order book.' },
+    popover: { title: 'Buy or Sell', description: 'Pick an option in the chain, then Buy (take the pool\'s price now, or set a limit price) or Sell (post collateral and a price). You see the cost, the worst case, the break-even and a payoff chart before you sign.' },
   },
   {
     element: '[data-tour="trove-margin"]',
@@ -22,7 +22,7 @@ const STEPS = [
   },
   {
     element: '[data-tour="open-orders"]',
-    popover: { title: 'Order Book', description: 'All open orders on-chain. Click "Fill →" to take the opposite side of any order. Filter by strike range or switch to the Depth view.' },
+    popover: { title: 'Option Chain', description: 'Choose an expiry, then click an ask to buy or a bid to sell. Calls are on the left, puts on the right. A dot marks the pool\'s own price. Other tabs list every resting order and recent trades.' },
   },
   {
     element: '[data-tour="wallet"]',
@@ -30,7 +30,7 @@ const STEPS = [
   },
   {
     element: '[data-tour="your-orders"]',
-    popover: { title: 'Your Positions', description: 'All your open positions with live P/L, Greeks, and payoff curves. Use Settle to exercise, Close to cancel, or Refund after expiry.' },
+    popover: { title: 'Your Positions', description: 'Open positions with live profit and loss, break-even and a payoff chart (click a row). Exercise a winning option, turn on auto-exercise, cancel a resting order, or refund after expiry.' },
   },
 ];
 

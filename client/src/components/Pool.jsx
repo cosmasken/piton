@@ -5,6 +5,7 @@ import { useStore, ADDRESSES } from '../store';
 import { explorerTx } from '../network.mjs';
 import { parseTxError } from '../txUtils';
 import { useNow } from '../useNow';
+import Modal from './Modal';
 import { fmtDuration, lockRemaining, breakerActive, withdrawEstimate } from '../poolRules.mjs';
 
 
@@ -21,6 +22,45 @@ function Stat({ label, value }) {
   );
 }
 
+function PoolDetails({ params: p, stats, onClose }) {
+  const yieldNet = p ? p.premiumsEarned - p.unearnedPremium - p.settlementsPaid : null;
+  const m = v => v == null ? '—' : v.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  const pct = bps => `${(bps / 100).toFixed(bps % 100 ? 2 : 0)}%`;
+  return (
+    <Modal title="How the pool works" onClose={onClose}>
+      <div className="space-y-3 text-xs text-dim leading-relaxed max-h-[70vh] overflow-y-auto pr-1">
+        <p><span className="text-text">You are the seller.</span> Depositors' MUSD backs the options the pool sells. You earn the premiums buyers pay. When an option finishes in the money, the pool pays the buyer, up to the collateral locked for that option.</p>
+        <p><span className="text-text">Where the yield comes from:</span> premium on options that expire worthless. <span className="text-text">Where the risk comes from:</span> a big BTC move against the options the pool has sold can cost more than the premiums collected, and you can lose part of your deposit.</p>
+        <p><span className="text-text">Share price.</span> yMUSD is priced on net asset value: pool assets minus what open options may owe. Premium for options still open counts as owed until they expire, so joining right before expiry doesn't capture it.</p>
+        {p && (
+          <div className="bg-surface rounded-md px-3 py-2 space-y-1 text-xs">
+            <p className="text-[10px] uppercase tracking-wider text-dim mb-1">Track record</p>
+            <div className="flex justify-between"><span>Premiums earned (all time)</span><span className="font-mono text-text">{m(p.premiumsEarned)} MUSD</span></div>
+            <div className="flex justify-between"><span>Paid out to buyers</span><span className="font-mono text-text">{m(p.settlementsPaid)} MUSD</span></div>
+            <div className="flex justify-between"><span>Still unearned (open options)</span><span className="font-mono text-text">{m(p.unearnedPremium)} MUSD</span></div>
+            <div className="flex justify-between"><span>Net earned so far</span><span className={`font-mono ${yieldNet >= 0 ? 'text-accent' : 'text-red'}`}>{m(yieldNet)} MUSD</span></div>
+            <div className="flex justify-between"><span>Performance fees paid</span><span className="font-mono text-text">{m(p.performanceFeesPaid)} MUSD</span></div>
+          </div>
+        )}
+        {p && (
+          <div className="bg-surface rounded-md px-3 py-2 space-y-1 text-xs">
+            <p className="text-[10px] uppercase tracking-wider text-dim mb-1">Rules, enforced on-chain</p>
+            <div className="flex justify-between"><span>Price volatility (mid / ask)</span><span className="font-mono text-text">{(p.iv * 100).toFixed(1)}% / {(p.askIv * 100).toFixed(1)}%</span></div>
+            <div className="flex justify-between"><span>Max pool utilisation</span><span className="font-mono text-text">{pct(p.maxUtilisationBps)}</span></div>
+            <div className="flex justify-between"><span>Max share of pool in one option</span><span className="font-mono text-text">{pct(p.maxOptionExposureBps)}</span></div>
+            <div className="flex justify-between"><span>Strikes sold within</span><span className="font-mono text-text">±{pct(p.strikeDistanceBps)} of spot</span></div>
+            <div className="flex justify-between"><span>Minimum time left to sell</span><span className="font-mono text-text">{fmtDuration(p.minPoolExpiry)}</span></div>
+            <div className="flex justify-between"><span>Deposit lock</span><span className="font-mono text-text">{fmtDuration(p.depositLockSeconds)}</span></div>
+            <div className="flex justify-between"><span>Exit fee while options are open</span><span className="font-mono text-text">{pct(p.withdrawalFeeBps)} (stays in the pool)</span></div>
+            <div className="flex justify-between"><span>Fees to the protocol</span><span className="font-mono text-text">2% of premiums, 15% of net yield</span></div>
+          </div>
+        )}
+        <p>Circuit breaker: a fast price move pauses new sales and deposits for a while; withdrawals, exercising and refunds always work. Contracts are unaudited testnet code.</p>
+      </div>
+    </Modal>
+  );
+}
+
 export default function Pool() {
   const {
     poolContract, musdContract, chainId,
@@ -32,6 +72,7 @@ export default function Pool() {
   const [tab,     setTab]     = useState('deposit');
   const [amount,  setAmount]  = useState('');
   const [loading, setLoading] = useState(false);
+  const [details, setDetails] = useState(false);
 
   const act = async (fn, msg) => {
     setLoading(true);
@@ -72,7 +113,7 @@ export default function Pool() {
 
   return (
     <div className="panel flex flex-col overflow-hidden flex-1">
-      <div className="panel-header">Pool</div>
+      <div className="panel-header flex items-center justify-between"><span>Pool</span><button type="button" onClick={() => setDetails(true)} className="normal-case tracking-normal text-accent text-xs hover:opacity-70">How it works ›</button></div>
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
 
         <div className="grid grid-cols-2 gap-2">
@@ -140,6 +181,7 @@ export default function Pool() {
           {' '}Share value counts premium not yet earned as owed, so it rises as options expire unexercised. Withdrawals are instant up to available liquidity.
         </p>
       </div>
+      {details && <PoolDetails params={poolParams} stats={{ poolTotalAssets, poolLocked, poolUtilisation, poolShareValue }} onClose={() => setDetails(false)} />}
     </div>
   );
 }
