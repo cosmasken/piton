@@ -340,12 +340,15 @@ describe('Cancel', () => {
 describe('Total loss: deposits blocked until worthless shares are cleared', () => {
   async function harness() {
     const ctx = await deploy();
+    // yMUSD's pool is one-time, so the harness gets its own yMUSD
+    const ymusd = await (await ethers.getContractFactory('yMUSD')).deploy();
     const Pool = await ethers.getContractFactory('OptionPoolHarness');
     const pool = await Pool.deploy(
-      await ctx.musd.getAddress(), await ctx.ymusd.getAddress(), await ctx.oracle.getAddress(),
+      await ctx.musd.getAddress(), await ymusd.getAddress(), await ctx.oracle.getAddress(),
       await ctx.trove.getAddress(), await ctx.borrowerOps.getAddress()
     );
-    await ctx.ymusd.setPool(await pool.getAddress());
+    await ymusd.setPool(await pool.getAddress());
+    ctx.ymusd = ymusd;
     for (const w of [ctx.lp, ctx.buyer, ctx.seller, ctx.other]) {
       await ctx.musd.mint(w.address, E18('100000'));
       await ctx.musd.connect(w).approve(await pool.getAddress(), ethers.MaxUint256);
@@ -393,5 +396,58 @@ describe('Total loss: deposits blocked until worthless shares are cleared', () =
     const bal = await ymusd.balanceOf(lp.address);
     await pool.connect(lp).withdraw(bal);
     expect(await ymusd.balanceOf(lp.address)).to.equal(0n);
+  });
+});
+
+describe('Static-analysis hardening', () => {
+  it('yMUSD pool can be set only once (owner cannot repoint mint/burn)', async () => {
+    const { ymusd, owner, other } = await deploy();
+    await expect(ymusd.connect(owner).setPool(other.address)).to.be.revertedWith('pool already set');
+    await expect(ymusd.connect(owner).mint(owner.address, 1n)).to.be.revertedWith('yMUSD: caller is not pool');
+  });
+
+  it('constructor rejects zero addresses', async () => {
+    const { musd, ymusd, oracle, trove, borrowerOps } = await deploy();
+    const Pool = await ethers.getContractFactory('OptionPool');
+    const a = [await musd.getAddress(), await ymusd.getAddress(), await oracle.getAddress(),
+               await trove.getAddress(), await borrowerOps.getAddress()];
+    for (let i = 0; i < a.length; i++) {
+      const args = [...a]; args[i] = ethers.ZeroAddress;
+      await expect(Pool.deploy(...args)).to.be.revertedWith('zero address');
+    }
+  });
+
+  it('pause blocks new activity but never blocks exits (withdraw, settle, refund, cancel)', async () => {
+    const { pool, oracle, lp, buyer, seller } = await deploy();
+    await pool.connect(lp).deposit(E18('10000'));
+    const exp = await expiry(3600);
+    const q = await pool.quotePremium(false, E18('100000'), E18('0.01'), exp);
+    await pool.connect(buyer).createLongOrder(1, E18('100000'), E18('0.01'), exp, q * 105n / 100n); // id 1, pool-filled
+    await pool.connect(buyer).createLongOrder(1, E18('100000'), E18('0.01'), exp, q * 105n / 100n); // id 2, pool-filled
+    await pool.connect(seller).createShortOrder(1, E18('100000'), E18('0.01'), exp, E18('50'));     // id 3, open
+
+    await expect(pool.pausePool()).to.emit(pool, 'PausedSet').withArgs(true);
+    await expect(pool.connect(lp).deposit(E18('1'))).to.be.revertedWith('paused');
+    await expect(pool.connect(buyer).fillLong(3)).to.be.revertedWith('paused');
+
+    await expect(pool.connect(seller).cancelOrder(3)).to.emit(pool, 'Cancelled').withArgs(3n, seller.address);
+    await oracle.setPrice(90000);
+    await pool.connect(buyer).settle(1);
+    await time.increase(3601);
+    await pool.refund(2);
+    const shares = await (await ethers.getContractAt('yMUSD', await pool.ymusd())).balanceOf(lp.address);
+    await pool.connect(lp).withdraw(shares);
+  });
+
+  it('every admin setter emits an event', async () => {
+    const { pool, other } = await deploy();
+    await expect(pool.setIvKeeper(other.address)).to.emit(pool, 'IvKeeperSet').withArgs(other.address);
+    await expect(pool.setIvSpreadBps(1000)).to.emit(pool, 'IvSpreadSet').withArgs(1000n);
+    await expect(pool.setTVLCap(E18('1'))).to.emit(pool, 'TvlCapSet').withArgs(E18('1'));
+    await expect(pool.setMaxOptionCollateral(E18('1'))).to.emit(pool, 'MaxOptionCollateralSet').withArgs(E18('1'));
+    await expect(pool.setFeeRecipient(other.address)).to.emit(pool, 'FeeRecipientSet').withArgs(other.address);
+    await expect(pool.setProtocolFeeBps(100)).to.emit(pool, 'ProtocolFeeSet').withArgs(100n);
+    await expect(pool.setPerformanceFeeBps(1000)).to.emit(pool, 'PerformanceFeeSet').withArgs(1000n);
+    await expect(pool.unpausePool()).to.emit(pool, 'PausedSet').withArgs(false);
   });
 });

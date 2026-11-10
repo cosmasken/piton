@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity 0.8.28;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -44,9 +44,10 @@ contract OptionPool is Ownable, ReentrancyGuard {
 
     // ─── Constants ───────────────────────────────────────────────────────────
 
-    address public SKIP_ORACLE;
-    address public TROVE_MANAGER;
-    address public BORROWER_OPS_SIGS;
+    // External dependencies, fixed at deploy (no setter can repoint them).
+    address public immutable SKIP_ORACLE;
+    address public immutable TROVE_MANAGER;
+    address public immutable BORROWER_OPS_SIGS;
 
     uint256 public constant PRICE_STALENESS   = 300;  // oracle updates every block; options can be 15 min
     uint256 public constant MIN_EXPIRY        = 15 minutes;
@@ -123,11 +124,24 @@ contract OptionPool is Ownable, ReentrancyGuard {
     event OrderFilled(uint256 indexed id, address indexed filler, bool byPool);
     event Settled(uint256 indexed id, address indexed long, uint256 profit);
     event Refunded(uint256 indexed id, address indexed short);
+    event Cancelled(uint256 indexed id, address indexed by);
+
+    // Admin changes, so off-chain monitoring can see every parameter change
+    event IvKeeperSet(address indexed keeper);
+    event IvSpreadSet(uint256 bps);
+    event TvlCapSet(uint256 cap);
+    event MaxOptionCollateralSet(uint256 max);
+    event FeeRecipientSet(address indexed recipient);
+    event ProtocolFeeSet(uint256 bps);
+    event PerformanceFeeSet(uint256 bps);
+    event PausedSet(bool paused);
 
 
     // ─── Constructor ─────────────────────────────────────────────────────────
 
     constructor(address _musd, address _ymusd, address _oracle, address _troveManager, address _borrowerOps) Ownable(msg.sender) {
+        require(_musd != address(0) && _ymusd != address(0) && _oracle != address(0)
+            && _troveManager != address(0) && _borrowerOps != address(0), "zero address");
         musd              = IERC20(_musd);
         ymusd             = yMUSD(_ymusd);
         feeRecipient      = msg.sender;
@@ -295,8 +309,8 @@ contract OptionPool is Ownable, ReentrancyGuard {
             shares = amount * supply / totalAssets;
         }
 
+        totalAssets += amount; // effects before interactions
         musd.safeTransferFrom(msg.sender, address(this), amount);
-        totalAssets += amount;
         ymusd.mint(msg.sender, shares);
 
         emit Deposited(msg.sender, amount, shares);
@@ -311,8 +325,8 @@ contract OptionPool is Ownable, ReentrancyGuard {
         uint256 available = totalAssets - lockedCollateral;
         require(musdOut <= available, "insufficient liquidity");
 
+        totalAssets -= musdOut; // effects before interactions
         ymusd.burn(msg.sender, shares);
-        totalAssets -= musdOut;
         musd.safeTransfer(msg.sender, musdOut);
 
         emit Withdrawn(msg.sender, shares, musdOut);
@@ -325,7 +339,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
     ///         `holders` is built off-chain from yMUSD Transfer events; reverts unless it clears all supply.
     function clearWorthlessShares(address[] calldata holders) external onlyOwner {
         require(totalAssets == 0 && lockedCollateral == 0, "pool has assets");
-        uint256 burned;
+        uint256 burned = 0;
         for (uint256 i = 0; i < holders.length; i++) {
             uint256 bal = ymusd.balanceOf(holders[i]);
             if (bal > 0) { ymusd.burn(holders[i], bal); burned += bal; }
@@ -523,18 +537,13 @@ contract OptionPool is Ownable, ReentrancyGuard {
         // Trove must stay healthy AFTER the draw (stricter than Mezo's own minimum ratio).
         ITroveManager tm = ITroveManager(TROVE_MANAGER);
         require(tm.getTroveStatus(msg.sender) == 1, "no active trove");
-        uint256 collVal = tm.getTroveColl(msg.sender) * spot / PRECISION;
+        // coll[1e18 BTC] * spot[1e18 USD/BTC] vs debt[1e18] * MIN_ICR[1e18]: both sides 1e36-scaled,
+        // so no intermediate division / rounding.
         uint256 newDebt = tm.getTroveDebt(msg.sender) + marginAmount;
-        require(collVal * PRECISION >= newDebt * MIN_ICR, "trove ICR too low after draw");
+        require(tm.getTroveColl(msg.sender) * spot >= newDebt * MIN_ICR, "trove ICR too low after draw");
 
-        // Borrow into the short's own wallet, verify the amount, then pull it as margin.
-        uint256 balBefore = musd.balanceOf(msg.sender);
-        IBorrowerOperationsSignatures(BORROWER_OPS_SIGS).withdrawMUSDWithSignature(
-            marginAmount, address(0), address(0), msg.sender, msg.sender, troveSig, troveDeadline
-        );
-        require(musd.balanceOf(msg.sender) - balBefore >= marginAmount, "trove draw short");
-        musd.safeTransferFrom(msg.sender, address(this), marginAmount);
-
+        // Effects first (the external calls below are to Mezo and MUSD; the whole function is also
+        // nonReentrant). A revert in either call unwinds these writes.
         id = nextId++;
         Option storage o = options[id];
         o.id         = id;
@@ -547,8 +556,16 @@ contract OptionPool is Ownable, ReentrancyGuard {
         o.expiry     = expiry;
         o.collateral = marginAmount;
         o.marginType = MarginType.TROVE;
-
         userOptions[msg.sender].push(id);
+
+        // Borrow into the short's own wallet, verify the amount, then pull it as margin.
+        uint256 balBefore = musd.balanceOf(msg.sender);
+        IBorrowerOperationsSignatures(BORROWER_OPS_SIGS).withdrawMUSDWithSignature(
+            marginAmount, address(0), address(0), msg.sender, msg.sender, troveSig, troveDeadline
+        );
+        require(musd.balanceOf(msg.sender) - balBefore >= marginAmount, "trove draw short");
+        musd.safeTransferFrom(msg.sender, address(this), marginAmount);
+
         emit OrderCreated(id, optionType, msg.sender, false);
     }
 
@@ -679,6 +696,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
         } else {
             revert("not your order");
         }
+        emit Cancelled(id, msg.sender);
     }
 
     // ─── Views ────────────────────────────────────────────────────────────────
@@ -722,32 +740,39 @@ contract OptionPool is Ownable, ReentrancyGuard {
         emit IVUpdated(_iv, msg.sender);
     }
 
-    function setIvKeeper(address _keeper) external onlyOwner { ivKeeper = _keeper; }
+    /// @dev address(0) is allowed on purpose: it disables the keeper (owner can still set IV).
+    function setIvKeeper(address _keeper) external onlyOwner { ivKeeper = _keeper; emit IvKeeperSet(_keeper); }
 
     function setIvSpreadBps(uint256 _bps) external onlyOwner {
         require(_bps <= MAX_IV_SPREAD_BPS, "spread too high");
         ivSpreadBps = _bps;
+        emit IvSpreadSet(_bps);
     }
 
-    function setTVLCap(uint256 _cap) external onlyOwner { tvlCap = _cap; }
+    function setTVLCap(uint256 _cap) external onlyOwner { tvlCap = _cap; emit TvlCapSet(_cap); }
 
-    function setMaxOptionCollateral(uint256 _max) external onlyOwner { maxOptionCollateral = _max; }
+    function setMaxOptionCollateral(uint256 _max) external onlyOwner { maxOptionCollateral = _max; emit MaxOptionCollateralSet(_max); }
 
     function setFeeRecipient(address _r) external onlyOwner {
         require(_r != address(0), "zero address");
         feeRecipient = _r;
+        emit FeeRecipientSet(_r);
     }
 
     function setProtocolFeeBps(uint256 _bps) external onlyOwner {
         require(_bps <= 500, "max 5%");
         protocolFeeBps = _bps;
+        emit ProtocolFeeSet(_bps);
     }
 
     function setPerformanceFeeBps(uint256 _bps) external onlyOwner {
         require(_bps <= 3000, "max 30%");
         performanceFeeBps = _bps;
+        emit PerformanceFeeSet(_bps);
     }
 
-    function pausePool()   external onlyOwner { paused = true; }
-    function unpausePool() external onlyOwner { paused = false; }
+    /// @notice Pause blocks new deposits, orders and fills. Withdraw, settle, refund and cancel stay
+    ///         open, so users can always exit.
+    function pausePool()   external onlyOwner { paused = true;  emit PausedSet(true); }
+    function unpausePool() external onlyOwner { paused = false; emit PausedSet(false); }
 }

@@ -45,3 +45,6 @@ scripts/*
 /contracts/mezo
 /deployments/localhost.json
 /deployments/hardhat.json
+
+# static-analysis raw output (regenerate with tools/static-analysis.sh)
+/audit/out
