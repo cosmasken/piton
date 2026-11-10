@@ -326,10 +326,10 @@ contract OptionPool is Ownable, ReentrancyGuard {
 
     function _takePerformanceFee() internal {
         if (totalPremiumsEarned <= totalSettlementsPaid) return;
-        uint256 netYield = totalPremiumsEarned - totalSettlementsPaid;
-        if (netYield <= totalPerformanceFeePaid) return;
-        uint256 newYield = netYield - totalPerformanceFeePaid;
-        uint256 fee = newYield * performanceFeeBps / 10000;
+        uint256 netYield     = totalPremiumsEarned - totalSettlementsPaid;
+        uint256 cumulativeFee = netYield * performanceFeeBps / 10000;
+        if (cumulativeFee <= totalPerformanceFeePaid) return;
+        uint256 fee = cumulativeFee - totalPerformanceFeePaid;
         if (fee > 0 && fee <= totalAssets) {
             totalAssets -= fee;
             totalPerformanceFeePaid += fee;

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
 contract MockOracle {
     int256  private _answer;
     uint256 private _updatedAt;
@@ -37,11 +39,21 @@ contract MockTrove {
 contract MockBorrowerOps {
     event TrovePulled(address borrower, uint256 amount, address recipient);
 
+    IERC20 public musd;
+
+    function setMUSD(address _musd) external { musd = IERC20(_musd); }
+
+    /// @dev Mirrors BorrowerOperationsSignatures: pulls `_debtChange` MUSD from the
+    ///      borrower's Trove and sends it to `_recipient`. Requires this mock to be
+    ///      pre-funded with MUSD in tests.
     function adjustTroveWithSignature(
         uint256, uint256 _debtChange, bool,
         address, address, address _borrower, address _recipient,
         bytes calldata, uint256
     ) external {
         emit TrovePulled(_borrower, _debtChange, _recipient);
+        if (address(musd) != address(0) && _debtChange > 0) {
+            require(musd.transfer(_recipient, _debtChange), "mock transfer failed");
+        }
     }
 }

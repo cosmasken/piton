@@ -8,8 +8,11 @@
   },
   "scripts": {
     "compile": "hardhat compile",
-    "deploy:testnet": "hardhat run scripts/deploy.js --network matsnet",
-    "deploy:mainnet": "hardhat run scripts/deploy.js --network mainnet",
+    "test": "hardhat test test/OptionPool.test.js",
+    "test:all": "hardhat test",
+    "deploy:testnet": "hardhat run scripts/deployV2.js --network matsnet",
+    "deploy:mainnet": "hardhat run scripts/deployV2.js --network mainnet",
+    "health:testnet": "hardhat run scripts/health.js --network matsnet",
     "dapp": "npm start --prefix client",
     "client-install": "npm install --prefix client"
   },
