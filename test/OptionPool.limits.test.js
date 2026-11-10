@@ -67,3 +67,30 @@ describe('#3 utilisation and single-option exposure limits', () => {
     await expect(pool.connect(lp).setRiskLimits(9000, 3000)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
   });
 });
+
+describe('#4 minimum rent on locked collateral', () => {
+  it('default is 5% a year of the collateral', async () => {
+    const { pool } = await deploy();
+    expect(await pool.minRentBps()).to.equal(500n);
+  });
+  it('a nearly-free far-OTM long-dated put is no longer sold for dust', async () => {
+    const { pool, lp, buyer } = await deploy();
+    await pool.connect(lp).deposit(E18('1000000'));
+    const K = E18('60000'), Q = E18('1'), exp = (await now()) + 14 * 86400;
+    const bsOnly = await pool.quotePremium(false, K, Q, exp);
+    const rent = K * 500n * BigInt(14 * 86400) / (10000n * 31536000n);
+    expect(bsOnly).to.be.gte(rent - 10n * 10n ** 15n); // the quote is at least the rent (60k collateral * 5% * 14d)
+    // offering 1 wei: not filled by the pool
+    await pool.connect(buyer).createLongOrder(1, K, Q, exp, 1n);
+    expect((await pool.getOption(await pool.nextId() - 1n)).filledByPool).to.equal(false);
+    // offering the quote: filled
+    await pool.connect(buyer).createLongOrder(1, K, Q, exp, bsOnly);
+    expect((await pool.getOption(await pool.nextId() - 1n)).filledByPool).to.equal(true);
+  });
+  it('owner can set it to zero (floor off) and it is capped at 50%', async () => {
+    const { pool, lp } = await deploy();
+    await expect(pool.setMinRentBps(0)).to.emit(pool, 'MinRentSet').withArgs(0n);
+    await expect(pool.setMinRentBps(5001)).to.be.revertedWith('max 50%');
+    await expect(pool.connect(lp).setMinRentBps(1)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
+  });
+});

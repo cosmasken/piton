@@ -152,10 +152,10 @@ describe('Economics: LP shares priced net of open-option liability', () => {
     await pool.connect(lp).deposit(E18('5000000'));
     const exp = await expiry(3600);
     const max = Number(await pool.MAX_OPEN_POOL_OPTIONS());
-    // far out-of-the-money puts price at ~0, so a 1-wei premium is accepted
-    for (let i = 0; i < max; i++) await pool.connect(buyer).createLongOrder(1, E18('90000'), E18('0.001'), exp, 1n);
+    const q = await pool.quotePremium(false, E18('90000'), E18('0.001'), exp); // tiny: rent floor dominates
+    for (let i = 0; i < max; i++) await pool.connect(buyer).createLongOrder(1, E18('90000'), E18('0.001'), exp, q);
     expect(await pool.openPoolOptionCount()).to.equal(BigInt(max));
-    await pool.connect(buyer).createLongOrder(1, E18('90000'), E18('0.001'), exp, 1n);
+    await pool.connect(buyer).createLongOrder(1, E18('90000'), E18('0.001'), exp, q);
     expect(await filled(pool, await lastId(pool)), 'cap reached: rests as a bid').to.equal(false);
     await time.increase(3601);
     await pool.refund(1);

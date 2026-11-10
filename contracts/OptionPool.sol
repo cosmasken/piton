@@ -150,6 +150,11 @@ contract OptionPool is Ownable, ReentrancyGuard {
     ///         lock most of the pool.
     uint256 public maxOptionExposureBps = 2500;
 
+    /// @notice Minimum price for locking collateral, as annual % of the collateral (bps). Stops the pool
+    ///         selling nearly-free long-dated options that tie up LP capital for nothing.
+    uint256 public minRentBps = 500;
+    uint256 public constant MAX_MIN_RENT_BPS = 5000;
+
     // ─── Events ──────────────────────────────────────────────────────────────
 
     event Deposited(address indexed user, uint256 musdIn, uint256 sharesOut);
@@ -171,6 +176,7 @@ contract OptionPool is Ownable, ReentrancyGuard {
     event PausedSet(bool paused);
     event WithdrawalFeeSet(uint256 bps);
     event DepositLockSet(uint256 seconds_);
+    event MinRentSet(uint256 bps);
     event RiskLimitsSet(uint256 maxUtilisationBps, uint256 maxOptionExposureBps);
 
 
@@ -576,14 +582,12 @@ contract OptionPool is Ownable, ReentrancyGuard {
         Option storage o = options[id];
         uint256 spot = _spot();
 
-        // Validate premium against BS price (5% tolerance)
-        // bsPrice returns per-BTC premium; scale by quantity
-        uint256 fairUnit = _bs(o.optionType == OptionType.CALL, spot, o.strike, o.expiry - block.timestamp, askIv());
-        uint256 fair     = fairUnit * o.quantity / PRECISION;
+        // Validate premium against the pool's own price (5% tolerance on the model price)
+        (uint256 fair, uint256 hardFloor) = _poolPrice(o.optionType, spot, o.strike, o.quantity, o.expiry);
         if (o.premium < fair * 95 / 100) return; // below fair value, skip
-        // Never sell below immediate-exercise value (after the protocol fee): otherwise buying and
-        // exercising at once would take value from LPs.
-        if (o.premium < _intrinsicFloor(o.optionType, o.strike, o.quantity, spot)) return;
+        // Never sell below the hard floors (immediate-exercise value after the fee, minimum rent):
+        // otherwise buying and exercising at once, or very cheap long-dated options, would cost LPs.
+        if (o.premium < hardFloor) return;
         if (openPoolOptions.length >= MAX_OPEN_POOL_OPTIONS) return;
 
         uint256 collateral = _requiredCollateral(o.optionType, spot, o.strike, o.quantity);
@@ -869,11 +873,22 @@ contract OptionPool is Ownable, ReentrancyGuard {
         bool isCall, uint256 strike, uint256 quantity, uint256 expiry
     ) external view returns (uint256) {
         require(expiry > block.timestamp, "expired");
-        uint256 spot = _spot();
-        uint256 unitPremium = _bs(isCall, spot, strike, expiry - block.timestamp, askIv());
-        uint256 quote = unitPremium * quantity / PRECISION;
-        uint256 floor_ = _intrinsicFloor(isCall ? OptionType.CALL : OptionType.PUT, strike, quantity, spot);
-        return quote > floor_ ? quote : floor_; // the pool never sells below immediate-exercise value
+        (uint256 fair, uint256 hardFloor) = _poolPrice(
+            isCall ? OptionType.CALL : OptionType.PUT, _spot(), strike, quantity, expiry);
+        return fair > hardFloor ? fair : hardFloor;
+    }
+
+    /// @dev The pool's sell price. `fair` is the model price at the ask IV; `hardFloor` is the least the
+    ///      pool will ever accept: immediate-exercise value (after the fee) and a minimum rent on the
+    ///      collateral it has to lock.
+    function _poolPrice(OptionType t, uint256 spot, uint256 strike, uint256 quantity, uint256 expiry)
+        internal view returns (uint256 fair, uint256 hardFloor)
+    {
+        fair = _bs(t == OptionType.CALL, spot, strike, expiry - block.timestamp, askIv()) * quantity / PRECISION;
+        hardFloor = _intrinsicFloor(t, strike, quantity, spot);
+        uint256 rent = _requiredCollateral(t, spot, strike, quantity) * minRentBps * (expiry - block.timestamp)
+            / (10000 * 365 days);
+        if (rent > hardFloor) hardFloor = rent;
     }
 
     // ─── Owner ────────────────────────────────────────────────────────────────
@@ -928,6 +943,12 @@ contract OptionPool is Ownable, ReentrancyGuard {
         maxUtilisationBps = _maxUtilBps;
         maxOptionExposureBps = _maxExposureBps;
         emit RiskLimitsSet(_maxUtilBps, _maxExposureBps);
+    }
+
+    function setMinRentBps(uint256 _bps) external onlyOwner {
+        require(_bps <= MAX_MIN_RENT_BPS, "max 50%");
+        minRentBps = _bps;
+        emit MinRentSet(_bps);
     }
 
     function setDepositLock(uint256 _seconds) external onlyOwner {
