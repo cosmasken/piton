@@ -13,8 +13,28 @@ Still open:
 - Redeploy to matsnet, then a matsnet smoke test (Skip oracle, Mezo fee settings, deployed
   BorrowerOperationsSignatures). Update `client/src/store.js` ADDRESSES and the README table after.
 - Browser click-through of the new UI (Trove margin signing, Protect my Trove, Sell into bids).
-- Reviewer feedback: Mezo PriceFeed read, network-switch prompt, Pyth / "Mainnet-ready" wording,
-  `/dashboard` refresh check, deck with fee model, video under 2:15.
+- Reviewer feedback — checked against the code on 2026-11-10:
+  - ALREADY DONE: network-switch prompt. `Dashboard.jsx` shows "Switch to Mezo Matsnet" with a
+    Switch Network button (wagmi `useSwitchChain`) instead of redirecting home.
+  - ALREADY DONE: `/dashboard` refresh 404. `client` build copies `index.html` to `dist/200.html`
+    (present in `client/dist`). Not re-checked on the live host.
+  - ALREADY DONE: Pyth claim. BTC/USD is labelled Skip (Binance fallback); Pyth is only used, and
+    labelled, for the "Mezo Ecosystem (Pyth)" multi-asset panel. README/home make no Pyth claim.
+  - ALREADY DONE: "Mainnet-ready" claim. No occurrence left; home footer says "Unaudited — testnet only".
+  - OPEN: read Mezo's PriceFeed with a staleness check. Piton still reads the Skip oracle directly
+    (300s staleness). Mezo's PriceFeed wraps the same kind of feed with a 60s max delay.
+  - OPEN: deck with a fee model — no deck in the repo.
+  - OPEN (not checkable from the repo): video under 2:15.
+- Stale user-facing copy (describes the old Trove design or old fill flow):
+  - README "Trove Margin" section: says margin is drawn "only if the option is exercised", via
+    `adjustTroveWithSignature`, "no capital lockup", and a "margin dropdown". Now: margin is borrowed
+    from the Trove when the order is placed, via `withdrawMUSDWithSignature`; BTC stays in the Trove
+    but the user carries the MUSD debt (+0.1% fee) until they repay.
+  - README "Filling an order": pool fills at >= 95% of the *ask* (mid IV + 15%), and the buttons are
+    now "Buy →" / "Sell →". It should also mention that bids can be sold into.
+  - `client/src/home.jsx:160` and `client/src/tour.js:15`: "no capital lockup" Trove wording.
+  - README has no section on Protect my Trove, the IV keeper, `KEEPER=` on deploy, or `npm run test:mezo`.
+  (README.md and home.jsx have uncommitted local edits by the user, so they were not changed here.)
 - Product ideas below (auto-exercise, European options, vaults, spreads, binaries, IV surface, perps;
   Trove plan options C and D).
 - Contracts remain unaudited.
