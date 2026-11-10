@@ -153,3 +153,11 @@ time. Verify against Mezo's BorrowerOperations; the feature may not work as desi
 - DONE: client oracle staleness aligned with the contract (`PRICE_STALENESS_S = 300` in store.js, was
   90 min). While stale, the order button is disabled with a "retrying" label instead of letting
   users sign a transaction that reverts; the existing banner still shows the Binance fallback price.
+- DONE: deploy scripts are tracked. `.gitignore` still ignores `scripts/*` (bot scripts hold keys) but
+  re-includes the key-free `deployV2.js`, `seedV2.js`, `health.js`, `ivKeeper.js` and `scripts/lib/`.
+  `deployV2.js` validates inputs before sending any tx, writes `deployments/<network>.json`, and
+  optionally sets the IV keeper (`KEEPER=0x...`); seed/health/keeper read that file. `health.js` now
+  checks oracle age against `PRICE_STALENESS` and shows mid/ask IV and the keeper. Verified end to end
+  on a local Hardhat node (deploy → seed → health → keeper dry-run → keeper update).
+  Still manual after a real redeploy: update `client/src/store.js` ADDRESSES and the README table.
+- DEFERRED (approved): Stability Pool yield for idle LP capital — research before building.

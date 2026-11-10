@@ -1,14 +1,15 @@
 // IV keeper: sets OptionPool.iv from Deribit's BTC volatility index (DVOL), at most once per run.
 //
-//   POOL=0x... npx hardhat run scripts/ivKeeper.js --network matsnet
+//   npx hardhat run scripts/ivKeeper.js --network matsnet
 //
 // The signer must be the pool owner or the address set via `setIvKeeper` (recommended: a dedicated
 // keeper key that can only change IV). Run hourly from cron. Env:
-//   POOL           OptionPool address (required)
+//   POOL           OptionPool address (default: deployments/<network>.json)
 //   MIN_CHANGE     minimum change in vol points before sending a tx (default 2)
 //   DRY_RUN=1      print the decision without sending
 
-const { ethers } = require('hardhat');
+const { ethers, network } = require('hardhat');
+const deployments = require('./lib/deployments');
 const { latestDvol, planUpdate, isStale } = require('./lib/iv');
 
 const DVOL_URL = 'https://www.deribit.com/api/v2/public/get_volatility_index_data';
@@ -23,7 +24,7 @@ async function fetchDvol() {
 }
 
 async function main() {
-  const poolAddr = process.env.POOL;
+  const poolAddr = process.env.POOL || deployments.load(network.name).pool;
   if (!poolAddr || !ethers.isAddress(poolAddr)) throw new Error('Set POOL to the OptionPool address');
 
   const dvol = await fetchDvol();

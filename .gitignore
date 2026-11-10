@@ -37,6 +37,11 @@ docs/
 scripts/*
 !scripts/lib/
 !scripts/ivKeeper.js
+!scripts/deployV2.js
+!scripts/seedV2.js
+!scripts/health.js
 
 # Mezo protocol contracts fetched by tools/fetch-mezo.sh (GPL-3.0, not vendored)
 /contracts/mezo
+/deployments/localhost.json
+/deployments/hardhat.json
