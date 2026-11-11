@@ -5,14 +5,13 @@ import { useShallow } from 'zustand/react/shallow';
 import { useStore } from './store';
 import { parseInstrumentId } from './instruments.mjs';
 import { getNetwork, isLive } from './network.mjs';
-import { NotLiveBanner, LockedWhenNotLive } from './components/NotLive';
+import { NotLiveBanner, LockedWhenNotLive, WatchBanner } from './components/NotLive';
 
 import Navbar      from './components/Navbar';
-import MarketValue from './components/MarketValue';
 import TradePanel   from './components/TradePanel';
 import Graph       from './components/graph';
 import MarketPanel  from './components/MarketPanel';
-import Wallet      from './components/Wallet';
+import AccountSummary from './components/AccountSummary';
 import YourOrders  from './components/YourOrders';
 import Pool        from './components/Pool';
 import MarketHeader from './components/MarketHeader';
@@ -126,6 +125,15 @@ export default function Dashboard() {
     return () => stopLive();
   }, [network]); // eslint-disable-line
 
+  // wallet history from the subgraph, and auto-exercise flags of its live positions
+  const account = useStore(s => s.account);
+  const myLiveIds = useStore(s => {
+    const me = s.account?.toLowerCase(), now = Math.floor(Date.now() / 1000);
+    return me ? s.options.filter(o => Number(o.status) === 1 && Number(o.expiry) > now && o.long?.toLowerCase() === me).map(o => String(o.id)).join(',') : '';
+  });
+  useEffect(() => { useStore.getState().fetchHistory(); }, [account, network]);
+  useEffect(() => { useStore.getState().fetchAutoEx(); }, [account, myLiveIds]);
+
   // after the user's own transaction: refresh at once rather than waiting for the next block
   useEffect(() => {
     if (live && isConnected && onSelectedChain) { refreshState(); fetchOptions(); }
@@ -140,13 +148,13 @@ export default function Dashboard() {
       <Navbar onDisconnect={disconnect} />
       {live && <MarketHeader />}
       <NotLiveBanner />
+      <WatchBanner />
       {live && <OracleBanner />}
       {live && <BreakerBanner />}
       {live && isNewUser && <OnboardingCard onDismiss={dismissOnboarding} />}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-[230px_minmax(0,1fr)_340px] gap-2 p-2 lg:overflow-hidden lg:min-h-0">
         <div className="flex flex-col gap-2 lg:overflow-y-auto lg:min-h-0">
-          <div data-tour="market-value"><MarketValue /></div>
-          <LockedWhenNotLive><div data-tour="wallet"><Wallet /></div></LockedWhenNotLive>
+          <LockedWhenNotLive><AccountSummary /></LockedWhenNotLive>
           <LockedWhenNotLive><div data-tour="pool" className="flex flex-col"><Pool /></div></LockedWhenNotLive>
         </div>
         <div className="flex flex-col gap-2 lg:overflow-hidden lg:min-h-0">

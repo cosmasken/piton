@@ -1,5 +1,6 @@
 import React from 'react';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import { getNetwork, isLive, NETWORKS, DEFAULT_NETWORK } from '../network.mjs';
 
 /** True when Piton's contracts exist on the selected network. */
@@ -43,6 +44,17 @@ export function LockedWhenNotLive({ children, className = '' }) {
           Not live on {label}
         </span>
       </div>
+    </div>
+  );
+}
+
+/** Shown in read-only watch mode (?watch=0x...). */
+export function WatchBanner() {
+  const { account, watching, signer } = useStore(useShallow(s => ({ account: s.account, watching: s.watching, signer: s.signer })));
+  if (!watching || signer) return null;
+  return (
+    <div className="shrink-0 px-4 py-1.5 bg-surface border-b border-border text-xs text-dim text-center">
+      Viewing <span className="font-mono text-text">{account}</span> read-only. Connect your own wallet to trade.
     </div>
   );
 }

@@ -44,6 +44,20 @@ const initialNetwork = () => {
   catch { return DEFAULT_NETWORK; }
 };
 
+// Read-only "watch" mode: ?watch=0x... shows that address's account, positions and history without a wallet.
+// Nothing can be signed in this mode (no signer), so it is safe to share.
+const watchAddress = (() => {
+  try { const a = new URLSearchParams(window.location.search).get('watch'); return a && /^0x[0-9a-fA-F]{40}$/.test(a) ? ethers.getAddress(a) : null; }
+  catch { return null; }
+})();
+
+const SETTINGS_KEY = 'piton_settings';
+// Defaults for the trade form, sell-back and the option chain (Settings in the top bar)
+export const DEFAULT_SETTINGS = { defaultSize: '0.01', slippagePct: 2, priceUnit: 'musd', notify: false, alertMinutes: 60 };
+function loadSettings() {
+  try { return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; } catch { return { ...DEFAULT_SETTINGS }; }
+}
+
 const EMPTY_POOL_STATS = { poolTotalAssets: '—', poolLocked: '—', poolUtilisation: '—', poolShareValue: '—', poolParams: null };
 
 // status enum from contract (0=OPEN 1=FILLED 2=SETTLED 3=REFUNDED 4=CLOSED)
@@ -64,7 +78,8 @@ export const useStore = create((set, get) => ({
 
   provider:     null,
   signer:       null,
-  account:      null,
+  account:      watchAddress,
+  watching:     !!watchAddress,
   chainId:      null,
 
   poolContract:  null,
@@ -142,9 +157,9 @@ export const useStore = create((set, get) => ({
   },
 
   reset: () => set({
-    provider: null, signer: null, account: null, chainId: null,
+    provider: null, signer: null, account: watchAddress, chainId: null,
     poolContract: null, ymusdContract: null, musdContract: null,
-    options: [], btcBalance: '—', musdBalance: '—', ymusdBalance: '—', musdRaw: '0', ymusdRaw: '0', lockExpiry: 0,
+    options: [], btcBalance: '—', musdBalance: '—', ymusdBalance: '—', musdRaw: '0', ymusdRaw: '0', lockExpiry: 0, history: null, autoEx: {},
     ...EMPTY_POOL_STATS,
   }),
 
@@ -267,6 +282,50 @@ export const useStore = create((set, get) => ({
     }));
   },
 
+  // ─── wallet history (subgraph), auto-exercise flags, settings ──────────────
+  // history: { account: { deposited, withdrawn, ... } | null, activities: [...], ended: [...options], at } or null
+  history: null,
+  historyLoading: false,
+  fetchHistory: async () => {
+    const me = get().account?.toLowerCase();
+    if (!me) { set({ history: null }); return; }
+    set({ historyLoading: true });
+    const opt = 'id optionType strike quantity premium payout status expiry short long { id }';
+    const d = await get().querySubgraph(`{
+      account(id: "${me}") { deposited withdrawn premiumPaid payoutsReceived tradeCount }
+      activities(first: 500, orderBy: timestamp, orderDirection: desc, where: { account: "${me}" }) {
+        id kind amount shares timestamp tx option { ${opt} } }
+      asLong: options(first: 1000, where: { long: "${me}" }) { ${opt} }
+      asShort: options(first: 1000, where: { short: "${me}" }) { ${opt} }
+    }`);
+    if (get().account?.toLowerCase() !== me) return;
+    set({ historyLoading: false, history: d ? {
+      account: d.account, activities: d.activities || [], ended: [...(d.asLong || []), ...(d.asShort || [])], at: Date.now(),
+    } : null });
+  },
+
+  // option id (string) -> auto-exercise on, for the wallet's live long positions
+  autoEx: {},
+  fetchAutoEx: async () => {
+    const me = get().account?.toLowerCase();
+    const net = getNetwork(get().network);
+    if (!me || !isLive(net)) { set({ autoEx: {} }); return; }
+    const now = Math.floor(Date.now() / 1000);
+    const ids = get().options.filter(o => Number(o.status) === 1 && Number(o.expiry) > now && o.long?.toLowerCase() === me).map(o => o.id);
+    if (!ids.length) { set({ autoEx: {} }); return; }
+    try {
+      const r = await multicall(roProvider(get().network), ids.map(id => ({ target: net.addresses.pool, iface: POOL_IFACE, fn: 'autoExercise', args: [id] })));
+      set({ autoEx: Object.fromEntries(ids.map((id, i) => [String(id), !!r[i]])) });
+    } catch { /* keep the old map */ }
+  },
+
+  settings: loadSettings(),
+  setSettings: patch => {
+    const settings = { ...get().settings, ...patch };
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* private mode */ }
+    set({ settings });
+  },
+
   // ─── live updates ─────────────────────────────────────────────────────────
   // block: latest block seen ({ number, time, seenAt }); lastPrice: exchange "last" (Binance), ticking every second.
   block: null,
@@ -355,6 +414,12 @@ export const useStore = create((set, get) => ({
       const byId = new Map(get().options.map(o => [String(o.id), o]));
       for (const o of fresh) byId.set(String(o.id), o);
       set({ options: [...byId.values()].sort((x, y) => Number(x.id - y.id)) });
+    }
+    // the wallet's own activity changed: refresh its history and auto-exercise flags
+    const me = get().account?.toLowerCase();
+    if (me && touched.size) {
+      const mine = get().options.some(o => touched.has(o.id) && (o.long?.toLowerCase() === me || o.short?.toLowerCase() === me));
+      if (mine) { get().fetchAutoEx(); setTimeout(() => get().fetchHistory(), 8000); } // give the subgraph a few seconds to index
     }
     if (fills.length) {
       const blockTime = get().block?.time || Math.floor(Date.now() / 1000);
