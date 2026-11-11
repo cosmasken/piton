@@ -7,6 +7,9 @@ import { explorerTx } from '../network.mjs';
 import { parseTxError } from '../txUtils';
 import { useNow } from '../useNow';
 import Modal from './Modal';
+import { lpPosition, poolExposure } from '../portfolio.mjs';
+import { expiryLabel } from '../instruments.mjs';
+import { getNetwork } from '../network.mjs';
 import { fmtDuration, lockRemaining, breakerActive, withdrawEstimate } from '../poolRules.mjs';
 
 
@@ -62,18 +65,90 @@ function PoolDetails({ params: p, stats, onClose }) {
   );
 }
 
+const nf = (v, d = 2) => (v == null || Number.isNaN(v) ? '—' : v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }));
+
+/** How much of the pool is tied up backing options, against the limit at which it stops selling. */
+function UtilGauge({ p, locked, onExposure }) {
+  const used = p.utilisationBps / 100, max = p.maxUtilisationBps / 100;
+  const tone = used >= max ? 'bg-red' : used >= max * 0.75 ? 'bg-yellow-500' : 'bg-accent';
+  return (
+    <div className="space-y-1">
+      <div className="flex justify-between text-[10px] text-dim">
+        <span>Utilisation <span className="font-mono text-text">{used.toFixed(1)}%</span> · locked <span className="font-mono text-text">{locked}</span> MUSD</span>
+        <button type="button" onClick={onExposure} className="text-accent hover:opacity-70">Exposure ›</button>
+      </div>
+      <div className="relative h-2 rounded bg-surface overflow-hidden" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={used} aria-label="Pool utilisation">
+        <div className={`absolute inset-y-0 left-0 ${tone}`} style={{ width: `${Math.min(100, used)}%` }} />
+        <div className="absolute inset-y-0 border-l border-dashed border-text/60" style={{ left: `${max}%` }} title={`The pool stops selling at ${max}%`} />
+      </div>
+      <p className="text-[10px] text-dim">The pool stops selling at {max}% · one option may use at most {p.maxOptionExposureBps / 100}% of the pool</p>
+    </div>
+  );
+}
+
+/** The connected wallet's share of the pool: value, deposits, withdrawals and P&L (deposit history from the subgraph). */
+function YourPosition({ shares, shareValue, history, account, p, musdBalance }) {
+  if (!account) return null;
+  const lp = lpPosition(history?.account || {}, shares, shareValue, p ? p.totalAssets / (shareValue || 1) : 0);
+  return (
+    <div className="bg-surface rounded-md px-3 py-2 space-y-1 text-xs">
+      <div className="flex justify-between"><span className="text-dim">Your MUSD</span><span className="font-mono text-text">{musdBalance}</span></div>
+      <div className="flex justify-between"><span className="text-dim">Your pool share</span><span className="font-mono text-accent">{nf(lp.value)} MUSD <span className="text-dim">({nf(lp.sharePct, 1)}%)</span></span></div>
+      {history?.account && <>
+        <div className="flex justify-between"><span className="text-dim">Deposited / withdrawn</span><span className="font-mono text-text">{nf(lp.deposited)} / {nf(lp.withdrawn)}</span></div>
+        <div className="flex justify-between"><span className="text-dim">Your pool P&L</span><span className={`font-mono ${lp.pnl >= 0 ? 'text-accent' : 'text-red'}`}>{lp.pnl >= 0 ? '+' : ''}{nf(lp.pnl)} MUSD</span></div>
+      </>}
+    </div>
+  );
+}
+
+/** What the pool has sold and how much collateral each expiry and strike ties up. */
+function ExposureModal({ options, p, network, onClose }) {
+  const now = Math.floor(Date.now() / 1000);
+  const x = poolExposure(options, getNetwork(network).addresses.pool, now);
+  const exps = Object.entries(x.byExpiry).sort((a, b) => a[0] - b[0]);
+  const strikes = Object.entries(x.byStrike).sort((a, b) => a[0] - b[0]);
+  const max = Math.max(0, ...strikes.map(([, v]) => v.collateral));
+  return (
+    <Modal title="Pool exposure" onClose={onClose} width="w-[30rem]">
+      <div className="space-y-3 text-xs">
+        <p className="text-dim">Live options the pool has sold, and the collateral they lock ({nf(x.collateral)} MUSD of {nf(p?.totalAssets)} in the pool). The pool pays out from this collateral if they end in the money.</p>
+        {!exps.length ? <p className="text-dim">The pool has no open options right now.</p> : <>
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-dim mb-1">By expiry</p>
+            <table className="w-full font-mono"><tbody>
+              {exps.map(([t, v]) => <tr key={t} className="border-b border-border/50"><td className="py-1">{expiryLabel(Number(t))}</td><td className="text-right">{v.count} options</td><td className="text-right">{nf(v.qty, 4)} BTC</td><td className="text-right">{nf(v.collateral)} MUSD</td></tr>)}
+            </tbody></table>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-dim mb-1">By strike (collateral)</p>
+            {strikes.map(([k, v]) => (
+              <div key={k} className="flex items-center gap-2 py-0.5">
+                <span className="font-mono w-16 text-right">{Number(k).toLocaleString()}</span>
+                <div className="flex-1 h-2 bg-surface rounded overflow-hidden"><div className="h-full bg-accent/60" style={{ width: `${max ? v.collateral / max * 100 : 0}%` }} /></div>
+                <span className="font-mono w-36 text-right text-dim">{v.call > 0 ? `C ${nf(v.call, 4)} ` : ''}{v.put > 0 ? `P ${nf(v.put, 4)}` : ''}</span>
+              </div>
+            ))}
+          </div>
+        </>}
+      </div>
+    </Modal>
+  );
+}
+
 export default function Pool() {
   const {
     poolContract, musdContract, chainId,
     musdBalance, ymusdBalance,
     poolTotalAssets, poolLocked, poolUtilisation, poolShareValue, poolParams, lockExpiry, musdRaw, ymusdRaw,
-    refresh,
-  } = useStore(useShallow(s => ({ poolContract: s.poolContract, musdContract: s.musdContract, chainId: s.chainId, musdBalance: s.musdBalance, ymusdBalance: s.ymusdBalance, poolTotalAssets: s.poolTotalAssets, poolLocked: s.poolLocked, poolUtilisation: s.poolUtilisation, poolShareValue: s.poolShareValue, poolParams: s.poolParams, lockExpiry: s.lockExpiry, musdRaw: s.musdRaw, ymusdRaw: s.ymusdRaw, refresh: s.refresh })));
+    refresh, history, options, account, network,
+  } = useStore(useShallow(s => ({ history: s.history, options: s.options, account: s.account, network: s.network, poolContract: s.poolContract, musdContract: s.musdContract, chainId: s.chainId, musdBalance: s.musdBalance, ymusdBalance: s.ymusdBalance, poolTotalAssets: s.poolTotalAssets, poolLocked: s.poolLocked, poolUtilisation: s.poolUtilisation, poolShareValue: s.poolShareValue, poolParams: s.poolParams, lockExpiry: s.lockExpiry, musdRaw: s.musdRaw, ymusdRaw: s.ymusdRaw, refresh: s.refresh })));
 
   const [tab,     setTab]     = useState('deposit');
   const [amount,  setAmount]  = useState('');
   const [loading, setLoading] = useState(false);
   const [details, setDetails] = useState(false);
+  const [exposure, setExposure] = useState(false);
 
   const act = async (fn, msg) => {
     setLoading(true);
@@ -121,21 +196,12 @@ export default function Pool() {
 
         <div className="grid grid-cols-2 gap-2">
           <Stat label="Total Assets" value={`${poolTotalAssets} MUSD`} />
-          <Stat label="Utilisation"  value={`${poolUtilisation}%`} />
-          <Stat label="Locked"       value={`${poolLocked} MUSD`} />
           <Stat label="Share Value"  value={`${poolShareValue} MUSD`} />
         </div>
 
-        <div className="bg-surface rounded-md px-3 py-2 space-y-1">
-          <div className="flex justify-between text-xs">
-            <span className="text-dim">Your MUSD</span>
-            <span className="font-mono text-text">{musdBalance}</span>
-          </div>
-          <div className="flex justify-between text-xs">
-            <span className="text-dim">Your yMUSD</span>
-            <span className="font-mono text-accent">{ymusdBalance}</span>
-          </div>
-        </div>
+        {poolParams && <UtilGauge p={poolParams} locked={poolLocked} onExposure={() => setExposure(true)} />}
+
+        <YourPosition shares={parseFloat(ymusdRaw) || 0} shareValue={parseFloat(poolShareValue)} history={history} account={account} p={poolParams} musdBalance={musdBalance} />
 
         <div className="flex rounded-md overflow-hidden border border-border text-xs font-display font-semibold">
           <button onClick={() => setTab('deposit')}  className={`flex-1 py-2 transition-colors ${tab === 'deposit'  ? 'bg-accent/10 text-accent' : 'text-dim'}`}>Deposit</button>
@@ -184,6 +250,7 @@ export default function Pool() {
           {' '}Share value counts premium not yet earned as owed, so it rises as options expire unexercised. Withdrawals are instant up to available liquidity.
         </p>
       </div>
+      {exposure && <ExposureModal options={options} p={poolParams} network={network} onClose={() => setExposure(false)} />}
       {details && <PoolDetails params={poolParams} stats={{ poolTotalAssets, poolLocked, poolUtilisation, poolShareValue }} onClose={() => setDetails(false)} />}
     </div>
   );
