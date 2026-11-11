@@ -32,7 +32,11 @@ const REVERT_MAP = {
 };
 
 export function parseTxError(err) {
-  const raw = err?.reason || err?.message || String(err);
+  const raw = [err?.reason, err?.shortMessage, err?.message, err?.data, err?.info?.error?.data, err?.error?.data]
+    .filter(Boolean).map(String).join(' ') || String(err);
+  // OpenZeppelin ERC20 custom errors (selectors), e.g. trying to deposit more MUSD than the wallet holds
+  if (/e450d38c|ERC20InsufficientBalance/i.test(raw)) return 'Not enough MUSD in your wallet for this amount.';
+  if (/fb8f41b2|ERC20InsufficientAllowance/i.test(raw)) return 'The MUSD approval was too small. Try again; the approval step sets the exact amount.';
   for (const [key, msg] of Object.entries(REVERT_MAP)) {
     if (raw.includes(key)) return msg;
   }

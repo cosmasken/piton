@@ -91,7 +91,7 @@ function CloseBox({ inst, options, account, poolContract, refresh }) {
 export default function TradePanel() {
   const {
     signer, account, chainId, poolContract, musdContract, btcPrice: spot, options, poolParams,
-    selected, setSelected, refresh, oracleStale, roPool,
+    selected, setSelected, refresh, oracleStale, roPool, musdBalance, musdRaw,
   } = useStore();
   const now = useNow(5000);
   const { isConnected } = useAccount();
@@ -154,7 +154,10 @@ export default function TradePanel() {
     : !(q > 0) ? 'Enter a size.'
     : !(px > 0) ? (side === 'buy' && orderType === 'market' ? 'The pool has no price for this order.' : 'Enter a price.')
     : overCap ? `Size too large: collateral ${fmt(collateral)} MUSD exceeds the per-option limit of ${fmt(poolParams.maxOptionCollateral, 0)} MUSD.`
-    : needWallet ? 'Connect your wallet to trade.' : null;
+    : needWallet ? 'Connect your wallet to trade.'
+    : musdBalance !== '—' && !(side === 'sell' && marginType === 'trove')
+      && (buy ? premium : collateral) > parseFloat(musdRaw)
+      ? `Not enough MUSD: this needs ${fmt(buy ? premium : collateral)} and the wallet has ${musdBalance}.` : null;
 
   const run = async (fn, okMsg) => {
     setBusy(true);

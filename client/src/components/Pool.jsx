@@ -65,7 +65,7 @@ export default function Pool() {
   const {
     poolContract, musdContract, chainId,
     musdBalance, ymusdBalance,
-    poolTotalAssets, poolLocked, poolUtilisation, poolShareValue, poolParams, lockExpiry,
+    poolTotalAssets, poolLocked, poolUtilisation, poolShareValue, poolParams, lockExpiry, musdRaw, ymusdRaw,
     refresh,
   } = useStore();
 
@@ -107,8 +107,10 @@ export default function Pool() {
 
   // Block what the contract would reject, and say why, instead of letting the wallet show a failed transaction.
   const blocked = tab === 'withdraw'
-    ? (locked > 0 ? `Your deposit is locked for another ${fmtDuration(locked)}.` : null)
-    : (breaker ? `Deposits are paused until ${new Date(poolParams.cbUntil * 1000).toLocaleTimeString()} after a fast price move.` : null);
+    ? (locked > 0 ? `Your deposit is locked for another ${fmtDuration(locked)}.`
+      : ymusdBalance !== '—' && amt > parseFloat(ymusdRaw) ? `You only have ${ymusdBalance} yMUSD.` : null)
+    : (breaker ? `Deposits are paused until ${new Date(poolParams.cbUntil * 1000).toLocaleTimeString()} after a fast price move.`
+      : musdBalance !== '—' && amt > parseFloat(musdRaw) ? `You only have ${musdBalance} MUSD in this wallet.` : null);
   const canAct = amount && amt > 0 && !loading && poolContract && !blocked;
 
   return (
@@ -143,7 +145,7 @@ export default function Pool() {
           <div className="flex justify-between mb-1">
             <label className="text-xs text-dim">{tab === 'deposit' ? 'MUSD to deposit' : 'yMUSD to burn'}</label>
             <button className="text-xs text-dim hover:text-accent transition-colors"
-              onClick={() => setAmount(tab === 'deposit' ? musdBalance.replace(/,/g,'') : ymusdBalance.replace(/,/g,''))}>
+              onClick={() => setAmount(tab === 'deposit' ? musdRaw : ymusdRaw)}>
               Max
             </button>
           </div>

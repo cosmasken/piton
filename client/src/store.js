@@ -72,6 +72,8 @@ export const useStore = create((set, get) => ({
   btcBalance:   '—',
   musdBalance:  '—',
   ymusdBalance: '—',
+  musdRaw:      '0',   // exact balances (ether units, full precision) for Max buttons and checks
+  ymusdRaw:     '0',
 
   // pool stats
   poolTotalAssets:    '—',
@@ -128,7 +130,7 @@ export const useStore = create((set, get) => ({
   reset: () => set({
     provider: null, signer: null, account: null, chainId: null,
     poolContract: null, ymusdContract: null, musdContract: null,
-    options: [], btcBalance: '—', musdBalance: '—', ymusdBalance: '—', lockExpiry: 0,
+    options: [], btcBalance: '—', musdBalance: '—', ymusdBalance: '—', musdRaw: '0', ymusdRaw: '0', lockExpiry: 0,
     ...EMPTY_POOL_STATS,
   }),
 
@@ -169,6 +171,8 @@ export const useStore = create((set, get) => ({
       ]);
       set({
         lockExpiry:   Number(lock),
+        musdRaw:      ethers.formatEther(m),
+        ymusdRaw:     ethers.formatEther(y),
         btcBalance:   parseFloat(ethers.formatEther(b)).toFixed(4),
         musdBalance:  parseFloat(ethers.formatEther(m)).toLocaleString('en-US', { maximumFractionDigits: 2 }),
         ymusdBalance: parseFloat(ethers.formatEther(y)).toLocaleString('en-US', { maximumFractionDigits: 2 }),
