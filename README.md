@@ -14,12 +14,76 @@ Piton is an options market built on [Mezo](https://mezo.org), the Bitcoin financ
 
 ---
 
+## Testing on testnet: what to expect
+
+Piton is an **unaudited beta on Mezo testnet**. Test tokens only. Read this before testing so the numbers make sense.
+
+### 1. Get set up (about 5 minutes)
+1. Add Mezo testnet to your wallet: RPC `https://rpc.test.mezo.org`, chain ID `31611`.
+2. Get test BTC (for gas) and MEZO from the faucet: https://faucet.test.mezo.org
+3. Get MUSD: borrow it against your test BTC, or swap BTC → MUSD, at https://testnet.mezo.org
+4. Open https://piton.surge.sh/dashboard and connect.
+
+### 2. You choose the size; the pool decides how much it can sell
+- **Any size can be typed.** The testnet default is 0.001 BTC so first trades always fit; change it in the form or in Settings.
+- **Prices in the chain are per 1 BTC of option.** You pay price × size. With BTC at $74k and the pool's 46% ask volatility, an at-the-money call costs about:
+
+| Expiry | Per 1 BTC | 0.001 BTC | 0.01 BTC |
+|---|---|---|---|
+| 30 minutes | ~$103 | ~$0.10 | ~$1.03 |
+| 1 day | ~$716 | ~$0.72 | ~$7.16 |
+| 7 days | ~$1,915 | ~$1.92 | ~$19.15 |
+| 14 days | ~$2,728 | ~$2.73 | ~$27.28 |
+
+  Prices exclude the 2% fee and the utilisation markup. A real hedge (1 BTC for a week) is about $1–2k; testnet trades are small only because the pool is small.
+- **Every option the pool sells is fully backed**, so the pool's size caps the trade size:
+  - a put locks its strike: about **$74k per 1 BTC**
+  - a call locks 3 × BTC price − strike: about **$147k per 1 BTC** (the call's payout is capped where BTC triples)
+  - one option may use at most **25% of the pool**, and the pool stops selling at **80% utilisation**
+
+| Pool size | Largest put | Largest call |
+|---|---|---|
+| 2,400 MUSD | ~0.008 BTC | ~0.004 BTC |
+| 10,000 MUSD | ~0.034 BTC | ~0.017 BTC |
+| 50,000 MUSD | ~0.17 BTC | ~0.085 BTC |
+| 1 BTC of option | needs ~296k MUSD | needs ~592k MUSD |
+
+  (At-the-money, BTC $74k. The trade form shows the live limit: "Pool sells up to … BTC of this option".)
+- **Too big for the pool?** The form blocks "Buy from pool", says why, and offers **Use max size**. You can still leave a **Limit** bid for other traders, and anyone can **sell** any size by posting their own collateral.
+
+### 3. Expiries and timing
+- Testnet offers **30-minute slots** for the next few hours, then **daily at 08:00 UTC** and Fridays out to 14 days. Mainnet will offer daily and weekly only.
+- Times are shown in **your local time** (Settings → Times switches to UTC). Option names such as `BTC-12NOV-74000-P` always use UTC.
+- The pool only sells options with **at least 15 minutes** left (testnet setting; 1 hour by default).
+- Very short options are cheap and move fast: their price can change 5–10% per block (~4 s). That is normal.
+
+### 4. Closing a position
+- **Sell back** any option bought from the pool, any time before expiry. The pool pays a bid a little under its mid value, so a round trip costs a little. The bid is re-checked when you click.
+- **Exercise** a winning option any time before expiry, or turn on **Auto-exercise**: a keeper exercises it in the last 5 minutes for 0.5% of the payout.
+- Resting bids and asks are under **Portfolio → Open orders**, with **Cancel**.
+
+### 5. Providing liquidity
+- Deposit MUSD to receive yMUSD shares. Deposits are locked for **1 hour**; withdrawals pay a **0.25% fee** while the pool has open options (the fee stays in the pool).
+- You can only withdraw liquidity that is not backing live options.
+
+### 6. Known limits of this beta
+- **Unaudited.** No external audit yet; testnet only.
+- **One volatility for all strikes and expiries** (from Deribit's DVOL index, updated hourly by a keeper). Real markets charge more for far out-of-the-money puts.
+- **Trading pauses if the BTC price is more than 30 s old** (2 minutes for exercising). A short pause is safer than a stale price.
+- **Keeper on one server** (auto-exercise, refunds, volatility). If it is down, exercise your options yourself.
+- **Some trades come from our own demo wallets**, to keep the book active. Volume and open interest include them.
+- **Desktop first.** The phone layout is not finished.
+
+Report anything odd with a screenshot and your wallet address.
+
+---
+
 ## How it works
 
 ### Buying an option (long)
 
 1. Choose **Call** or **Put**, then set strike, quantity, expiry and the premium you are willing to pay.
-2. The pool quotes a Black-Scholes price at its **ask volatility** (mid IV + 15%). Click **BS** in the order form to fetch the quote.
+2. The pool quotes a Black-Scholes price at its **ask volatility** (mid IV + 15%). The order form shows the quote for your exact size, refreshed every block.
 3. If your premium is at least 95% of the pool's ask and the pool has free capital, the pool fills your order in the same transaction.
 4. Otherwise the order stays on the book as a **bid**, and any wallet can sell it to you.
 
@@ -53,10 +117,10 @@ Anyone can browse without a wallet; connect only to trade.
 - **Option chain.** Pick an expiry, then click a strike. Calls are on the left, puts on the right, with the pool's price (marked with a dot), resting bids and asks, and delta. Click an ask to buy or a bid to sell into it.
 - **Trade panel.** Buy at the pool's price (market) or with a limit price; sell by posting collateral and a price. Before signing you see the cost, the worst case, the best case, the break-even and a profit-and-loss chart at expiry. If the pool won't sell an order itself (strike too far from spot, too little time left, circuit breaker, pool too busy) it says why and the order rests as a bid.
 - **Order book and trades.** The selected option's resting orders sit under the trade form; all orders and recent fills have their own tabs.
-- **Positions.** Entry price, mark price, profit and loss, delta, break-even and a payoff chart per position; sell an option back to the pool, exercise a winning option, turn on auto-exercise, cancel a resting order, or refund after expiry.
+- **Portfolio.** Positions: entry → mark price, profit and loss, delta, break-even and a payoff chart per position; sell an option back to the pool, exercise a winning option, turn on auto-exercise, or refund after expiry. Open orders: your resting bids and asks, why each is waiting, and Cancel. History: every action.
 - **Closing early.** Options bought from the pool can be sold back to it at any time before expiry. The pool pays its mid-volatility value less a 10% volatility spread (it sells at mid plus 15% and a utilisation markup), so a round trip always costs a little. Exercising a winning option pays its full exercise value and is never blocked.
 - **Account and history.** The left panel sums your wallet, pool share, open positions, and open and realised P&L.
-  Positions → History lists every action (from the subgraph) with realised P&L and CSV export; open positions show
+  Portfolio → History lists every action (from the subgraph) with realised P&L and CSV export; open positions show
   portfolio delta, gamma, theta and vega. A banner (and optional browser notification) warns when an option you hold
   is in the money near expiry with auto-exercise off.
 - **Settings (⚙).** Default size, price unit, sell-back slippage, alert window, notifications. Keyboard: arrows move
@@ -174,8 +238,8 @@ If your wallet is on another network, the dashboard shows a **Switch Network** b
 ### Getting test tokens
 
 1. Add Mezo matsnet to your wallet (RPC `https://rpc.test.mezo.org`, chainId `31611`).
-2. Get test BTC from the faucet: https://faucet.test.mezo.org
-3. Open a Trove and borrow MUSD against your test BTC: https://testnet.mezo.org
+2. Get test BTC (gas) and MEZO from the faucet: https://faucet.test.mezo.org
+3. Borrow MUSD against your test BTC, or swap BTC → MUSD: https://testnet.mezo.org
 
 ---
 

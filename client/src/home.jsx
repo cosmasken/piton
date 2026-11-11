@@ -68,6 +68,7 @@ export default function Home() {
         <div className="font-display font-bold text-xl text-accent tracking-tight">piton</div>
         <div className="hidden md:flex items-center gap-8 text-sm text-dim">
           <a href="#how" className="hover:text-text transition-colors">How it works</a>
+          <a href="#testing" className="hover:text-text transition-colors">Testing</a>
           <a href="#pool" className="hover:text-text transition-colors">Liquidity</a>
           <a href="#contracts" className="hover:text-text transition-colors">Contracts</a>
           {net.faucetUrl && <a href={net.faucetUrl} target="_blank" rel="noreferrer" className="hover:text-text transition-colors">Faucet</a>}
@@ -92,6 +93,7 @@ export default function Home() {
           <button className="btn-primary text-base px-6 py-3" onClick={() => navigate('/dashboard')}>Start Trading →</button>
           <a className="btn-ghost text-base px-6 py-3" href="#how">How it works</a>
         </div>
+        <a href="#testing" className="mt-4 text-xs text-yellow-400/90 hover:underline">Testnet beta, unaudited: read what to expect before testing ↓</a>
 
         {/* stats */}
         <div className="flex flex-wrap justify-center items-center gap-6 md:gap-8 mt-16 text-center">
@@ -125,6 +127,76 @@ export default function Home() {
         </div>
       </section>
 
+
+      {/* testing guide: what testers should expect on testnet */}
+      <section id="testing" className="bg-surface border-y border-border px-6 py-20">
+        <div className="max-w-5xl mx-auto">
+          <p className="text-xs tracking-widest uppercase text-dim mb-3">Testnet beta</p>
+          <h2 className="font-display font-bold text-3xl mb-3">Before you test: what to expect</h2>
+          <p className="text-sm text-dim max-w-3xl mb-10">Piton is an <span className="text-text">unaudited beta on Mezo testnet</span>, test tokens only. Trades look small because the pool is small, not because sizes are fixed: you can type any size.</p>
+          <div className="grid md:grid-cols-3 gap-6">
+            <div className="panel p-5">
+              <h3 className="font-display font-semibold text-base mb-3">1 · Get set up</h3>
+              <ol className="text-xs text-dim leading-relaxed space-y-2 list-decimal list-inside">
+                <li>Add Mezo testnet (chain ID 31611, RPC rpc.test.mezo.org).</li>
+                <li>Get test BTC (gas) and MEZO from the <a className="text-accent hover:underline" href="https://faucet.test.mezo.org" target="_blank" rel="noreferrer">faucet</a>.</li>
+                <li>Borrow MUSD against your test BTC, or swap BTC → MUSD, at <a className="text-accent hover:underline" href="https://testnet.mezo.org" target="_blank" rel="noreferrer">testnet.mezo.org</a>.</li>
+                <li>Launch the app and connect.</li>
+              </ol>
+            </div>
+            <div className="panel p-5">
+              <h3 className="font-display font-semibold text-base mb-3">2 · What things cost</h3>
+              <p className="text-xs text-dim mb-3">Chain prices are per 1 BTC of option; you pay price × size. At-the-money call, BTC $74k:</p>
+              <table className="w-full text-xs font-mono">
+                <thead><tr className="text-dim"><th className="text-left font-normal pb-1">Expiry</th><th className="text-right font-normal pb-1">1 BTC</th><th className="text-right font-normal pb-1">0.01 BTC</th></tr></thead>
+                <tbody>
+                  {[['30 min', '$103', '$1.03'], ['1 day', '$716', '$7.16'], ['7 days', '$1,915', '$19.15'], ['14 days', '$2,728', '$27.28']].map(([e, a, b]) => (
+                    <tr key={e} className="border-t border-border/60"><td className="py-1">{e}</td><td className="text-right">{a}</td><td className="text-right text-text">{b}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="text-[11px] text-dim mt-3">Default size on testnet is 0.001 BTC. Plus the 2% fee. Short options move 5–10% per block; that is normal.</p>
+            </div>
+            <div className="panel p-5">
+              <h3 className="font-display font-semibold text-base mb-3">3 · How much the pool can sell</h3>
+              <p className="text-xs text-dim mb-3">Every option is fully backed: a put locks ~$74k per BTC, a call ~$147k. One option may use at most 25% of the pool.</p>
+              <table className="w-full text-xs font-mono">
+                <thead><tr className="text-dim"><th className="text-left font-normal pb-1">Pool</th><th className="text-right font-normal pb-1">Max put</th><th className="text-right font-normal pb-1">Max call</th></tr></thead>
+                <tbody>
+                  {[['2.4k MUSD', '0.008', '0.004'], ['10k MUSD', '0.034', '0.017'], ['50k MUSD', '0.17', '0.085']].map(([p, a, b]) => (
+                    <tr key={p} className="border-t border-border/60"><td className="py-1">{p}</td><td className="text-right">{a} BTC</td><td className="text-right">{b} BTC</td></tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="text-[11px] text-dim mt-3">The trade form shows the live limit. Too big? It offers the max size, or leave a limit bid for other traders.</p>
+            </div>
+          </div>
+          <div className="grid md:grid-cols-2 gap-6 mt-6">
+            <div className="panel p-5">
+              <h3 className="font-display font-semibold text-base mb-3">Expiries, closing and liquidity</h3>
+              <ul className="text-xs text-dim leading-relaxed space-y-1.5">
+                <li>▸ 30-minute slots for the next few hours (testnet only), then daily 08:00 UTC and Fridays to 14 days. Shown in your local time.</li>
+                <li>▸ The pool sells only with at least 15 minutes left.</li>
+                <li>▸ Sell back to the pool any time (a bid a little under its value), exercise a winner, or turn on auto-exercise (last 5 min, 0.5%).</li>
+                <li>▸ Pool deposits are locked for 1 hour; 0.25% withdrawal fee while options are open.</li>
+              </ul>
+            </div>
+            <div className="panel p-5 border-yellow-700/40">
+              <h3 className="font-display font-semibold text-base mb-3 text-yellow-400">Known limits of this beta</h3>
+              <ul className="text-xs text-dim leading-relaxed space-y-1.5">
+                <li>▸ Unaudited, testnet only.</li>
+                <li>▸ One volatility for all strikes (Deribit DVOL, hourly).</li>
+                <li>▸ Trading pauses if the BTC price is over 30 s old (2 min for exercise).</li>
+                <li>▸ Keeper runs on one server: exercise yourself if in doubt.</li>
+                <li>▸ Some trades come from our demo wallets to keep the book active.</li>
+                <li>▸ Desktop first; the phone layout is not finished.</li>
+              </ul>
+            </div>
+          </div>
+          <p className="text-xs text-dim mt-6">Full guide: <a className="text-accent hover:underline" href="https://github.com/cosmasken/piton#testing-on-testnet-what-to-expect" target="_blank" rel="noreferrer">README · Testing on testnet</a></p>
+        </div>
+      </section>
+
       {/* liquidity pool */}
       <section id="pool" className="px-6 py-20">
         <div className="max-w-5xl mx-auto grid md:grid-cols-2 gap-12 items-start">
@@ -136,7 +208,7 @@ export default function Home() {
             </p>
             <ul className="space-y-3 text-sm text-dim">
               {[
-                ['Instant deposits & withdrawals', 'Withdraw anytime up to available (unlocked) liquidity.'],
+                ['Deposits & withdrawals', '1-hour deposit lock; withdraw liquidity not backing live options (0.25% fee while options are open).'],
                 ['Utilisation-based exposure', 'Only capital backing live options is locked.'],
                 ['2% premium fee · 15% performance fee', 'Protocol fee on premiums plus a performance fee on net pool yield.'],
               ].map(([t, d]) => (
@@ -174,7 +246,7 @@ export default function Home() {
             <div className="mt-6 rounded-md border border-accent/20 bg-accent/5 px-4 py-3">
               <div className="text-xs font-display font-semibold text-accent mb-1">✦ Trove Margin</div>
               <p className="text-xs text-dim leading-relaxed">
-                Short sellers can use Mezo Trove equity as margin instead of locking MUSD — no capital lockup.
+                Short sellers can borrow their margin as MUSD from their Mezo Trove in the same click: their BTC stays in the Trove. Unused margin returns at expiry.
               </p>
             </div>
           </div>
