@@ -7,10 +7,11 @@ import { useStore, ADDRESSES } from '../store';
 import { explorerTx } from '../network.mjs';
 import { parseTxError } from '../txUtils';
 import { useNow } from '../useNow';
-import { poolWontFill, fmtDuration } from '../poolRules.mjs';
+import { poolWontFill } from '../poolRules.mjs';
 import { instrumentName, bookFor, expirySlots } from '../instruments.mjs';
 import { collateralFor, breakEven, maxGain, maxLoss, PROTOCOL_FEE_BPS } from '../payoff.mjs';
-import { greeks } from '../greeks';
+import { sizeFromNotional, sizeForBudget, priceFromPct, pctFromPrice, outcome as orderOutcome } from '../orderForm.mjs';
+import InstrumentStrip from './InstrumentStrip';
 import Modal from './Modal';
 import ProtectTrove from './ProtectTrove';
 import PayoffChart from './PayoffChart';
@@ -88,6 +89,17 @@ function CloseBox({ inst, options, account, poolContract, refresh }) {
   );
 }
 
+function UnitToggle({ value, options, onChange, label }) {
+  return (
+    <div className="flex rounded border border-border overflow-hidden text-[10px]" role="group" aria-label={label}>
+      {options.map(([k, l]) => (
+        <button key={k} type="button" aria-pressed={value === k} onClick={() => onChange(k)}
+          className={`px-1.5 py-0.5 ${value === k ? 'bg-surface text-text' : 'text-dim hover:text-text'}`}>{l}</button>
+      ))}
+    </div>
+  );
+}
+
 export default function TradePanel() {
   const {
     signer, account, chainId, poolContract, musdContract, btcPrice: spot, options, poolParams,
@@ -101,6 +113,10 @@ export default function TradePanel() {
   const [orderType, setOrderType] = useState('market');
   const [qty, setQty] = useState('0.01');
   const [price, setPrice] = useState('');           // MUSD per 1 BTC
+  const [sizeUnit, setSizeUnit] = useState('btc');  // size typed as BTC, or as MUSD notional (size x spot)
+  const [notional, setNotional] = useState('');
+  const [priceUnit, setPriceUnit] = useState('musd'); // price typed as MUSD per BTC, or as % of spot
+  const [pctInput, setPctInput] = useState('');
   const [marginType, setMarginType] = useState('musd');
   const [autoEx, setAutoEx] = useState(true);
   const [quote, setQuote] = useState(null);         // pool price for exactly this order (total MUSD)
@@ -108,7 +124,8 @@ export default function TradePanel() {
   const [confirm, setConfirm] = useState(null);
 
   const inst = selected;
-  const q = parseFloat(qty);
+  const buy = side === 'buy';
+  const q = sizeUnit === 'btc' ? parseFloat(qty) : sizeFromNotional(parseFloat(notional), spot);
   const secs = inst ? inst.expiry - now : 0;
   const expired = inst && secs <= 0;
   const slots = useMemo(() => expirySlots(now), [Math.floor(now / 600)]); // eslint-disable-line
@@ -141,11 +158,12 @@ export default function TradePanel() {
   const collateral = inst && q > 0 ? collateralFor(inst.isCall, spot, inst.strike, q) : 0;
   // includes the size limits (25% of the pool per option, 80% utilisation), checked before signing
   const reasons = inst && spot ? poolWontFill({ spot, strike: inst.strike, expirySecs: secs, nowSec: now, collateral }, poolParams || {}) : [];
-  const px = orderType === 'market' && side === 'buy' ? (quote != null && q > 0 ? quote / q : NaN) : parseFloat(price);
+  const px = orderType === 'market' && side === 'buy' ? (quote != null && q > 0 ? quote / q : NaN)
+    : priceUnit === 'pct' ? priceFromPct(parseFloat(pctInput), spot) : parseFloat(price);
   const premium = px * q;                                    // total MUSD
-  const poolWillFill = side === 'buy' && reasons.length === 0 && quote != null && premium >= quote * 0.95;
+  const result = inst && q > 0 && px > 0 ? orderOutcome({ side, reasons, quote, premium, pricePerBtc: px, bestAsk: book.bestAsk, bestBid: book.bestBid }) : null;
+  const poolWillFill = result?.kind === 'fills';
   const leg = inst && premium > 0 && q > 0 ? { side, isCall: inst.isCall, strike: inst.strike, qty: q, premium, collateral, feeBps: PROTOCOL_FEE_BPS } : null;
-  const dlt = inst && spot ? greeks(inst.isCall, spot, inst.strike, Math.max(0, secs) / 3600, poolParams?.iv || 0.8).delta : null;
 
   const needWallet = !poolContract;
   const overCap = poolParams && collateral > poolParams.maxOptionCollateral;
@@ -218,7 +236,6 @@ export default function TradePanel() {
     setQty(qy); setOrderType('market'); setSide('buy');
   };
 
-  const buy = side === 'buy';
   const cta = busy ? 'Waiting…' : needWallet ? 'Connect wallet' : buy ? (orderType === 'market' ? 'Buy from pool' : 'Place bid') : 'Post sell order';
 
   return (
@@ -240,11 +257,7 @@ export default function TradePanel() {
           </div>
         ) : (
           <>
-            <div className="bg-surface rounded-md px-3 py-2 space-y-1">
-              <Row label="Option" value={`${inst.isCall ? 'Call' : 'Put'} · strike $${inst.strike.toLocaleString()}`} />
-              <Row label="Expires in" value={expired ? 'expired' : fmtDuration(secs)} />
-              <Row label="Spot / delta" value={`$${fmt(spot, 0)} · Δ ${dlt ?? '—'}`} />
-            </div>
+            <InstrumentStrip inst={inst} askPerBtc={quote != null && q > 0 ? quote / q : null} />
 
             {!buy && <CloseBox inst={inst} options={options} account={account} poolContract={poolContract} refresh={refresh} />}
 
@@ -261,15 +274,51 @@ export default function TradePanel() {
 
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="text-xs text-dim block mb-1" htmlFor="qty">Size (BTC)</label>
-                <input id="qty" className="input-field" type="number" step="any" min="0" value={qty} onChange={e => setQty(e.target.value)} />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs text-dim" htmlFor="qty">Size</label>
+                  <UnitToggle value={sizeUnit} options={[['btc', 'BTC'], ['musd', 'MUSD']]} label="Size unit" onChange={u => {
+                    if (u === 'musd' && q > 0) setNotional((q * spot).toFixed(2));
+                    if (u === 'btc' && q > 0) setQty(q.toFixed(4));
+                    setSizeUnit(u);
+                  }} />
+                </div>
+                <input id="qty" className="input-field" type="number" step="any" min="0" inputMode="decimal"
+                  value={sizeUnit === 'btc' ? qty : notional} onChange={e => (sizeUnit === 'btc' ? setQty(e.target.value) : setNotional(e.target.value))} />
+                <p className="text-[10px] text-dim mt-0.5 font-mono">{sizeUnit === 'btc' ? (q > 0 ? `≈ ${fmt(q * spot, 0)} MUSD notional` : '') : (q > 0 ? `= ${q.toFixed(4)} BTC` : '')}</p>
               </div>
               <div>
-                <label className="text-xs text-dim block mb-1" htmlFor="px">Price (MUSD / BTC)</label>
-                <input id="px" className="input-field disabled:opacity-60" type="number" step="any" min="0" disabled={buy && orderType === 'market'}
-                  value={buy && orderType === 'market' ? (Number.isFinite(px) ? px.toFixed(2) : '') : price} onChange={e => setPrice(e.target.value)} />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs text-dim" htmlFor="px">Price / BTC</label>
+                  <UnitToggle value={priceUnit} options={[['musd', 'MUSD'], ['pct', '% spot']]} label="Price unit" onChange={u => {
+                    if (u === 'pct' && px > 0) setPctInput(pctFromPrice(px, spot).toFixed(3));
+                    if (u === 'musd' && px > 0) setPrice(px.toFixed(2));
+                    setPriceUnit(u);
+                  }} />
+                </div>
+                <input id="px" className="input-field disabled:opacity-60" type="number" step="any" min="0" inputMode="decimal" disabled={buy && orderType === 'market'}
+                  value={buy && orderType === 'market'
+                    ? (Number.isFinite(px) ? (priceUnit === 'pct' ? pctFromPrice(px, spot).toFixed(3) : px.toFixed(2)) : '')
+                    : (priceUnit === 'pct' ? pctInput : price)}
+                  onChange={e => (priceUnit === 'pct' ? setPctInput(e.target.value) : setPrice(e.target.value))} />
+                <p className="text-[10px] text-dim mt-0.5 font-mono">{px > 0 ? (priceUnit === 'pct' ? `= ${fmt(px)} MUSD` : `= ${pctFromPrice(px, spot).toFixed(3)}% of spot`) : ''}</p>
               </div>
             </div>
+
+            {!(side === 'sell' && marginType === 'trove') && (
+              <div className="flex items-center gap-1 text-[10px]" role="group" aria-label="Quick size">
+                <span className="text-dim mr-1">{buy ? 'Spend' : 'Lock'}</span>
+                {[0.25, 0.5, 1].map(f => (
+                  <button key={f} type="button" disabled={!(parseFloat(musdRaw) > 0)}
+                    onClick={() => {
+                      const perBtc = buy ? (quote != null && q > 0 ? quote / q : px) : px;
+                      const size = sizeForBudget({ side, balance: parseFloat(musdRaw), fraction: f, pricePerBtc: perBtc, collateralPerBtc: collateralFor(inst.isCall, spot, inst.strike, 1) });
+                      if (size > 0) { setSizeUnit('btc'); setQty(String(size)); }
+                    }}
+                    className="px-2 py-0.5 rounded border border-border text-dim hover:text-accent hover:border-accent/40 disabled:opacity-40">{f * 100}%</button>
+                ))}
+                <span className="text-dim ml-1">of {musdBalance} MUSD</span>
+              </div>
+            )}
 
             {buy && quote != null && <p className="text-[10px] text-dim">Pool price for this size: <span className="font-mono text-text">{fmt(quote)} MUSD</span> (<span className="font-mono">{fmt(quote / q)}</span> per BTC). Bigger orders cost more as the pool fills.</p>}
             {side === 'sell' && book.bestBid && (
@@ -278,17 +327,12 @@ export default function TradePanel() {
               </button>
             )}
 
-            {buy && reasons.length > 0 && (
-              <div className="rounded-md border border-yellow-700/40 bg-yellow-900/20 px-3 py-2 text-xs text-yellow-400 space-y-1">
-                <p className="font-semibold">The pool won't sell this itself:</p>
-                <ul className="list-disc pl-4">{reasons.map(r => <li key={r}>{r}</li>)}</ul>
-                <p className="text-yellow-400/80">A buy order here rests as a bid until a seller takes it; you can cancel it for a refund.</p>
+            {result && (
+              <div role="status" className={`rounded-md px-3 py-2 text-xs border ${result.kind === 'fills' ? 'border-accent/40 bg-accent/5 text-accent'
+                : result.poolRefuses ? 'border-yellow-700/40 bg-yellow-900/20 text-yellow-400' : 'border-border bg-surface text-text'}`}>
+                <p>{result.text}</p>
+                {result.hint && <p className="text-dim mt-0.5">{result.hint}</p>}
               </div>
-            )}
-            {buy && reasons.length === 0 && px > 0 && orderType === 'limit' && (
-              <p className={`text-[10px] ${poolWillFill ? 'text-accent' : 'text-yellow-400'}`}>
-                {poolWillFill ? 'At this price the pool should fill your order straight away.' : 'Below the pool price: this rests on the book as a bid until a seller accepts.'}
-              </p>
             )}
 
             {leg && (
@@ -378,7 +422,7 @@ export default function TradePanel() {
               <Row label="Price" value={`${fmt(px)} MUSD per BTC`} />
               <Row label={buy ? 'You pay' : 'You receive (after fee)'} value={`${fmt(buy ? premium : premium * 0.98)} MUSD`} />
               {!buy && <Row label="You lock" value={`${fmt(collateral)} MUSD`} />}
-              <Row label="Outcome" value={buy ? (poolWillFill ? 'Filled by pool' : 'May rest as a bid') : 'Rests on the book'} />
+              <Row label="Outcome" value={poolWillFill ? 'Fills now from the pool' : buy ? 'Rests as a bid' : 'Rests as an ask'} />
             </>}
           </div>
           <p className="text-xs text-dim">Your wallet will ask for an approval and then the trade.</p>

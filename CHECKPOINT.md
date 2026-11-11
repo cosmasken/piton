@@ -52,8 +52,9 @@ Where the project stands, and what to pick up next. Read this first when resumin
 
 ## Next tasks, in suggested order
 1. **Fix whatever the walkthrough finds.** (The per-option size pre-check is now done.)
-2. **UI plan, steps 3 to 5 remaining** (1 and 2 done on 11 Nov: market header bar, size pre-check, chain columns, units,
-   range, calls/puts view, open-interest bars, implied volatility, auto-scroll to the money):
+2. **UI plan, remaining items** (done on 11 Nov: market header bar, size pre-check, chain columns, units, range,
+   calls/puts view, open-interest bars, implied volatility, auto-scroll to the money; instrument detail strip with live
+   countdown; order form with size in BTC or MUSD, price in MUSD or % of spot, 25/50/100% quick-fill, fills-now/rests banner):
    3. portfolio greeks totals and trade history from events (fill, exercise, sell-back, refund) with CSV export;
    4. pool page (utilisation gauge, exposure by strike/expiry, your share and P&L, APY only with enough history);
    5. mobile layout, keyboard shortcuts, loading states; fix the Pyth price box (Hermes returned "unauthorized").

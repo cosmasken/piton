@@ -44,7 +44,12 @@ Do this first so the lock has run out by Step 9.
 
 ## Step 3: Buy a put from the pool
 - **Do:** click the Ask on the **74,000 Put** row → Trade panel: Buy → Market → Size **0.005**. Leave auto-exercise ticked.
+- **Check the detail strip** at the top of the Trade panel: mark, ask IV, mid IV, delta/gamma/theta/vega, last trade,
+  24h volume, open interest, and a countdown to expiry that ticks every second.
+- **Try the inputs:** switch Size to MUSD (0.005 BTC shows as about 370 MUSD notional) and back; switch Price to % spot;
+  click 25% next to "Spend" (sets the size that spends about a quarter of your MUSD). Then set Size back to 0.005.
 - **Expect before signing:**
+  - A green "Fills now: the pool sells at … MUSD for this size" box.
   - "You pay" about 3.5 to 6 MUSD (price per BTC × 0.005).
   - Max loss equals what you pay.
   - Max gain is about 370 minus what you pay (collateral 74,000 × 0.005 = 370).
@@ -87,7 +92,7 @@ The pool is now about 2,200 MUSD, so one option may lock at most about 550 MUSD 
 ## Step 7: Limit bid below the pool price
 - **Do:** **76,000 Call** → Buy → Limit → Size **0.002**, Price **100** (MUSD per BTC, so 0.20 MUSD total) → Confirm.
 - **Expect:**
-  - Before signing: "Below the pool price: this rests on the book as a bid".
+  - Before signing: "Rests on the book as a bid: your price is below the pool's (…)".
   - After signing: your bid shows in the order book.
 - **Then:** cancel it in Positions (0.20 MUSD back).
 
