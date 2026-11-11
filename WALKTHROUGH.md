@@ -42,6 +42,16 @@ Do this first so the lock has run out by Step 9.
   - The 74,000 put ask is roughly 700 to 1,200 MUSD per BTC, depending on time to expiry.
 - **Also:** click "How it works" in the Pool panel. It shows the pool's rules and track record.
 
+## Step 2b: The chart
+- **Price tab:** candles with wicks; drag to pan, scroll or pinch to zoom; hover for open/high/low/close. Intervals 5m to 1W
+  (keys 1 to 6). "● live" means the last candle updates every second. The dotted "Skip" line is the settlement price.
+- **Overlays ▾:** with an option selected you see its strike, break-even ("you profit below/above"), an expiry band and
+  the dashed expected-move cone (about 68% of outcomes). Also: your positions (click one to select it), open interest by
+  strike, your Trove's liquidation price, and the circuit-breaker band.
+- **Volatility tab:** pool mid and ask volatility against Deribit's DVOL. **Pool tab:** share price and pool assets over
+  time. **Payoff tab:** a large payoff chart for the order in the trade form.
+- **UTC / Local** switches the time zone; **⤢** (or key F) goes full screen.
+
 ## Step 3: Buy a put from the pool
 - **Do:** click the Ask on the **74,000 Put** row → Trade panel: Buy → Market → Size **0.005**. Leave auto-exercise ticked.
 - **Check the detail strip** at the top of the Trade panel: mark, ask IV, mid IV, delta/gamma/theta/vega, last trade,

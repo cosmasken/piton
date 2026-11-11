@@ -63,7 +63,11 @@ export default function VolChart({ utc }) {
           {RANGES.map(([l, d]) => <button key={l} aria-pressed={days === d} onClick={() => setDays(d)} className={`px-2 py-0.5 rounded font-mono ${days === d ? 'bg-surface text-text' : 'hover:text-text'}`}>{l}</button>)}
         </div>
       </div>
-      <div className="relative flex-1 min-h-0"><div ref={box} className="absolute inset-0" /></div>
+      <div className="relative flex-1 min-h-0">
+        <div ref={box} className="absolute inset-0" />
+        {note === 'Loading…' && <div className="absolute inset-0 flex items-center justify-center text-dim text-xs pointer-events-none">Loading…</div>}
+        {/unavailable|no pool/.test(note) && <div className="absolute inset-0 flex items-center justify-center text-dim text-xs pointer-events-none text-center px-6">{note}</div>}
+      </div>
     </div>
   );
 }

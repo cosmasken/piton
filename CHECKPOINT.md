@@ -60,7 +60,10 @@ Where the project stands, and what to pick up next. Read this first when resumin
 
 ## Next tasks, in suggested order
 1. **Fix whatever the walkthrough finds.** (The per-option size pre-check is now done.)
-2. **UI plan, remaining items** (done on 11 Nov: market header bar, size pre-check, chain columns, units, range,
+2. **Chart rebuilt (11 Nov):** Lightweight Charts 5.3.0 (Apache-2.0; TradingView logo kept for attribution), live Binance
+   candle, option overlays, expected-move cone, positions, OI, Trove and breaker lines, Volatility/Pool/Payoff tabs, UTC
+   switch, full screen, shortcuts. Not verified with a wallet: position lines, click-to-select, Trove line.
+3. **UI plan, remaining items** (done on 11 Nov: market header bar, size pre-check, chain columns, units, range,
    calls/puts view, open-interest bars, implied volatility, auto-scroll to the money; instrument detail strip with live
    countdown; order form with size in BTC or MUSD, price in MUSD or % of spot, 25/50/100% quick-fill, fills-now/rests banner):
    3. portfolio greeks totals and trade history from events (fill, exercise, sell-back, refund) with CSV export;
@@ -68,27 +71,27 @@ Where the project stands, and what to pick up next. Read this first when resumin
    5. mobile layout, keyboard shortcuts, loading states; fix the Pyth price box (Hermes returned "unauthorized").
    Later: MEZO options need a fresh MEZO oracle (on-chain Pyth on Mezo was ~117 days stale on mainnet and testnet);
    perps are a separate product, not planned.
-3. **Demo bot on the VPS** (deferred by the user until the UI is settled).
+4. **Demo bot on the VPS** (deferred by the user until the UI is settled).
    - `scripts/ops.js` exists: IV, exercise, refund, poke, demo bot.
    - Before using the demo bot, change it to use the standard expiry slots from `client/src/instruments.mjs`, so its orders
      do not create odd expiry tabs.
-4. **Make room in the contract** before adding any more contract features: move `_bs`, `_cdf`, `_ln`, `_expNeg` and `_sqrt`
+5. **Make room in the contract** before adding any more contract features: move `_bs`, `_cdf`, `_ln`, `_expNeg` and `_sqrt`
    into a linked library. This requires updating the deploy script and the test deployments (library linking).
-5. **Oracle cross-check.**
+6. **Oracle cross-check.**
    - First, an off-chain watchdog in `ops.js`: compare Skip with Deribit and an exchange; ask the guardian to pause if they
      differ by more than 2%.
    - Then on-chain Skip vs Pyth (`0x2880aB155794e7179c9eE2e38200202908C17B43`, BTC/USD feed
      `0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43`).
    - Blocker: the testnet Pyth BTC/USD feed was about 106 days stale. Ask the Mezo team to refresh it, and confirm how often
      it updates on mainnet.
-6. **Open-option cap.** It is currently 50 by default, at most 150. To go higher:
+7. **Open-option cap.** It is currently 50 by default, at most 150. To go higher:
    - pack storage (cheap), then
    - add a keeper-refreshed liability cache (needs step 3 first).
-7. **Governance handover**, done last:
+8. **Governance handover**, done last:
    - `DELAY_HOURS=0.1 npx hardhat run scripts/setupGovernance.js --network matsnet`, then execute `acceptOwnership` through
      the timelock.
    - After that, admin changes (keeper, `minPoolExpiry`) go through the timelock.
-8. **Later:**
+9. **Later:**
    - mobile layout
    - selling back options bought from another trader (needs transferable positions)
    - pool yield history charts (data now in the subgraph)

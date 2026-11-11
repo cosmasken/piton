@@ -5,6 +5,7 @@ import {
 } from 'lightweight-charts';
 import { useStore, ADDRESSES } from '../store';
 import { INTERVALS, parseKlines, parseKlineMessage, fmtTime, expectedMoveCone, liquidationPrice } from '../chartMath.mjs';
+import { tickFormatter } from '../chartTheme';
 import { expiryLabel } from '../instruments.mjs';
 import { bsPrice } from '../greeks';
 import { breakEven, PROTOCOL_FEE_BPS } from '../payoff.mjs';
@@ -39,7 +40,7 @@ function setLines(series, ref, specs) {
 }
 
 /** BTC price chart: Binance BTCUSDT candles (history over REST, live candle over websocket) with options overlays. */
-function PriceChart() {
+function PriceChart({ utc, interval, setIntervalKey }) {
   const { btcPrice, selected, setSelected, tradeLeg, poolParams, options, account, provider, chainId } = useStore();
   const box = useRef(null);
   const chartRef = useRef(null);
@@ -48,7 +49,6 @@ function PriceChart() {
   const optionLines = useRef([]), positionLines = useRef([]), troveLines = useRef([]), breakerLines = useRef([]);
   const positionsRef = useRef([]);
   const lastCandle = useRef(null);
-  const [interval, setIntervalKey] = useState(() => localStorage.getItem(IV_KEY) || '1h');
   const [state, setState] = useState('loading'); // loading | ready | error
   const [legend, setLegend] = useState(null);
   const [live, setLive] = useState(false);
@@ -71,7 +71,10 @@ function PriceChart() {
       crosshair: { mode: CrosshairMode.Normal },
       rightPriceScale: { borderColor: '#1a1a1a' },
       timeScale: { borderColor: '#1a1a1a', timeVisible: true, secondsVisible: false, rightOffset: 6 },
-      localization: { priceFormatter: p => n0(p), timeFormatter: t => fmtTime(t, false) },
+      localization: { priceFormatter: p => n0(p) },
+      // drag to pan, wheel or pinch to zoom, on mouse and touch
+      handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+      handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
     });
     const candles = chart.addSeries(CandlestickSeries, {
       upColor: UP, downColor: DOWN, borderUpColor: UP, borderDownColor: DOWN, wickUpColor: UP, wickDownColor: DOWN, priceLineVisible: false,
@@ -109,6 +112,11 @@ function PriceChart() {
     chart.timeScale().subscribeSizeChange(bump);
     return () => { chart.remove(); chartRef.current = null; };
   }, []);
+
+  // show times in UTC (matches option expiries) or local time
+  useEffect(() => {
+    chartRef.current?.applyOptions({ localization: { priceFormatter: p => n0(p), timeFormatter: t => fmtTime(t, utc) }, timeScale: { tickMarkFormatter: tickFormatter(utc) } });
+  }, [utc]);
 
   // history for the chosen interval, then a live candle from the websocket
   useEffect(() => {
@@ -300,12 +308,6 @@ function PriceChart() {
               </div>
             )}
           </div>
-          <div className="flex gap-0.5" role="group" aria-label="Interval">
-            {INTERVALS.map(i => (
-              <button key={i.key} onClick={() => setIntervalKey(i.key)} aria-pressed={interval === i.key}
-                className={`text-[10px] px-2 py-0.5 rounded font-mono transition-colors ${interval === i.key ? 'bg-surface text-text' : 'text-dim hover:text-text'}`}>{i.key}</button>
-            ))}
-          </div>
         </div>
       </div>
 
@@ -313,7 +315,7 @@ function PriceChart() {
         <div ref={box} className="absolute inset-0" />
         {c && state === 'ready' && (
           <div className="absolute left-2 top-1 z-10 pointer-events-none font-mono text-[10px] text-dim">
-            {fmtTime(c.time, false)} · O <span className="text-text">{n2(c.open)}</span> H <span className="text-text">{n2(c.high)}</span> L <span className="text-text">{n2(c.low)}</span> C <span className="text-text">{n2(c.close)}</span>
+            {fmtTime(c.time, utc)}{utc ? ' UTC' : ''} · O <span className="text-text">{n2(c.open)}</span> H <span className="text-text">{n2(c.high)}</span> L <span className="text-text">{n2(c.low)}</span> C <span className="text-text">{n2(c.close)}</span>
             {' '}<span className={chg >= 0 ? 'text-accent' : 'text-red'}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</span>
             {selected && ov.cone && <span className="block text-[9px]" style={{ color: CONE }}>- - expected move to expiry (±1σ, {(midIv * 100).toFixed(0)}% vol)</span>}
           </div>
@@ -341,31 +343,76 @@ function PriceChart() {
 
 const TABS = [['price', 'Price'], ['vol', 'Volatility'], ['pool', 'Pool'], ['payoff', 'Payoff']];
 
-/** Chart panel: price (kept mounted so its live feed keeps running), volatility, pool history and payoff tabs. */
+/**
+ * Chart panel: price (kept mounted so its live feed keeps running), volatility, pool history and payoff tabs.
+ * Shortcuts (when not typing in a field): 1-6 pick the candle interval, F toggles full screen.
+ */
 export default function Graph() {
-  const { tradeLeg, btcPrice, selected } = useStore();
+  const { tradeLeg, btcPrice } = useStore();
+  const panel = useRef(null);
   const [tab, setTab] = useState(() => {
     const fromUrl = new URLSearchParams(window.location.search).get('chart');
     return TABS.some(([k]) => k === fromUrl) ? fromUrl : localStorage.getItem('piton_chart_tab') || 'price';
   });
+  const [interval, setIntervalKey] = useState(() => localStorage.getItem(IV_KEY) || '1h');
+  const [utc, setUtc] = useState(() => localStorage.getItem('piton_chart_tz') !== 'local');
+  const [full, setFull] = useState(false);
   useEffect(() => { try { localStorage.setItem('piton_chart_tab', tab); } catch { /* ignore */ } }, [tab]);
+  useEffect(() => { try { localStorage.setItem('piton_chart_tz', utc ? 'utc' : 'local'); } catch { /* ignore */ } }, [utc]);
+
+  const toggleFull = () => {
+    if (document.fullscreenElement) document.exitFullscreen?.();
+    else panel.current?.requestFullscreen?.();
+  };
+  useEffect(() => {
+    const onFs = () => setFull(document.fullscreenElement === panel.current);
+    document.addEventListener('fullscreenchange', onFs);
+    return () => document.removeEventListener('fullscreenchange', onFs);
+  }, []);
+  useEffect(() => {
+    const onKey = e => {
+      const t = e.target;
+      const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+      if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+      const i = Number(e.key);
+      if (i >= 1 && i <= INTERVALS.length) { setIntervalKey(INTERVALS[i - 1].key); setTab('price'); }
+      else if (e.key === 'f' || e.key === 'F') toggleFull();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []); // eslint-disable-line
+
   return (
-    <div className="panel flex-1 min-h-0 flex flex-col">
-      <div className="panel-header flex items-center gap-1" role="tablist" aria-label="Chart">
+    <div ref={panel} className={`panel flex-1 min-h-0 flex flex-col ${full ? 'rounded-none' : ''}`}>
+      <div className="panel-header flex items-center gap-1 flex-wrap" role="tablist" aria-label="Chart">
         <span className="uppercase tracking-widest mr-2">BTC / USD</span>
         {TABS.map(([k, l]) => (
           <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
             className={`text-xs px-2.5 py-0.5 rounded font-display normal-case tracking-normal transition-colors ${tab === k ? 'bg-surface text-text' : 'text-dim hover:text-text'}`}>{l}</button>
         ))}
+        <div className="ml-auto flex items-center gap-2 normal-case tracking-normal">
+          {tab === 'price' && (
+            <div className="flex gap-0.5" role="group" aria-label="Interval">
+              {INTERVALS.map((i, n) => (
+                <button key={i.key} onClick={() => setIntervalKey(i.key)} aria-pressed={interval === i.key} title={`${i.key} candles (key ${n + 1})`}
+                  className={`text-[10px] px-2 py-0.5 rounded font-mono transition-colors ${interval === i.key ? 'bg-surface text-text' : 'text-dim hover:text-text'}`}>{i.key}</button>
+              ))}
+            </div>
+          )}
+          <button onClick={() => setUtc(u => !u)} title="Show times in UTC (option expiries are UTC) or your local time"
+            className="text-[10px] px-2 py-0.5 rounded border border-border text-dim hover:text-text font-mono">{utc ? 'UTC' : 'Local'}</button>
+          <button onClick={toggleFull} title={full ? 'Exit full screen (F)' : 'Full screen (F)'} aria-pressed={full} aria-label="Full screen"
+            className="text-[11px] px-1.5 py-0.5 rounded border border-border text-dim hover:text-text">{full ? '⤡' : '⤢'}</button>
+        </div>
       </div>
-      <div className={tab === 'price' ? 'flex flex-col flex-1 min-h-0' : 'hidden'}><PriceChart /></div>
-      {tab === 'vol' && <VolChart utc={false} />}
-      {tab === 'pool' && <PoolChart utc={false} />}
+      <div className={tab === 'price' ? 'flex flex-col flex-1 min-h-0' : 'hidden'}><PriceChart utc={utc} interval={interval} setIntervalKey={setIntervalKey} /></div>
+      {tab === 'vol' && <VolChart utc={utc} />}
+      {tab === 'pool' && <PoolChart utc={utc} />}
       {tab === 'payoff' && (
         <div className="flex-1 min-h-0 flex flex-col px-3 py-2">
           {tradeLeg && btcPrice ? (
             <>
-              <p className="text-[10px] text-dim mb-1">Profit and loss at expiry for the order in the trade form{selected ? '' : ''}: {tradeLeg.side} {tradeLeg.qty} BTC {tradeLeg.isCall ? 'call' : 'put'} at strike {tradeLeg.strike.toLocaleString()} for {tradeLeg.premium.toFixed(2)} MUSD.</p>
+              <p className="text-[10px] text-dim mb-1">Profit and loss at expiry for the order in the trade form: {tradeLeg.side} {tradeLeg.qty} BTC {tradeLeg.isCall ? 'call' : 'put'} at strike {tradeLeg.strike.toLocaleString()} for {tradeLeg.premium.toFixed(2)} MUSD.</p>
               <div className="flex-1 min-h-0"><PayoffChart leg={tradeLeg} spot={btcPrice} height="100%" /></div>
             </>
           ) : <div className="flex-1 flex items-center justify-center text-dim text-xs">Pick an option and enter a size and price in the trade form to see its payoff.</div>}
