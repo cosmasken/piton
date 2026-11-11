@@ -9,6 +9,9 @@ import { expiryLabel } from '../instruments.mjs';
 import { bsPrice } from '../greeks';
 import { breakEven, PROTOCOL_FEE_BPS } from '../payoff.mjs';
 import { MCR } from '../troveProtect.mjs';
+import VolChart from './VolChart';
+import PoolChart from './PoolChart';
+import PayoffChart from './PayoffChart';
 
 const UP = '#00ff88', DOWN = '#ff4466', GRID = '#141414', TEXT = '#6b6b6b';
 const STRIKE = '#f5b041', BE = '#e0ffe0', CONE = 'rgba(122,162,255,0.85)';
@@ -36,7 +39,7 @@ function setLines(series, ref, specs) {
 }
 
 /** BTC price chart: Binance BTCUSDT candles (history over REST, live candle over websocket) with options overlays. */
-export default function Graph() {
+function PriceChart() {
   const { btcPrice, selected, setSelected, tradeLeg, poolParams, options, account, provider, chainId } = useStore();
   const box = useRef(null);
   const chartRef = useRef(null);
@@ -277,20 +280,17 @@ export default function Graph() {
   const anyOverlay = OVERLAYS.filter(([k]) => ov[k]).length;
 
   return (
-    <div className="panel flex-1 min-h-0 flex flex-col">
-      <div className="panel-header flex items-center justify-between gap-2 flex-wrap">
-        <span className="normal-case tracking-normal">
-          <span className="uppercase tracking-widest">BTC / USD</span>
-          <span className="ml-2 text-[10px] text-dim">candles: Binance BTCUSDT · settlement: Skip oracle{btcPrice ? ` $${n0(btcPrice)}` : ''}</span>
-        </span>
+    <div className="flex-1 min-h-0 flex flex-col">
+      <div className="flex items-center justify-between gap-2 flex-wrap px-3 py-1.5 border-b border-border/60 shrink-0">
+        <span className="text-[10px] text-dim">candles: Binance BTCUSDT · settlement: Skip oracle{btcPrice ? ` $${n0(btcPrice)}` : ''}</span>
         <div className="flex items-center gap-2">
           <span className={`text-[10px] font-mono ${live ? 'text-accent' : 'text-dim'}`} title={live ? 'Live candle via Binance websocket' : 'Live feed not connected'}>{live ? '● live' : '○'}</span>
           <div className="relative">
-            <button onClick={() => setMenu(m => !m)} aria-expanded={menu} className="text-[10px] px-2 py-0.5 rounded border border-border text-dim hover:text-text normal-case tracking-normal">
+            <button onClick={() => setMenu(m => !m)} aria-expanded={menu} className="text-[10px] px-2 py-0.5 rounded border border-border text-dim hover:text-text">
               Overlays ({anyOverlay}) ▾
             </button>
             {menu && (
-              <div className="absolute right-0 z-30 mt-1 bg-panel border border-border rounded-md p-2 space-y-1.5 shadow-lg w-64 normal-case tracking-normal" onMouseLeave={() => setMenu(false)}>
+              <div className="absolute right-0 z-30 mt-1 bg-panel border border-border rounded-md p-2 space-y-1.5 shadow-lg w-64" onMouseLeave={() => setMenu(false)}>
                 {OVERLAYS.map(([k, label, title]) => (
                   <label key={k} className="flex items-start gap-2 text-xs text-text cursor-pointer">
                     <input type="checkbox" className="mt-0.5" checked={!!ov[k]} onChange={() => setOv(o => ({ ...o, [k]: !o[k] }))} />
@@ -335,6 +335,42 @@ export default function Graph() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+const TABS = [['price', 'Price'], ['vol', 'Volatility'], ['pool', 'Pool'], ['payoff', 'Payoff']];
+
+/** Chart panel: price (kept mounted so its live feed keeps running), volatility, pool history and payoff tabs. */
+export default function Graph() {
+  const { tradeLeg, btcPrice, selected } = useStore();
+  const [tab, setTab] = useState(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get('chart');
+    return TABS.some(([k]) => k === fromUrl) ? fromUrl : localStorage.getItem('piton_chart_tab') || 'price';
+  });
+  useEffect(() => { try { localStorage.setItem('piton_chart_tab', tab); } catch { /* ignore */ } }, [tab]);
+  return (
+    <div className="panel flex-1 min-h-0 flex flex-col">
+      <div className="panel-header flex items-center gap-1" role="tablist" aria-label="Chart">
+        <span className="uppercase tracking-widest mr-2">BTC / USD</span>
+        {TABS.map(([k, l]) => (
+          <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
+            className={`text-xs px-2.5 py-0.5 rounded font-display normal-case tracking-normal transition-colors ${tab === k ? 'bg-surface text-text' : 'text-dim hover:text-text'}`}>{l}</button>
+        ))}
+      </div>
+      <div className={tab === 'price' ? 'flex flex-col flex-1 min-h-0' : 'hidden'}><PriceChart /></div>
+      {tab === 'vol' && <VolChart utc={false} />}
+      {tab === 'pool' && <PoolChart utc={false} />}
+      {tab === 'payoff' && (
+        <div className="flex-1 min-h-0 flex flex-col px-3 py-2">
+          {tradeLeg && btcPrice ? (
+            <>
+              <p className="text-[10px] text-dim mb-1">Profit and loss at expiry for the order in the trade form{selected ? '' : ''}: {tradeLeg.side} {tradeLeg.qty} BTC {tradeLeg.isCall ? 'call' : 'put'} at strike {tradeLeg.strike.toLocaleString()} for {tradeLeg.premium.toFixed(2)} MUSD.</p>
+              <div className="flex-1 min-h-0"><PayoffChart leg={tradeLeg} spot={btcPrice} height="100%" /></div>
+            </>
+          ) : <div className="flex-1 flex items-center justify-center text-dim text-xs">Pick an option and enter a size and price in the trade form to see its payoff.</div>}
+        </div>
+      )}
     </div>
   );
 }

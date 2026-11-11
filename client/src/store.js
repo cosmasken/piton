@@ -343,6 +343,17 @@ export const useStore = create((set, get) => ({
     } catch { /* history is a nice-to-have */ }
   },
 
+  /** Run a GraphQL query against the selected network's subgraph; returns `data` or null. */
+  querySubgraph: async (query) => {
+    const net = getNetwork(get().network);
+    if (!net.subgraph) return null;
+    try {
+      const r = await fetch(net.subgraph, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query }) });
+      const j = await r.json();
+      return j?.data || null;
+    } catch { return null; }
+  },
+
   /** BTC 24h change/high/low (Binance) and Deribit's BTC volatility index (DVOL), for the market header. */
   fetchMarket: async () => {
     const out = { ...(get().market || {}), at: Date.now() };

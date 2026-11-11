@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { INTERVALS, parseKlines, parseKlineMessage, expectedMoveCone, liquidationPrice, fmtTime, fmtTick } from './chartMath.mjs';
+import { INTERVALS, parseKlines, parseKlineMessage, expectedMoveCone, liquidationPrice, fmtTime, fmtTick, uniqueByTime, ivSteps, parseDvol } from './chartMath.mjs';
 
 const close = (a, b, eps) => assert.ok(Math.abs(a - b) <= eps, `${a} != ${b}`);
 
@@ -53,4 +53,15 @@ test('time labels in UTC', () => {
   assert.equal(fmtTick(t, true, 'day'), '11 Nov');
   assert.equal(fmtTick(t, true, 'month'), 'Nov 2026');
   assert.equal(fmtTick(t, true, 'year'), '2026');
+});
+
+test('unique times, IV steps carried to now, DVOL parsing', () => {
+  assert.deepEqual(uniqueByTime([{ time: 2, value: 1 }, { time: 1, value: 5 }, { time: 2, value: 3 }]), [{ time: 1, value: 5 }, { time: 2, value: 3 }]);
+  const s = ivSteps([{ timestamp: '200', iv: '0.4' }, { timestamp: '100', iv: '0.8' }], 500, 1.15);
+  assert.deepEqual(s.mid.map(p => p.time), [100, 200, 500]);
+  close(s.mid[0].value, 80, 1e-9); close(s.mid[2].value, 40, 1e-9); close(s.ask[2].value, 46, 1e-9);
+  assert.deepEqual(ivSteps([], 500).mid, []);
+  const d = parseDvol({ result: { data: [[2000, 1, 2, 0, 39.5], [1000, 1, 2, 0, 40.1]] } });
+  assert.deepEqual(d, [{ time: 1, value: 40.1 }, { time: 2, value: 39.5 }]);
+  assert.deepEqual(parseDvol({}), []);
 });

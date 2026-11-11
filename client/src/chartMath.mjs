@@ -79,3 +79,27 @@ export function fmtTick(sec, utc, kind) {
   if (kind === 'day') return `${g.day} ${MON[g.mo]}`;
   return `${pad(g.h)}:${pad(g.mi)}`;
 }
+
+/** Lightweight Charts needs strictly increasing times: keep the last value for each second. */
+export function uniqueByTime(points) {
+  const m = new Map();
+  for (const p of points) m.set(p.time, p);
+  return [...m.values()].sort((a, b) => a.time - b.time);
+}
+
+/**
+ * Pool IV over time as steps: each update holds until the next, and the latest value is carried to `nowSec`.
+ * updates: [{ timestamp, iv }] (strings or numbers, any order); askRatio converts mid to ask.
+ */
+export function ivSteps(updates, nowSec, askRatio = 1) {
+  const pts = uniqueByTime(updates.map(u => ({ time: Number(u.timestamp), value: Number(u.iv) * 100 })));
+  if (pts.length && nowSec > pts[pts.length - 1].time) pts.push({ time: nowSec, value: pts[pts.length - 1].value });
+  return { mid: pts, ask: pts.map(p => ({ time: p.time, value: p.value * askRatio })) };
+}
+
+/** Deribit get_volatility_index_data rows [ms, open, high, low, close] -> chart points (close, %). */
+export function parseDvol(json) {
+  const rows = json?.result?.data;
+  if (!Array.isArray(rows)) return [];
+  return uniqueByTime(rows.map(r => ({ time: Math.floor(Number(r[0]) / 1000), value: Number(r[4]) })).filter(p => Number.isFinite(p.value)));
+}
