@@ -28,7 +28,13 @@ Do this first so the lock has run out by Step 9.
   - "Your deposit lock" counts down from about 1h 00m.
   - The Withdraw tab says "Your deposit is locked for another …" and the button is greyed out.
 
-## Step 2: Look around the option chain
+## Step 2: Look around the market header and option chain
+- **Market header** (strip under the top bar): BTC index, 24h change and high/low, 24h volume, open interest with
+  put/call ratio, pool IV (mid/ask) next to Deribit's DVOL, pool size and utilisation, and whether the pool is selling.
+- **Chain toolbar:** switch prices between MUSD, BTC and % of spot; show calls, puts or both; strike range ±10/20/30%;
+  "Columns" to add mark, IV, greeks (Δ, Γ, Θ, vega), open interest and 24h volume. Choices are remembered.
+- IV is the volatility implied by the ask. Far from the money it is high because of the pool's 5%-a-year minimum
+  price on locked collateral, not because of a pricing error.
 - **Do:** pick the expiry tab about a day away (labelled 08:00 tomorrow or the day after).
 - **Expect:**
   - Strikes 60,000 to 88,000 in steps of 2,000, with 74,000 marked ATM.
@@ -61,14 +67,15 @@ Do this first so the lock has run out by Step 9.
   - Pool Locked drops by about 222.
 
 ## Step 5: The pool refuses an order that is too big
-- **Do:** 74,000 Put → Buy → Market → Size **0.01** (collateral 740, above the 625 limit) → Confirm.
-- **Expect:**
+The pool is now about 2,200 MUSD, so one option may lock at most about 550 MUSD (25%).
+- **Do:** 74,000 Put → Buy → Market → Size **0.01** (collateral 740, above the limit).
+- **Expect before signing:** a yellow box "The pool won't sell this itself: this option needs 740 MUSD of collateral;
+  one option may use at most 25% of the pool (about 550 MUSD). Try a smaller size". Then Confirm anyway.
+- **Expect after signing:**
   - Toast: "Not filled by the pool: your order is a resting bid…".
   - Your premium (about 7 to 12 MUSD) is held.
   - The order shows in the order book under the Trade panel and in the **All orders** tab.
 - **Then:** Positions → **Cancel**. The premium comes back in full.
-- Note: the form does not warn about this size limit before you sign; you only find out after the transaction. Note
-  whether that bothers you.
 
 ## Step 6: Strike too far from spot (just look)
 - **Do:**

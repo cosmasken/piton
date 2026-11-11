@@ -98,6 +98,8 @@ export const useStore = create((set, get) => ({
   // Pool ask prices per 1 BTC (small reference size) for the selected expiry: { expiry, at, byStrike: { [strike]: { call, put } } }
   chain: null,
   trades: [],
+  // 24h market data from outside the chain: { change24hPct, high24h, low24h, dvol, at }
+  market: null,
 
   /** Read-only pool contract for the selected network (works without a wallet), or null when not live. */
   roPool: () => {
@@ -223,7 +225,8 @@ export const useStore = create((set, get) => ({
         poolParams: {
           withdrawalFeeBps: Number(feeBps), depositLockSeconds: Number(lockSecs), minPoolExpiry: Number(minExp),
           strikeDistanceBps: Number(strikeBps), maxUtilisationBps: Number(utilMax), maxOptionExposureBps: Number(expMax),
-          cbUntil: Number(cbUntil), openPoolOptions: Number(openN), maxOptionCollateral: parseFloat(ethers.formatEther(maxColl)),
+          cbUntil: Number(cbUntil), openPoolOptions: Number(openN),
+          totalAssets: parseFloat(ethers.formatEther(total)), lockedCollateral: parseFloat(ethers.formatEther(locked)), maxOptionCollateral: parseFloat(ethers.formatEther(maxColl)),
           iv: parseFloat(ethers.formatEther(ivMid)), askIv: parseFloat(ethers.formatEther(ivAsk)),
           premiumsEarned: parseFloat(ethers.formatEther(premEarned)), settlementsPaid: parseFloat(ethers.formatEther(settlePaid)),
           performanceFeesPaid: parseFloat(ethers.formatEther(perfPaid)), unearnedPremium: parseFloat(ethers.formatEther(unrecog)),
@@ -284,7 +287,11 @@ export const useStore = create((set, get) => ({
     set({ chain: { expiry, at: Date.now(), byStrike } });
   },
 
-  /** Recent fills from OrderFilled events (scanned in 9,000-block chunks; the RPC rejects bigger ranges). */
+  /**
+   * Fills from OrderFilled events over the last ~26 hours (enough for 24h volume and the trades tab).
+   * Scanned in 9,000-block chunks (the RPC rejects bigger ranges). Times are estimated from the block
+   * number using the measured block time, which is accurate to seconds on Mezo's regular blocks.
+   */
   fetchTrades: async () => {
     const { network } = get();
     const net = getNetwork(network);
@@ -292,19 +299,40 @@ export const useStore = create((set, get) => ({
     const provider = roProvider(network);
     const pool = new ethers.Contract(net.addresses.pool, OptionPoolABI.abi, provider);
     try {
-      const head = await provider.getBlockNumber();
-      const floor = Math.max(net.addresses.deployBlock || 0, head - 9000 * 12); // at most ~108k blocks back
+      const headBlock = await provider.getBlock('latest');
+      const head = headBlock.number;
+      const ref = await provider.getBlock(Math.max(0, head - 5000));
+      const secPerBlock = ref && head > ref.number ? (headBlock.timestamp - ref.timestamp) / (head - ref.number) : 4;
+      const span = Math.ceil(26 * 3600 / Math.max(0.5, secPerBlock));
+      const floor = Math.max(net.addresses.deployBlock || 0, head - span);
       const logs = [];
-      for (let to = head; to >= floor && logs.length < 60; to -= 9000) {
+      for (let to = head; to >= floor; to -= 9000) {
         const from = Math.max(floor, to - 8999);
         logs.push(...await pool.queryFilter(pool.filters.OrderFilled(), from, to));
       }
-      const recent = logs.sort((a, b) => b.blockNumber - a.blockNumber || b.index - a.index).slice(0, 30);
-      const blocks = await Promise.all([...new Set(recent.map(l => l.blockNumber))].map(n => provider.getBlock(n)));
-      const ts = Object.fromEntries(blocks.filter(Boolean).map(b => [b.number, b.timestamp]));
+      logs.sort((a, b) => b.blockNumber - a.blockNumber || b.index - a.index);
       if (get().network !== network) return;
-      set({ trades: recent.map(l => ({ id: l.args[0], filler: l.args[1], byPool: l.args[2], time: ts[l.blockNumber] || 0, tx: l.transactionHash })) });
+      set({ trades: logs.slice(0, 500).map(l => ({
+        id: l.args[0], filler: l.args[1], byPool: l.args[2], tx: l.transactionHash,
+        time: Math.round(headBlock.timestamp - (head - l.blockNumber) * secPerBlock),
+      })) });
     } catch { /* history is a nice-to-have */ }
+  },
+
+  /** BTC 24h change/high/low (Binance) and Deribit's BTC volatility index (DVOL), for the market header. */
+  fetchMarket: async () => {
+    const out = { ...(get().market || {}), at: Date.now() };
+    try {
+      const t = await (await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT')).json();
+      out.change24hPct = parseFloat(t.priceChangePercent); out.high24h = parseFloat(t.highPrice); out.low24h = parseFloat(t.lowPrice);
+    } catch { /* optional */ }
+    try {
+      const end = Date.now();
+      const j = await (await fetch(`https://www.deribit.com/api/v2/public/get_volatility_index_data?currency=BTC&start_timestamp=${end - 6 * 3600e3}&end_timestamp=${end}&resolution=3600`)).json();
+      const rows = j?.result?.data;
+      if (rows?.length) out.dvol = Number(rows[rows.length - 1][4]) / 100;
+    } catch { /* optional */ }
+    set({ market: out });
   },
 
   fetchAll: () => {

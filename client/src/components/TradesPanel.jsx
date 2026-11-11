@@ -11,7 +11,7 @@ export default function TradesPanel() {
   const { trades, options, network, fetchTrades } = useStore();
   useEffect(() => { fetchTrades(); const id = setInterval(fetchTrades, 30_000); return () => clearInterval(id); }, [network]); // eslint-disable-line
   const byId = useMemo(() => Object.fromEntries(options.map(o => [String(o.id), o])), [options]);
-  const rows = trades.map(t => ({ t, o: byId[String(t.id)] })).filter(r => r.o);
+  const rows = trades.slice(0, 50).map(t => ({ t, o: byId[String(t.id)] })).filter(r => r.o);
   if (!rows.length) return <div className="flex items-center justify-center h-24 text-dim text-xs">No trades yet</div>;
   return (
     <div className="overflow-auto flex-1 min-h-0">

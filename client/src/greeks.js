@@ -32,7 +32,12 @@ export function greeks(isCall, spot, strike, timeToExpiryHours, vol = 0.80, r = 
     : (-(spot * pdf(d1) * vol) / (2 * sqrtT) + r * strike * Math.exp(-r * T) * cdf(-d2));
   const theta = thetaAnnual / 365;
 
-  return { delta: parseFloat(delta.toFixed(3)), theta: parseFloat(theta.toFixed(2)) };
+  const gamma = pdf(d1) / (spot * vol * sqrtT);          // per 1 USD move
+  const vega = spot * pdf(d1) * sqrtT / 100;              // per 1 volatility point
+  return {
+    delta: parseFloat(delta.toFixed(3)), theta: parseFloat(theta.toFixed(2)),
+    gamma: parseFloat(gamma.toPrecision(3)), vega: parseFloat(vega.toFixed(2)),
+  };
 }
 
 /** Black-Scholes price per 1 BTC (same model as the contract; used for mark prices and the payoff preview). */
@@ -45,4 +50,20 @@ export function bsPrice(isCall, spot, strike, timeToExpiryHours, vol = 0.80, r =
   const d2 = d1 - vol * sqrtT;
   const disc = strike * Math.exp(-r * T);
   return isCall ? spot * cdf(d1) - disc * cdf(d2) : disc * cdf(-d2) - spot * cdf(-d1);
+}
+
+/**
+ * Volatility that makes the Black-Scholes price equal `price` (per 1 BTC), by bisection.
+ * Returns null when the price is outside what any volatility in [1%, 500%] can produce
+ * (for example a price below the option's exercise value).
+ */
+export function impliedVol(isCall, spot, strike, timeToExpiryHours, price, r = 0.05) {
+  if (!(price > 0) || !(spot > 0) || !(strike > 0) || !(timeToExpiryHours > 0)) return null;
+  let lo = 0.01, hi = 5;
+  if (bsPrice(isCall, spot, strike, timeToExpiryHours, lo, r) > price || bsPrice(isCall, spot, strike, timeToExpiryHours, hi, r) < price) return null;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (bsPrice(isCall, spot, strike, timeToExpiryHours, mid, r) > price) hi = mid; else lo = mid;
+  }
+  return (lo + hi) / 2;
 }

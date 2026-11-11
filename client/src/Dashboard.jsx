@@ -14,6 +14,7 @@ import MarketPanel  from './components/MarketPanel';
 import Wallet      from './components/Wallet';
 import YourOrders  from './components/YourOrders';
 import Pool        from './components/Pool';
+import MarketHeader from './components/MarketHeader';
 import { useNow } from './useNow';
 import { breakerActive } from './poolRules.mjs';
 
@@ -132,6 +133,7 @@ export default function Dashboard() {
     <div className="flex flex-col lg:h-screen lg:overflow-hidden bg-bg">
       {showMobile && <MobileBanner onDismiss={() => setShowMobile(false)} />}
       <Navbar onDisconnect={disconnect} />
+      {live && <MarketHeader />}
       <NotLiveBanner />
       {live && <OracleBanner />}
       {live && <BreakerBanner />}

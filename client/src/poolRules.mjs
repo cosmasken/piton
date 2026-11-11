@@ -25,9 +25,12 @@ export function breakerActive(cbUntil, nowSec) {
 /**
  * Why the pool would NOT sell this option itself (order would rest as an open bid instead).
  * Empty array = the pool should fill it (the exact price check still happens on-chain).
- * p: { strikeDistanceBps, minPoolExpiry, cbUntil, utilisationBps, maxUtilisationBps }
+ * p: { strikeDistanceBps, minPoolExpiry, cbUntil, utilisationBps, maxUtilisationBps,
+ *      totalAssets, lockedCollateral, maxOptionExposureBps, maxOptionCollateral }  (MUSD amounts as numbers)
+ * collateral (optional): MUSD the pool would lock for this order. When given, the size limits are
+ * checked exactly as the contract does (against pool assets before the premium is added).
  */
-export function poolWontFill({ spot, strike, expirySecs, nowSec }, p) {
+export function poolWontFill({ spot, strike, expirySecs, nowSec, collateral }, p) {
   const reasons = [];
   if (!(spot > 0) || !(strike > 0)) return reasons;
   const dist = Math.abs(strike - spot) / spot * BPS;
@@ -40,7 +43,19 @@ export function poolWontFill({ spot, strike, expirySecs, nowSec }, p) {
   if (breakerActive(p.cbUntil, nowSec)) {
     reasons.push('the circuit breaker is active after a fast price move');
   }
-  if (p.maxUtilisationBps != null && p.utilisationBps != null && p.utilisationBps >= p.maxUtilisationBps) {
+  const sized = collateral > 0 && p.totalAssets > 0;
+  if (sized) {
+    const fmt = v => v.toLocaleString('en-US', { maximumFractionDigits: 0 });
+    if (p.maxOptionCollateral != null && collateral > p.maxOptionCollateral) {
+      reasons.push(`this option needs ${fmt(collateral)} MUSD of collateral; the pool locks at most ${fmt(p.maxOptionCollateral)} MUSD per option`);
+    } else if (p.maxOptionExposureBps != null && collateral * BPS > p.totalAssets * p.maxOptionExposureBps) {
+      reasons.push(`this option needs ${fmt(collateral)} MUSD of collateral; one option may use at most ${p.maxOptionExposureBps / 100}% of the pool (${fmt(p.totalAssets * p.maxOptionExposureBps / BPS)} MUSD). Try a smaller size`);
+    }
+    if (p.maxUtilisationBps != null && p.lockedCollateral != null
+        && (p.lockedCollateral + collateral) * BPS > p.totalAssets * p.maxUtilisationBps) {
+      reasons.push(`it would take the pool past its ${p.maxUtilisationBps / 100}% utilisation limit`);
+    }
+  } else if (p.maxUtilisationBps != null && p.utilisationBps != null && p.utilisationBps >= p.maxUtilisationBps) {
     reasons.push(`the pool is at its ${p.maxUtilisationBps / 100}% utilisation limit`);
   }
   return reasons;

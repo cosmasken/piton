@@ -50,3 +50,14 @@ test('withdrawal fee only applies while options are open', () => {
   assert.equal(w.fee, 0.25);
   assert.equal(w.net, 99.75);
 });
+
+test('size limits match the contract: 25% of pool per option, 80% utilisation, absolute cap', () => {
+  const P2 = { ...P, totalAssets: 2200, lockedCollateral: 0, maxOptionExposureBps: 2500, maxOptionCollateral: 10000 };
+  assert.deepEqual(poolWontFill({ ...base, collateral: 550 }, P2), []);           // exactly 25%: allowed
+  assert.equal(poolWontFill({ ...base, collateral: 551 }, P2).length, 1);         // just over
+  assert.match(poolWontFill({ ...base, collateral: 740 }, P2)[0], /25% of the pool/);
+  assert.equal(poolWontFill({ ...base, collateral: 500 }, { ...P2, lockedCollateral: 1300 }).length, 1); // 1,800 > 80% of 2,200
+  assert.deepEqual(poolWontFill({ ...base, collateral: 460 }, { ...P2, lockedCollateral: 1300 }), []);   // 1,760 = 80%
+  assert.match(poolWontFill({ ...base, collateral: 20000 }, { ...P2, totalAssets: 1e6 })[0], /at most 10,000/);
+  assert.deepEqual(poolWontFill({ ...base, collateral: 740 }, P), []);              // no pool size known: no guess
+});

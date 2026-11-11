@@ -138,8 +138,9 @@ export default function TradePanel() {
   useEffect(() => { if (quote != null && q > 0 && (price === '' || orderType === 'market')) setPrice((quote / q).toFixed(2)); }, [quote]); // eslint-disable-line
 
   const book = useMemo(() => inst ? bookFor(options, inst) : { asks: [], bids: [], bestAsk: null, bestBid: null }, [options, inst]);
-  const reasons = inst && spot ? poolWontFill({ spot, strike: inst.strike, expirySecs: secs, nowSec: now }, poolParams || {}) : [];
   const collateral = inst && q > 0 ? collateralFor(inst.isCall, spot, inst.strike, q) : 0;
+  // includes the size limits (25% of the pool per option, 80% utilisation), checked before signing
+  const reasons = inst && spot ? poolWontFill({ spot, strike: inst.strike, expirySecs: secs, nowSec: now, collateral }, poolParams || {}) : [];
   const px = orderType === 'market' && side === 'buy' ? (quote != null && q > 0 ? quote / q : NaN) : parseFloat(price);
   const premium = px * q;                                    // total MUSD
   const poolWillFill = side === 'buy' && reasons.length === 0 && quote != null && premium >= quote * 0.95;

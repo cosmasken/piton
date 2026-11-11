@@ -51,30 +51,35 @@ Where the project stands, and what to pick up next. Read this first when resumin
   - Step 11 of the walkthrough (auto-exercise) can now be run.
 
 ## Next tasks, in suggested order
-1. **Fix whatever the walkthrough finds.** Known gap to confirm: the trade form does not warn before signing when the size
-   exceeds the per-option limit (25% of pool assets, or `maxOptionCollateral`). Add a pre-check using `maxOptionExposureBps`
-   × total assets.
-2. **Bot / keeper on the VPS** (deferred by the user until the UI is settled).
+1. **Fix whatever the walkthrough finds.** (The per-option size pre-check is now done.)
+2. **UI plan, steps 3 to 5 remaining** (1 and 2 done on 11 Nov: market header bar, size pre-check, chain columns, units,
+   range, calls/puts view, open-interest bars, implied volatility, auto-scroll to the money):
+   3. portfolio greeks totals and trade history from events (fill, exercise, sell-back, refund) with CSV export;
+   4. pool page (utilisation gauge, exposure by strike/expiry, your share and P&L, APY only with enough history);
+   5. mobile layout, keyboard shortcuts, loading states; fix the Pyth price box (Hermes returned "unauthorized").
+   Later: MEZO options need a fresh MEZO oracle (on-chain Pyth on Mezo was ~117 days stale on mainnet and testnet);
+   perps are a separate product, not planned.
+3. **Demo bot on the VPS** (deferred by the user until the UI is settled).
    - `scripts/ops.js` exists: IV, exercise, refund, poke, demo bot.
    - Before using the demo bot, change it to use the standard expiry slots from `client/src/instruments.mjs`, so its orders
      do not create odd expiry tabs.
-3. **Make room in the contract** before adding any more contract features: move `_bs`, `_cdf`, `_ln`, `_expNeg` and `_sqrt`
+4. **Make room in the contract** before adding any more contract features: move `_bs`, `_cdf`, `_ln`, `_expNeg` and `_sqrt`
    into a linked library. This requires updating the deploy script and the test deployments (library linking).
-4. **Oracle cross-check.**
+5. **Oracle cross-check.**
    - First, an off-chain watchdog in `ops.js`: compare Skip with Deribit and an exchange; ask the guardian to pause if they
      differ by more than 2%.
    - Then on-chain Skip vs Pyth (`0x2880aB155794e7179c9eE2e38200202908C17B43`, BTC/USD feed
      `0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43`).
    - Blocker: the testnet Pyth BTC/USD feed was about 106 days stale. Ask the Mezo team to refresh it, and confirm how often
      it updates on mainnet.
-5. **Open-option cap.** It is currently 50 by default, at most 150. To go higher:
+6. **Open-option cap.** It is currently 50 by default, at most 150. To go higher:
    - pack storage (cheap), then
    - add a keeper-refreshed liability cache (needs step 3 first).
-6. **Governance handover**, done last:
+7. **Governance handover**, done last:
    - `DELAY_HOURS=0.1 npx hardhat run scripts/setupGovernance.js --network matsnet`, then execute `acceptOwnership` through
      the timelock.
    - After that, admin changes (keeper, `minPoolExpiry`) go through the timelock.
-7. **Later:**
+8. **Later:**
    - mobile layout
    - selling back options bought from another trader (needs transferable positions)
    - pool yield history (needs an indexer; Goldsky was deferred)
