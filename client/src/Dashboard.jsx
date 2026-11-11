@@ -18,6 +18,7 @@ import MarketHeader from './components/MarketHeader';
 import ExpiryAlerts from './components/ExpiryAlerts';
 import { useNow } from './useNow';
 import { breakerActive } from './poolRules.mjs';
+import { useTimes } from './useTimes';
 
 function OracleBanner() {
   const { oracleStale, priceSource } = useStore(useShallow(s => ({ oracleStale: s.oracleStale, priceSource: s.priceSource })));
@@ -33,11 +34,12 @@ function OracleBanner() {
 function BreakerBanner() {
   const params = useStore(s => s.poolParams);
   const now = useNow(5000);
+  const times = useTimes();
   if (!params || !breakerActive(params.cbUntil, now)) return null;
   return (
     <div className="shrink-0 flex items-center gap-2 px-4 py-2 bg-red/10 border-b border-red/30 text-red text-xs font-body">
       <span>⛔</span>
-      <span><strong>Circuit breaker active</strong> after a fast price move: the pool is not selling new options and is not taking deposits until {new Date(params.cbUntil * 1000).toLocaleTimeString()}. Withdrawals, exercising and refunds still work.</span>
+      <span><strong>Circuit breaker active</strong> after a fast price move: the pool is not selling new options and is not taking deposits until {times.clock(params.cbUntil)}. Withdrawals, exercising and refunds still work.</span>
     </div>
   );
 }

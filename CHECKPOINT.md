@@ -7,7 +7,8 @@ Where the project stands, and what to pick up next. Read this first when resumin
 - **Live deployment (Mezo testnet, chain 31611), redeployed 11 Nov 2026:**
   - OptionPool `0xb2a0c6C6452D02380E08D9b01f177551bbccc5fe` (deploy block 16713911).
   - yMUSD `0xc91609942021869Ec465AEa64662b2173baA89C1`.
-  - Seeded with 2,200 MUSD by the deployer `0x09aB…6D06`; IV 40%.
+  - Seeded with 2,100 MUSD by the deployer `0x09aB…6D06` (a further ~300 is added automatically once the old pool's
+    last option #13 expires at 14:00 UTC on 11 Nov); IV 40%. Smoke-tested: 0.001 BTC call bought and sold back.
   - `minPoolExpiry` is 900 s on testnet (default 3600).
   - The IV keeper `0xdE33…7948` is authorised.
   - Previous pool `0x21F8…8221` is paused and emptied (bots sold back their options, the master withdrew).
@@ -51,6 +52,13 @@ Where the project stands, and what to pick up next. Read this first when resumin
    - recent trades, pool "How it works" panel
    - read-only browsing without a wallet, shareable `?i=` links
 5. Operational scripts are untracked (git-ignored `scripts/`). Private notes are in `docs/OPERATIONS.md` (also git-ignored).
+
+## Times (11 Nov)
+- Expiries are one moment for everyone; the dapp shows them in the user's local time by default (zone shown at the start
+  of the expiry row, e.g. "UTC+3", and in tooltips with the UTC time). Settings → Times switches everything (expiry tabs,
+  positions, history, breaker messages, charts) to UTC; the chart's zone button is a shortcut to the same setting.
+- Option names (BTC-12NOV-74000-P), share links and the CSV export stay UTC so every user names an option the same way.
+- Checked headless in Africa/Nairobi, America/Anchorage and UTC. Not checked in a browser: the UTC setting itself.
 
 ## Indexer
 - Goldsky subgraph `piton-testnet`, versions 1.0.0 and 1.0.1; tag `prod` -> 1.0.1. Code in `subgraph/`.

@@ -40,10 +40,22 @@ export function expirySlots(nowSec, cfg = DEFAULT_EXPIRIES) {
 
 const pad = n => String(n).padStart(2, '0');
 
-/** "28 NOV 08:00" */
-export function expiryLabel(ts) {
+/** "28 NOV 08:00" in UTC (default), or in the browser's local time when `utc` is false. */
+export function expiryLabel(ts, utc = true) {
   const d = new Date(Number(ts) * 1000);
-  return `${pad(d.getUTCDate())} ${MONTHS[d.getUTCMonth()]} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+  return utc !== false // only an explicit false means local (safe with arr.map(expiryLabel))
+    ? `${pad(d.getUTCDate())} ${MONTHS[d.getUTCMonth()]} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
+    : `${pad(d.getDate())} ${MONTHS[d.getMonth()]} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/**
+ * Time-zone tag for a moment: "UTC", "UTC+3", "UTC−9", "UTC+5:30". Local offsets are taken at that moment,
+ * so summer-time changes are handled. `offsetMin` (minutes east of UTC) can be passed for tests.
+ */
+export function zoneLabel(ts, utc = true, offsetMin = -new Date(Number(ts) * 1000).getTimezoneOffset()) {
+  if (utc !== false || offsetMin === 0) return 'UTC';
+  const a = Math.abs(offsetMin);
+  return `UTC${offsetMin > 0 ? '+' : '−'}${Math.floor(a / 60)}${a % 60 ? ':' + pad(a % 60) : ''}`;
 }
 
 /** Instrument name in exchange style: BTC-28NOV-75000-P (time added when it is not 08:00 UTC). */

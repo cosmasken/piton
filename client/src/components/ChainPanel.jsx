@@ -4,7 +4,8 @@ import { useStore } from '../store';
 import { useShallow } from 'zustand/react/shallow';
 import { Flash } from './Live';
 import { useNow } from '../useNow';
-import { expirySlots, extraExpiries, expiryLabel, strikeLadder, atmStrike, bestQuotes } from '../instruments.mjs';
+import { useTimes } from '../useTimes';
+import { expirySlots, extraExpiries, strikeLadder, atmStrike, bestQuotes } from '../instruments.mjs';
 import { poolWontFill, fmtDuration } from '../poolRules.mjs';
 import { openInterest, volume24h, inUnit, fmtUnit } from '../market.mjs';
 import { greeks, bsPrice, impliedVol } from '../greeks';
@@ -66,6 +67,7 @@ const plain = (v, tone = 'text-dim') => <td className={`px-2 py-1 text-right fon
 export default function ChainPanel() {
   const { btcPrice: spot, options, trades, poolParams, chain, selected, setSelected, fetchChain, ordersLoading } = useStore(useShallow(s => ({ btcPrice: s.btcPrice, options: s.options, trades: s.trades, poolParams: s.poolParams, chain: s.chain, selected: s.selected, setSelected: s.setSelected, fetchChain: s.fetchChain, ordersLoading: s.ordersLoading })));
   const now = useNow(30_000);
+  const times = useTimes();
   const [cols, setCols] = useState(loadCols);
   const prefUnit = useStore(s => s.settings.priceUnit);
   const [unit, setUnit] = useState(() => localStorage.getItem('piton_chain_unit') || prefUnit || 'musd');
@@ -196,12 +198,13 @@ export default function ChainPanel() {
 
   return (
     <div className="flex flex-col min-h-0 flex-1">
-      <div className="flex items-center gap-1 px-3 py-2 border-b border-border overflow-x-auto shrink-0" role="tablist" aria-label="Expiry">
+      <div className="flex items-center gap-1 px-3 py-2 border-b border-border overflow-x-auto shrink-0" role="tablist" aria-label={`Expiry, times in ${times.zone(now)}`}>
+        <span className="shrink-0 text-[9px] font-mono text-dim pr-1 leading-tight" title="Change in Settings: Times">{times.zone(now)}</span>
         {expiries.map(t => (
-          <button key={t} role="tab" aria-selected={t === expiry}
+          <button key={t} role="tab" aria-selected={t === expiry} title={times.title(t)}
             onClick={() => setSelected(selected ? { ...selected, expiry: t } : { isCall: true, strike: atm, expiry: t, side: 'buy' })}
             className={`shrink-0 px-2.5 py-1 rounded text-[11px] font-mono leading-tight text-left transition-colors ${t === expiry ? 'bg-accent/15 text-accent' : 'text-dim hover:text-text'}`}>
-            <div>{expiryLabel(t)}</div>
+            <div>{times.label(t)}</div>
             <div className="text-[9px] opacity-70">{fmtDuration(t - now).replace(/ \d+s$/, '')}</div>
           </button>
         ))}

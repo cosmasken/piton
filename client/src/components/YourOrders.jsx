@@ -13,6 +13,7 @@ import { breakEven, maxGain, maxLoss, PROTOCOL_FEE_BPS } from '../payoff.mjs';
 import { livePositions, realisedPnl, toCsv } from '../portfolio.mjs';
 import { SkeletonRow } from './Skeleton';
 import PayoffChart from './PayoffChart';
+import { useTimes } from '../useTimes';
 
 const fmtE = v => v == null ? 0 : parseFloat(ethers.formatEther(v));
 const money = (v, d = 2) => v == null || Number.isNaN(v) ? '—' : v.toLocaleString('en-US', { maximumFractionDigits: d });
@@ -33,6 +34,7 @@ function StatusBadge({ o, live }) {
 
 function OptionRow({ o, account, spot, iv, poolContract, refresh }) {
   const exp    = useCountdown(o.expiry);
+  const times  = useTimes();
   const isCall = o.optionType === 0n;
   const isLong = o.long?.toLowerCase() === account?.toLowerCase();
   const now    = Math.floor(Date.now() / 1000);
@@ -89,7 +91,7 @@ function OptionRow({ o, account, spot, iv, poolContract, refresh }) {
   return (
     <>
       <tr className="border-b border-border hover:bg-surface/50 transition-colors cursor-pointer" onClick={() => setOpen(v => !v)} aria-expanded={open}>
-        <td className="px-3 py-2.5 font-mono text-[11px]"><span className={isCall ? 'text-accent' : 'text-red'}>{name.replace('BTC-', '')}</span></td>
+        <td className="px-3 py-2.5 font-mono text-[11px]"><span className={isCall ? 'text-accent' : 'text-red'} title={`${times.title(Number(o.expiry))} (names use UTC)`}>{name.replace('BTC-', '')}</span></td>
         <td className="px-3 py-2.5 text-xs text-dim">{isLong ? 'Long' : 'Short'}</td>
         <td className="px-3 py-2.5 font-mono text-xs">{money(qty, 4)}</td>
         <td className="px-3 py-2.5 font-mono text-xs text-dim">{money(premium / qty, 1)}</td>
@@ -97,7 +99,7 @@ function OptionRow({ o, account, spot, iv, poolContract, refresh }) {
         <td className="px-3 py-2.5 font-mono text-xs">
           {pnl != null ? <Flash value={Math.round(pnl * 100)} className={`px-0.5 ${pnl >= 0 ? 'text-accent' : 'text-red'}`}>{signed(pnl)}</Flash> : <StatusBadge o={o} live={live} />}
         </td>
-        <td className="px-3 py-2.5 font-mono text-xs">{o.status === STATUS.SETTLED || o.status === STATUS.REFUNDED || o.status === STATUS.CLOSED ? '—' : exp}</td>
+        <td className="px-3 py-2.5 font-mono text-xs">{o.status === STATUS.SETTLED || o.status === STATUS.REFUNDED || o.status === STATUS.CLOSED ? '—' : <span title={times.full(Number(o.expiry))}>{exp}</span>}</td>
         <td className="px-3 py-2.5 whitespace-nowrap" onClick={e => e.stopPropagation()}>
           {loading && <span className="w-3 h-3 border border-accent border-t-transparent rounded-full animate-spin inline-block" />}
           {!loading && canAuto && auto !== null && (
@@ -140,7 +142,6 @@ function OptionRow({ o, account, spot, iv, poolContract, refresh }) {
 
 const KIND = { ORDER: 'Order placed', FILL: 'Bought / filled', EXERCISE: 'Exercised', REFUND: 'Expired / refunded', SELL_BACK: 'Sold back', CANCEL: 'Cancelled', DEPOSIT: 'Pool deposit', WITHDRAW: 'Pool withdrawal' };
 const optName = o => (o ? instrumentName({ isCall: o.optionType === 'CALL', strike: Number(o.strike), expiry: Number(o.expiry) }).replace('BTC-', '') : '');
-const when = t => new Date(Number(t) * 1000).toISOString().slice(5, 16).replace('T', ' ');
 
 /** Portfolio greeks and money totals for live positions. */
 function Totals({ t }) {
@@ -161,6 +162,7 @@ function Totals({ t }) {
 /** Wallet activity from the subgraph: every order, fill, exercise, sell-back, refund, cancel, deposit and withdrawal. */
 function HistoryTab({ history, account, network, unrealised }) {
   const realised = useMemo(() => realisedPnl(history.ended, account), [history, account]);
+  const times = useTimes();
   const pnlById = useMemo(() => Object.fromEntries(realised.rows.map(r => [r.id, r.pnl])), [realised]);
   const rows = history.activities;
   const exportCsv = () => {
@@ -183,14 +185,14 @@ function HistoryTab({ history, account, network, unrealised }) {
       {!rows.length ? <div className="flex items-center justify-center h-16 text-dim text-xs">No activity yet</div> : (
         <table className="w-full text-xs min-w-[640px]">
           <thead className="sticky top-0 bg-bg"><tr className="border-b border-border">
-            {['Time (UTC)', 'Action', 'Option', 'Amount', 'Realised', ''].map(h => <th key={h} className="text-left px-3 py-2 text-[10px] uppercase tracking-wider text-dim">{h}</th>)}
+            {[`Time (${times.zone(Date.now() / 1000)})`, 'Action', 'Option', 'Amount', 'Realised', ''].map(h => <th key={h} className="text-left px-3 py-2 text-[10px] uppercase tracking-wider text-dim">{h}</th>)}
           </tr></thead>
           <tbody>
             {rows.map(a => {
               const pnl = ['EXERCISE', 'SELL_BACK', 'REFUND'].includes(a.kind) && a.option ? pnlById[a.option.id] : null;
               return (
                 <tr key={a.id} className="border-b border-border hover:bg-surface/50">
-                  <td className="px-3 py-2 font-mono text-dim">{when(a.timestamp)}</td>
+                  <td className="px-3 py-2 font-mono text-dim">{times.label(Number(a.timestamp))}</td>
                   <td className="px-3 py-2">{KIND[a.kind] || a.kind}</td>
                   <td className="px-3 py-2 font-mono">{a.option ? <span className={a.option.optionType === 'CALL' ? 'text-accent' : 'text-red'}>{optName(a.option)}</span> : '—'}</td>
                   <td className="px-3 py-2 font-mono">{money(Number(a.amount))}{a.shares != null && Number(a.shares) > 0 ? <span className="text-dim"> · {money(Number(a.shares))} yMUSD</span> : ''}</td>

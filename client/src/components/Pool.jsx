@@ -8,7 +8,7 @@ import { parseTxError } from '../txUtils';
 import { useNow } from '../useNow';
 import Modal from './Modal';
 import { lpPosition, poolExposure } from '../portfolio.mjs';
-import { expiryLabel } from '../instruments.mjs';
+import { useTimes } from '../useTimes';
 import { getNetwork } from '../network.mjs';
 import { fmtDuration, lockRemaining, breakerActive, withdrawEstimate } from '../poolRules.mjs';
 
@@ -105,6 +105,7 @@ function YourPosition({ shares, shareValue, history, account, p, musdBalance }) 
 /** What the pool has sold and how much collateral each expiry and strike ties up. */
 function ExposureModal({ options, p, network, onClose }) {
   const now = Math.floor(Date.now() / 1000);
+  const times = useTimes();
   const x = poolExposure(options, getNetwork(network).addresses.pool, now);
   const exps = Object.entries(x.byExpiry).sort((a, b) => a[0] - b[0]);
   const strikes = Object.entries(x.byStrike).sort((a, b) => a[0] - b[0]);
@@ -117,7 +118,7 @@ function ExposureModal({ options, p, network, onClose }) {
           <div>
             <p className="text-[10px] uppercase tracking-wider text-dim mb-1">By expiry</p>
             <table className="w-full font-mono"><tbody>
-              {exps.map(([t, v]) => <tr key={t} className="border-b border-border/50"><td className="py-1">{expiryLabel(Number(t))}</td><td className="text-right">{v.count} options</td><td className="text-right">{nf(v.qty, 4)} BTC</td><td className="text-right">{nf(v.collateral)} MUSD</td></tr>)}
+              {exps.map(([t, v]) => <tr key={t} className="border-b border-border/50"><td className="py-1">{times.full(Number(t))}</td><td className="text-right">{v.count} options</td><td className="text-right">{nf(v.qty, 4)} BTC</td><td className="text-right">{nf(v.collateral)} MUSD</td></tr>)}
             </tbody></table>
           </div>
           <div>
@@ -144,6 +145,7 @@ export default function Pool() {
     refresh, history, options, account, network,
   } = useStore(useShallow(s => ({ history: s.history, options: s.options, account: s.account, network: s.network, poolContract: s.poolContract, musdContract: s.musdContract, chainId: s.chainId, musdBalance: s.musdBalance, ymusdBalance: s.ymusdBalance, poolTotalAssets: s.poolTotalAssets, poolLocked: s.poolLocked, poolUtilisation: s.poolUtilisation, poolShareValue: s.poolShareValue, poolParams: s.poolParams, lockExpiry: s.lockExpiry, musdRaw: s.musdRaw, ymusdRaw: s.ymusdRaw, refresh: s.refresh })));
 
+  const times = useTimes();
   const [tab,     setTab]     = useState('deposit');
   const [amount,  setAmount]  = useState('');
   const [loading, setLoading] = useState(false);
@@ -185,7 +187,7 @@ export default function Pool() {
   const blocked = tab === 'withdraw'
     ? (locked > 0 ? `Your deposit is locked for another ${fmtDuration(locked)}.`
       : ymusdBalance !== '—' && amt > parseFloat(ymusdRaw) ? `You only have ${ymusdBalance} yMUSD.` : null)
-    : (breaker ? `Deposits are paused until ${new Date(poolParams.cbUntil * 1000).toLocaleTimeString()} after a fast price move.`
+    : (breaker ? `Deposits are paused until ${times.clock(poolParams.cbUntil)} after a fast price move.`
       : musdBalance !== '—' && amt > parseFloat(musdRaw) ? `You only have ${musdBalance} MUSD in this wallet.` : null);
   const canAct = amount && amt > 0 && !loading && poolContract && !blocked;
 

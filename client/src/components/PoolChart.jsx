@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { expiryLabel, zoneLabel } from '../instruments.mjs';
 import { AreaSeries, LineSeries } from 'lightweight-charts';
 import { useStore } from '../store';
 import { useShallow } from 'zustand/react/shallow';
@@ -61,7 +62,7 @@ export default function PoolChart({ utc }) {
       else {
         const first = share[0]?.value, last = share[share.length - 1]?.value;
         const chg = first > 0 ? (last / first - 1) * 100 : 0;
-        setNote(`share price ${first?.toFixed(4)} → ${last?.toFixed(4)} (${chg >= 0 ? '+' : ''}${chg.toFixed(3)}%) since ${new Date(rows[0].periodStart * 1000).toUTCString().slice(5, 22)} UTC. Points are added when the pool has activity; too short a history for a yield figure.`);
+        setNote(`share price ${first?.toFixed(4)} → ${last?.toFixed(4)} (${chg >= 0 ? '+' : ''}${chg.toFixed(3)}%) since ${expiryLabel(rows[0].periodStart, utc)} ${zoneLabel(rows[0].periodStart, utc)}. Points are added when the pool has activity; too short a history for a yield figure.`);
       }
     })();
     return () => { off = true; };

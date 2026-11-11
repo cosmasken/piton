@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { expiryLabel, zoneLabel } from '../instruments.mjs';
 import { LineSeries, LineType } from 'lightweight-charts';
 import { useStore } from '../store';
 import { useShallow } from 'zustand/react/shallow';
@@ -46,7 +47,7 @@ export default function VolChart({ utc }) {
       const parts = [];
       if (!sub) parts.push('subgraph unavailable: pool IV history not shown');
       else if (!steps.mid.length) parts.push('no pool IV updates yet');
-      else parts.push(`pool IV since ${new Date(steps.mid[0].time * 1000).toUTCString().slice(5, 22)} UTC (this pool's deployment)`);
+      else parts.push(`pool IV since ${expiryLabel(steps.mid[0].time, utc)} ${zoneLabel(steps.mid[0].time, utc)} (this pool's deployment)`);
       if (!dvol.length) parts.push('DVOL unavailable');
       setNote(parts.join(' · '));
     })();

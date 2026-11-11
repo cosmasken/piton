@@ -7,7 +7,7 @@ import { useStore, ADDRESSES } from '../store';
 import { useShallow } from 'zustand/react/shallow';
 import { INTERVALS, parseKlines, parseKlineMessage, fmtTime, expectedMoveCone, liquidationPrice } from '../chartMath.mjs';
 import { tickFormatter } from '../chartTheme';
-import { expiryLabel } from '../instruments.mjs';
+import { expiryLabel, zoneLabel } from '../instruments.mjs';
 import { bsPrice } from '../greeks';
 import { breakEven, PROTOCOL_FEE_BPS } from '../payoff.mjs';
 import { MCR } from '../troveProtect.mjs';
@@ -201,8 +201,8 @@ function PriceChart({ utc, interval, setIntervalKey }) {
     // the cone's first point is the latest candle; it then runs to expiry
     coneUp.setData(cone.upper); coneDn.setData(cone.lower);
     expiry.setData(ov.option ? [{ time: inst.expiry, value: 1 }] : []);
-    markers.setMarkers(ov.option && cone.upper.length ? [{ time: cone.upper[cone.upper.length - 1].time, position: 'aboveBar', color: STRIKE, shape: 'arrowDown', text: `Expiry ${expiryLabel(inst.expiry)}` }] : []);
-  }, [selected?.isCall, selected?.strike, selected?.expiry, legKey, Math.round(btcPrice / 25), midIv, ov.option, ov.cone, state, interval, candleTick]); // eslint-disable-line
+    markers.setMarkers(ov.option && cone.upper.length ? [{ time: cone.upper[cone.upper.length - 1].time, position: 'aboveBar', color: STRIKE, shape: 'arrowDown', text: `Expiry ${expiryLabel(inst.expiry, utc)}` }] : []);
+  }, [selected?.isCall, selected?.strike, selected?.expiry, legKey, Math.round(btcPrice / 25), midIv, ov.option, ov.cone, state, interval, candleTick, utc]); // eslint-disable-line
 
   // ── my open positions ──
   const positions = useMemo(() => {
@@ -316,7 +316,7 @@ function PriceChart({ utc, interval, setIntervalKey }) {
         <div ref={box} className="absolute inset-0" />
         {c && state === 'ready' && (
           <div className="absolute left-2 top-1 z-10 pointer-events-none font-mono text-[10px] text-dim">
-            {fmtTime(c.time, utc)}{utc ? ' UTC' : ''} · O <span className="text-text">{n2(c.open)}</span> H <span className="text-text">{n2(c.high)}</span> L <span className="text-text">{n2(c.low)}</span> C <span className="text-text">{n2(c.close)}</span>
+            {fmtTime(c.time, utc)} {zoneLabel(c.time, utc)} · O <span className="text-text">{n2(c.open)}</span> H <span className="text-text">{n2(c.high)}</span> L <span className="text-text">{n2(c.low)}</span> C <span className="text-text">{n2(c.close)}</span>
             {' '}<span className={chg >= 0 ? 'text-accent' : 'text-red'}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</span>
             {selected && ov.cone && <span className="block text-[9px]" style={{ color: CONE }}>- - expected move to expiry (±1σ, {(midIv * 100).toFixed(0)}% vol)</span>}
           </div>
@@ -356,10 +356,11 @@ export default function Graph() {
     return TABS.some(([k]) => k === fromUrl) ? fromUrl : localStorage.getItem('piton_chart_tab') || 'price';
   });
   const [interval, setIntervalKey] = useState(() => localStorage.getItem(IV_KEY) || '1h');
-  const [utc, setUtc] = useState(() => localStorage.getItem('piton_chart_tz') !== 'local');
+  // one app-wide setting (Settings: Times); this button is a shortcut to it
+  const utc = useStore(s => !!s.settings.utc);
+  const setSettings = useStore(s => s.setSettings);
   const [full, setFull] = useState(false);
   useEffect(() => { try { localStorage.setItem('piton_chart_tab', tab); } catch { /* ignore */ } }, [tab]);
-  useEffect(() => { try { localStorage.setItem('piton_chart_tz', utc ? 'utc' : 'local'); } catch { /* ignore */ } }, [utc]);
 
   const toggleFull = () => {
     if (document.fullscreenElement) document.exitFullscreen?.();
@@ -400,8 +401,8 @@ export default function Graph() {
               ))}
             </div>
           )}
-          <button onClick={() => setUtc(u => !u)} title="Show times in UTC (option expiries are UTC) or your local time"
-            className="text-[10px] px-2 py-0.5 rounded border border-border text-dim hover:text-text font-mono">{utc ? 'UTC' : 'Local'}</button>
+          <button onClick={() => setSettings({ utc: !utc })} title="Show all times in UTC or your local time (same as Settings: Times)"
+            className="text-[10px] px-2 py-0.5 rounded border border-border text-dim hover:text-text font-mono">{zoneLabel(Date.now() / 1000, utc)}</button>
           <button onClick={toggleFull} title={full ? 'Exit full screen (F)' : 'Full screen (F)'} aria-pressed={full} aria-label="Full screen"
             className="text-[11px] px-1.5 py-0.5 rounded border border-border text-dim hover:text-text">{full ? '⤡' : '⤢'}</button>
         </div>

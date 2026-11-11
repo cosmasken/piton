@@ -3,7 +3,8 @@ import { useStore } from '../store';
 import { useShallow } from 'zustand/react/shallow';
 import { Flash } from './Live';
 import { useNow } from '../useNow';
-import { instrumentName, expiryLabel } from '../instruments.mjs';
+import { instrumentName } from '../instruments.mjs';
+import { useTimes } from '../useTimes';
 import { instrumentStats } from '../orderForm.mjs';
 import { greeks, bsPrice, impliedVol } from '../greeks';
 
@@ -34,6 +35,7 @@ function Item({ label, children, title, tone = 'text-text' }) {
 export default function InstrumentStrip({ inst, askPerBtc }) {
   const { btcPrice: spot, options, trades, poolParams } = useStore(useShallow(s => ({ btcPrice: s.btcPrice, options: s.options, trades: s.trades, poolParams: s.poolParams })));
   const now = useNow(1000);
+  const times = useTimes();
   const secs = inst.expiry - now;
   const hours = Math.max(0, secs / 3600);
   const mid = poolParams?.iv || 0.8;
@@ -49,8 +51,8 @@ export default function InstrumentStrip({ inst, askPerBtc }) {
         <span className={`text-xs font-display font-semibold ${inst.isCall ? 'text-accent' : 'text-red'}`}>
           {inst.isCall ? 'Call' : 'Put'} ${inst.strike.toLocaleString()} <span className={`text-[10px] ${itm ? 'text-accent' : 'text-dim'}`}>{itm ? 'ITM' : 'OTM'}</span>
         </span>
-        <span className={`font-mono text-xs ${secs < 3600 ? 'text-yellow-400' : 'text-text'}`} title={`Expires ${expiryLabel(inst.expiry)} UTC`} aria-live="off">
-          {expiryLabel(inst.expiry)} · ⏱ {countdown(secs)}
+        <span className={`font-mono text-xs ${secs < 3600 ? 'text-yellow-400' : 'text-text'}`} title={`${times.title(inst.expiry)} · ${instrumentName(inst)}`} aria-live="off">
+          {times.full(inst.expiry)} · ⏱ {countdown(secs)}
         </span>
       </div>
       <div className="grid grid-cols-4 gap-x-3 gap-y-1.5">

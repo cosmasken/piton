@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { expirySlots, expiryLabel, instrumentName, instrumentId, parseInstrumentId, strikeLadder, atmStrike, bookFor, bestQuotes, extraExpiries } from './instruments.mjs';
+import { expirySlots, expiryLabel, zoneLabel, instrumentName, instrumentId, parseInstrumentId, strikeLadder, atmStrike, bookFor, bestQuotes, extraExpiries } from './instruments.mjs';
 
 const Z = '0x0000000000000000000000000000000000000000';
 const A = '0x00000000000000000000000000000000000000a1', B = '0x00000000000000000000000000000000000000b2';
@@ -90,4 +90,26 @@ test('chain quotes: best bid and ask per strike and side', () => {
 test('extra expiries: live orders on non-standard expiries stay reachable', () => {
   const opts = [mk(1, 1, 75000, 5000, A, Z, 1, 1), mk(2, 1, 75000, 6000, A, Z, 1, 1, 2n), mk(3, 1, 75000, 100, A, Z, 1, 1)];
   assert.deepEqual(extraExpiries(opts, [7000], 200), [5000]);
+});
+
+test('times: one expiry, labelled per user; names stay UTC', () => {
+  const t = Date.UTC(2026, 10, 12, 8) / 1000;                       // 12 Nov 2026 08:00 UTC
+  assert.equal(expiryLabel(t), '12 NOV 08:00');                     // default stays UTC
+  assert.equal(expiryLabel(t, true), '12 NOV 08:00');
+  assert.equal(zoneLabel(t, true, 180), 'UTC');                     // UTC mode ignores the local offset
+  assert.equal(zoneLabel(t, false, 180), 'UTC+3');
+  assert.equal(zoneLabel(t, false, 240), 'UTC+4');
+  assert.equal(zoneLabel(t, false, -540), 'UTC−9');
+  assert.equal(zoneLabel(t, false, 330), 'UTC+5:30');
+  assert.equal(zoneLabel(t, false, 0), 'UTC');
+  const tz = process.env.TZ;
+  try {
+    process.env.TZ = 'Africa/Nairobi';                              // UTC+3
+    assert.equal(expiryLabel(t, false), '12 NOV 11:00');
+    assert.equal(zoneLabel(t, false), 'UTC+3');
+    process.env.TZ = 'America/Anchorage';                           // UTC−9 in November
+    assert.equal(expiryLabel(t, false), '11 NOV 23:00');            // the day before, same moment
+    assert.equal(zoneLabel(t, false), 'UTC−9');
+    assert.equal(instrumentName({ isCall: false, strike: 74000, expiry: t }), 'BTC-12NOV-74000-P'); // not local
+  } finally { if (tz === undefined) delete process.env.TZ; else process.env.TZ = tz; }
 });
