@@ -1,133 +1,139 @@
-import React, { useState, useEffect } from 'react';
-import {
-  ComposedChart, AreaChart, LineChart,
-  Bar, Area, Line, ReferenceLine,
-  XAxis, YAxis, Tooltip, ResponsiveContainer,
-} from 'recharts';
+import React, { useEffect, useRef, useState } from 'react';
+import { createChart, CandlestickSeries, HistogramSeries, CrosshairMode, LineStyle } from 'lightweight-charts';
 import { useStore } from '../store';
+import { INTERVALS, parseKlines, parseKlineMessage, fmtTime } from '../chartMath.mjs';
 
-const INTERVALS = ['1h', '4h', '1d'];
-const TYPES = ['candle', 'line', 'area'];
+const UP = '#00ff88', DOWN = '#ff4466', GRID = '#141414', TEXT = '#6b6b6b';
+const IV_KEY = 'piton_chart_interval';
+const n0 = v => v.toLocaleString('en-US', { maximumFractionDigits: 0 });
+const n2 = v => v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-async function fetchCandles(interval) {
-  const limit = interval === '1d' ? 60 : 48;
-  const raw = await (await fetch(
-    `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${interval}&limit=${limit}`
-  )).json();
-  return raw.map(k => ({
-    t:    interval === '1d'
-            ? new Date(k[0]).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-            : new Date(k[0]).getHours() + ':00',
-    o:    parseFloat(k[1]),
-    h:    parseFloat(k[2]),
-    l:    parseFloat(k[3]),
-    c:    parseFloat(k[4]),
-    v:    parseFloat(k[5]),
-    bull: parseFloat(k[4]) >= parseFloat(k[1]),
-  }));
-}
-
-const axisProps = {
-  tick: { fill: '#3a5a3a', fontSize: 10 },
-  axisLine: false, tickLine: false,
-};
-const tooltipStyle = {
-  contentStyle: { background: '#0d0d0d', border: '1px solid #1a1a1a', borderRadius: 6, fontSize: 11 },
-  labelStyle: { color: '#3a5a3a' },
-};
-
-function CandleBar({ x, y, width, height, bull }) {
-  const color = bull ? '#00ff88' : '#ff4466';
-  return <rect x={x + width * 0.2} y={y} width={width * 0.6} height={Math.max(height, 1)} fill={color} />;
-}
-
+/** BTC price chart: Binance BTCUSDT candles (history over REST, live candle over websocket). */
 export default function Graph() {
   const btcPrice = useStore(s => s.btcPrice);
-  const [candles,  setCandles]  = useState([]);
-  const [type,     setType]     = useState('candle');
-  const [interval, setInterval] = useState('1h');
-  const [loading,  setLoading]  = useState(true);
+  const box = useRef(null);
+  const chartRef = useRef(null);
+  const series = useRef({});
+  const oracleLine = useRef(null);
+  const lastCandle = useRef(null);
+  const [interval, setIntervalKey] = useState(() => localStorage.getItem(IV_KEY) || '1h');
+  const [state, setState] = useState('loading'); // loading | ready | error
+  const [legend, setLegend] = useState(null);
+  const [live, setLive] = useState(false);
+  const [reload, setReload] = useState(0);
 
+  const iv = INTERVALS.find(i => i.key === interval) || INTERVALS[2];
+
+  // create the chart once
   useEffect(() => {
-    setLoading(true);
-    fetchCandles(interval).then(setCandles).catch(() => {}).finally(() => setLoading(false));
-  }, [interval]);
+    const chart = createChart(box.current, {
+      autoSize: true,
+      layout: { background: { color: 'transparent' }, textColor: TEXT, fontFamily: 'IBM Plex Mono, monospace', fontSize: 10, attributionLogo: true },
+      grid: { vertLines: { color: GRID }, horzLines: { color: GRID } },
+      crosshair: { mode: CrosshairMode.Normal },
+      rightPriceScale: { borderColor: '#1a1a1a' },
+      timeScale: { borderColor: '#1a1a1a', timeVisible: true, secondsVisible: false, rightOffset: 6 },
+      localization: { priceFormatter: p => n0(p), timeFormatter: t => fmtTime(t, false) },
+    });
+    const candles = chart.addSeries(CandlestickSeries, {
+      upColor: UP, downColor: DOWN, borderUpColor: UP, borderDownColor: DOWN, wickUpColor: UP, wickDownColor: DOWN,
+      priceLineVisible: false,
+    });
+    const volume = chart.addSeries(HistogramSeries, { priceScaleId: 'vol', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
+    chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 }, visible: false });
+    series.current = { candles, volume };
+    chartRef.current = chart;
 
-  const tickInterval = interval === '1d' ? 9 : 7;
-  const yFmt = v => `$${(v / 1000).toFixed(0)}k`;
+    chart.subscribeCrosshairMove(param => {
+      const c = param?.seriesData?.get(candles);
+      setLegend(c && param.time ? { ...c, time: param.time } : null);
+    });
+    return () => { chart.remove(); chartRef.current = null; };
+  }, []);
 
-  const candleData = candles.map(c => ({ t: c.t, bull: c.bull, body: [Math.min(c.o, c.c), Math.max(c.o, c.c)], v: c.v }));
-  const lineData   = candles.map(c => ({ t: c.t, price: c.c, v: c.v }));
+  // history for the chosen interval, then a live candle from the websocket
+  useEffect(() => {
+    try { localStorage.setItem(IV_KEY, interval); } catch { /* ignore */ }
+    let off = false, ws = null, retry = null, backoff = 1000;
+    setState('loading'); setLive(false);
+    const { candles, volume } = series.current;
+    const toVol = c => ({ time: c.time, value: c.volume, color: c.close >= c.open ? 'rgba(0,255,136,0.25)' : 'rgba(255,68,102,0.25)' });
 
-  // volume domain: max 30% of chart height
-  const maxVol = Math.max(...candles.map(c => c.v), 1);
+    const connect = () => {
+      ws = new WebSocket(`wss://stream.binance.com:9443/ws/btcusdt@kline_${iv.binance}`);
+      ws.onopen = () => { backoff = 1000; if (!off) setLive(true); };
+      ws.onmessage = ev => {
+        const c = parseKlineMessage(JSON.parse(ev.data));
+        if (!c || off) return;
+        if (lastCandle.current && c.time < lastCandle.current.time) return; // stale message
+        candles.update(c); volume.update(toVol(c)); lastCandle.current = c;
+      };
+      ws.onclose = () => { if (off) return; setLive(false); retry = setTimeout(connect, backoff); backoff = Math.min(backoff * 2, 30000); };
+    };
 
-  const sharedProps = { margin: { top: 4, right: 4, bottom: 0, left: 0 } };
-  const xAxis = <XAxis dataKey="t" {...axisProps} interval={tickInterval} />;
-  const yAxis = <YAxis yAxisId="price" domain={['auto', 'auto']} {...axisProps} width={60} tickFormatter={yFmt} />;
-  const volAxis = <YAxis yAxisId="vol" orientation="right" domain={[0, maxVol * 4]} hide />;
-  const priceRef = btcPrice ? <ReferenceLine yAxisId="price" y={btcPrice} stroke="#3a5a3a" strokeDasharray="3 3" label={{ value: `$${btcPrice.toLocaleString('en-US',{maximumFractionDigits:0})}`, fill: '#3a5a3a', fontSize: 9, position: 'insideTopRight' }} /> : null;
+    (async () => {
+      try {
+        const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${iv.binance}&limit=${iv.limit}`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = parseKlines(await r.json());
+        if (off) return;
+        if (!data.length) throw new Error('no data');
+        candles.setData(data); volume.setData(data.map(toVol));
+        lastCandle.current = data[data.length - 1];
+        // open on the latest ~120 candles; older history is a scroll/zoom away
+        chartRef.current?.timeScale().setVisibleLogicalRange({ from: Math.max(0, data.length - 120), to: data.length + 6 });
+        setState('ready');
+        connect();
+      } catch { if (!off) setState('error'); }
+    })();
+    return () => { off = true; clearTimeout(retry); if (ws) { ws.onclose = null; ws.close(); } };
+  }, [interval, reload]); // eslint-disable-line
+
+  // settlement price (Skip oracle) as a labelled line; the candles are an exchange price
+  useEffect(() => {
+    const s = series.current.candles;
+    if (!s || !btcPrice) return;
+    const opts = { price: btcPrice, color: '#e0ffe0', lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: true, title: 'Skip' };
+    if (oracleLine.current) oracleLine.current.applyOptions(opts);
+    else oracleLine.current = s.createPriceLine(opts);
+  }, [btcPrice]);
+
+  const c = legend || lastCandle.current;
+  const chg = c ? (c.close - c.open) / c.open * 100 : null;
 
   return (
     <div className="panel flex-1 min-h-0 flex flex-col">
-      <div className="panel-header flex items-center justify-between">
-        <span>BTC / USD</span>
+      <div className="panel-header flex items-center justify-between gap-2 flex-wrap">
+        <span className="normal-case tracking-normal">
+          <span className="uppercase tracking-widest">BTC / USD</span>
+          <span className="ml-2 text-[10px] text-dim">candles: Binance BTCUSDT · settlement: Skip oracle{btcPrice ? ` $${n0(btcPrice)}` : ''}</span>
+        </span>
         <div className="flex items-center gap-2">
-          <div className="flex gap-0.5">
-            {INTERVALS.map(iv => (
-              <button key={iv} onClick={() => setInterval(iv)}
-                className={`text-[10px] px-2 py-0.5 rounded font-mono transition-colors ${interval === iv ? 'bg-surface text-text' : 'text-dim hover:text-text'}`}>{iv}</button>
-            ))}
-          </div>
-          <div className="flex gap-0.5">
-            {TYPES.map(t => (
-              <button key={t} onClick={() => setType(t)}
-                className={`text-[10px] px-2 py-0.5 rounded font-mono capitalize transition-colors ${type === t ? 'bg-surface text-text' : 'text-dim hover:text-text'}`}>{t}</button>
+          <span className={`text-[10px] font-mono ${live ? 'text-accent' : 'text-dim'}`} title={live ? 'Live candle via Binance websocket' : 'Live feed not connected'}>{live ? '● live' : '○'}</span>
+          <div className="flex gap-0.5" role="group" aria-label="Interval">
+            {INTERVALS.map(i => (
+              <button key={i.key} onClick={() => setIntervalKey(i.key)} aria-pressed={interval === i.key}
+                className={`text-[10px] px-2 py-0.5 rounded font-mono transition-colors ${interval === i.key ? 'bg-surface text-text' : 'text-dim hover:text-text'}`}>{i.key}</button>
             ))}
           </div>
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 p-2">
-        {loading ? (
-          <div className="flex items-center justify-center h-full text-dim text-xs">Loading…</div>
-        ) : (
-          <ResponsiveContainer width="100%" height="100%">
-            {type === 'candle' ? (
-              <ComposedChart data={candleData} {...sharedProps}>
-                {xAxis}{yAxis}{volAxis}
-                <Tooltip {...tooltipStyle}
-                  formatter={(val, name) => name === 'body' ? [`$${val[0].toFixed(0)} – $${val[1].toFixed(0)}`, 'Body'] : name === 'v' ? [val.toFixed(0), 'Vol'] : null} />
-                <Bar yAxisId="vol" dataKey="v" fill="#1a2a1a" radius={[1,1,0,0]} />
-                <Bar yAxisId="price" dataKey="body" shape={<CandleBar />}>
-                  {candleData.map((d, i) => <rect key={i} fill={d.bull ? '#00ff88' : '#ff4466'} />)}
-                </Bar>
-                {priceRef}
-              </ComposedChart>
-            ) : type === 'line' ? (
-              <ComposedChart data={lineData} {...sharedProps}>
-                {xAxis}{yAxis}{volAxis}
-                <Tooltip {...tooltipStyle} formatter={(v, n) => n === 'price' ? [`$${v.toFixed(0)}`, 'Price'] : [v.toFixed(0), 'Vol']} />
-                <Bar yAxisId="vol" dataKey="v" fill="#1a2a1a" radius={[1,1,0,0]} />
-                <Line yAxisId="price" type="monotone" dataKey="price" dot={false} strokeWidth={1.5} stroke="#00ff88" />
-                {priceRef}
-              </ComposedChart>
-            ) : (
-              <ComposedChart data={lineData} {...sharedProps}>
-                <defs>
-                  <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#00ff88" stopOpacity={0.15} />
-                    <stop offset="95%" stopColor="#00ff88" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                {xAxis}{yAxis}{volAxis}
-                <Tooltip {...tooltipStyle} formatter={(v, n) => n === 'price' ? [`$${v.toFixed(0)}`, 'Price'] : [v.toFixed(0), 'Vol']} />
-                <Bar yAxisId="vol" dataKey="v" fill="#1a2a1a" radius={[1,1,0,0]} />
-                <Area yAxisId="price" type="monotone" dataKey="price" dot={false} strokeWidth={1.5} stroke="#00ff88" fill="url(#areaGrad)" />
-                {priceRef}
-              </ComposedChart>
-            )}
-          </ResponsiveContainer>
+      <div className="relative flex-1 min-h-0">
+        <div ref={box} className="absolute inset-0" />
+        {c && state === 'ready' && (
+          <div className="absolute left-2 top-1 z-10 pointer-events-none font-mono text-[10px] text-dim">
+            {fmtTime(c.time, false)} · O <span className="text-text">{n2(c.open)}</span> H <span className="text-text">{n2(c.high)}</span> L <span className="text-text">{n2(c.low)}</span> C <span className="text-text">{n2(c.close)}</span>
+            {' '}<span className={chg >= 0 ? 'text-accent' : 'text-red'}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</span>
+          </div>
+        )}
+        {state === 'loading' && <div className="absolute inset-0 flex items-center justify-center text-dim text-xs">Loading candles…</div>}
+        {state === 'error' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-dim text-xs text-center px-6">
+            <span>Couldn't load BTC candles from Binance (it may be blocked in your region).</span>
+            <span>Settlement still uses the Skip oracle{btcPrice ? `: $${n0(btcPrice)}` : ''}.</span>
+            <button onClick={() => setReload(r => r + 1)} className="text-accent mt-1">Retry</button>
+          </div>
         )}
       </div>
     </div>

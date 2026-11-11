@@ -10,7 +10,7 @@
     "compile": "hardhat compile",
     "test": "hardhat test test/OptionPool.test.js",
     "test:all": "hardhat test",
-    "test:client": "node --test client/src/troveProtect.test.mjs client/src/network.test.mjs client/src/poolRules.test.mjs client/src/instruments.test.mjs client/src/payoff.test.mjs client/src/market.test.mjs client/src/orderForm.test.mjs",
+    "test:client": "node --test client/src/troveProtect.test.mjs client/src/network.test.mjs client/src/poolRules.test.mjs client/src/instruments.test.mjs client/src/payoff.test.mjs client/src/market.test.mjs client/src/orderForm.test.mjs client/src/chartMath.test.mjs",
     "deploy:testnet": "hardhat run scripts/deployV2.js --network matsnet",
     "deploy:mainnet": "hardhat run scripts/deployV2.js --network mainnet",
     "health:testnet": "hardhat run scripts/health.js --network matsnet",
