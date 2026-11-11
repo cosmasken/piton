@@ -10,7 +10,6 @@ Where the project stands, and what to pick up next. Read this first when resumin
   - Seeded with 2,500 MUSD by the deployer `0x09aB…6D06`; IV 40%.
   - `minPoolExpiry` is 900 s on testnet (default 3600).
   - The IV keeper `0xdE33…7948` is authorised.
-  - One small test put (0.002 BTC) was left open; it expires about 2 hours after deploy and can be refunded by anyone.
 - **Site:** https://piton.surge.sh, pointing at the deployment above.
 - **Older pools:** emptied. Balances under 20 MUSD are ignored by agreement.
 - **Tests:** Hardhat 158, Foundry 16 (invariants and fuzz), client 33, all passing.
@@ -45,9 +44,11 @@ Where the project stands, and what to pick up next. Read this first when resumin
 
 ## Waiting on the user
 - **Manual testing:** run [WALKTHROUGH.md](WALKTHROUGH.md) and report back step by step.
-- **Step 11 (auto-exercise) needs the keeper running first.** Before the user starts it:
-  - run `JOBS=iv,exercise,refund,poke node scripts/ops.js` locally, or
-  - push it to the VPS with `scripts/push-ops-vps.sh`.
+- **Keeper is running on the VPS** (11 Nov 2026) under pm2 as `piton-ops`, jobs `iv,exercise,refund,poke` (no demo bot).
+  - Verified on-chain: it refunded the expired test option #1 and poked the circuit breaker.
+  - Login is `septem@173.249.33.115` with a password (no local SSH key is authorised); `scripts/push-ops-vps.sh` asks once.
+  - Logs: `ssh septem@173.249.33.115 'pm2 logs piton-ops'`. Keeper gas: about 0.005 BTC; check it weekly.
+  - Step 11 of the walkthrough (auto-exercise) can now be run.
 
 ## Next tasks, in suggested order
 1. **Fix whatever the walkthrough finds.** Known gap to confirm: the trade form does not warn before signing when the size
