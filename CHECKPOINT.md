@@ -61,8 +61,13 @@ Where the project stands, and what to pick up next. Read this first when resumin
 ## URGENT: retired V1 bot still running on the VPS
 - pm2 process `piton-bot` (the V1 bot.js) is still trading against the dead V1 CallOption/PutOption contracts
   (0xaDaf…09CD, 0x233f…5033) and has spent nearly all of the 150 MUSD given to bot wallets 1-3 on 10 Nov.
-- Fix: run `./scripts/push-ops-vps.sh` (it now deletes `piton-bot`), or `ssh septem@173.249.33.115 'pm2 delete piton-bot && pm2 save'`.
-- Then refund the bot wallets before enabling the V2 demo bot: `JOBS=iv,exercise,refund,poke,bot ./scripts/push-ops-vps.sh`.
+- V1 funds (11 Nov): ~765 MUSD in the four V1 contracts, all bot-to-bot. ~231 recoverable at once (76 open orders to
+  close, 22 expired to refund); ~496 locked in 44 live options expiring by 25 Nov.
+- Fix, in one guided run (user, VPS password once): `./scripts/vps-switch-bots.sh`. It stops `piton-bot`, checks on-chain
+  that bot wallets stopped, runs `scripts/recover.js` (dry run, then real), funds V2 bots 1-3 (BOT_MUSD, default 40),
+  and deploys keeper + `v1refund` (hourly refunds of expired V1 options, so the locked ~496 returns automatically) + bot.
+- After that, check `node scripts/v1status.js` occasionally until "Totals still locked" is 0 (after 25 Nov), then run
+  `node scripts/recover.js` once more to sweep the bot wallets to master.
   The V2 bot now uses standard expiry slots and round strikes, and places ~1/3 resting bids (every 6 min by default).
 
 ## Waiting on the user
