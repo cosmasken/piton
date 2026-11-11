@@ -124,6 +124,42 @@ export default function ChainPanel() {
   const pick = (k, isCall, side) => setSelected({ isCall, strike: k, expiry, side });
   const isSel = (k, isCall) => selected && selected.strike === k && selected.isCall === isCall && selected.expiry === expiry;
 
+  // Keyboard trading (when not typing in a field): up/down = strike, left = call, right = put,
+  // B = buy, S = sell, Enter = review the order in the trade form.
+  const keyState = useRef({});
+  keyState.current = { selected, strikes, expiry, atm };
+  useEffect(() => {
+    const onKey = e => {
+      const t = e.target;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      if (e.ctrlKey || e.metaKey || e.altKey || document.querySelector('[role="dialog"], .fixed.inset-0')) return; // not while a dialog is open
+      const { selected: sel, strikes: ks, expiry: ex, atm: a } = keyState.current;
+      if (!ks.length) return;
+      const cur = sel && sel.expiry === ex ? sel : { isCall: true, strike: a, expiry: ex, side: 'buy' };
+      const i = Math.max(0, ks.indexOf(cur.strike));
+      let next = null;
+      if (e.key === 'ArrowUp') next = { ...cur, strike: ks[Math.max(0, i - 1)] };
+      else if (e.key === 'ArrowDown') next = { ...cur, strike: ks[Math.min(ks.length - 1, i + 1)] };
+      else if (e.key === 'ArrowLeft') next = { ...cur, isCall: true };
+      else if (e.key === 'ArrowRight') next = { ...cur, isCall: false };
+      else if (e.key === 'b' || e.key === 'B') next = { ...cur, side: 'buy' };
+      else if (e.key === 's' || e.key === 'S') next = { ...cur, side: 'sell' };
+      else if (e.key === 'Enter' && sel) { e.preventDefault(); useStore.getState().requestReview(); return; }
+      if (!next) return;
+      e.preventDefault();
+      setSelected(next);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []); // eslint-disable-line
+
+  // keep the selected row visible while moving with the keyboard
+  useEffect(() => {
+    const box = scroller.current, row = box?.querySelector(`[data-strike="${selected?.strike}"]`);
+    if (!box || !row) return;
+    if (row.offsetTop < box.scrollTop + 40 || row.offsetTop > box.scrollTop + box.clientHeight - 30) box.scrollTop = row.offsetTop - box.clientHeight / 2;
+  }, [selected?.strike]);
+
   const shown = COLUMNS.filter(c => cols.includes(c.key));
   const toggle = k => setCols(c => (c.includes(k) ? (c.length > 1 ? c.filter(x => x !== k) : c) : [...c, k]));
 
@@ -217,7 +253,7 @@ export default function ChainPanel() {
             </thead>
             <tbody>
               {strikes.map(k => (
-                <tr key={k} ref={k === atm ? atmRow : null}
+                <tr key={k} ref={k === atm ? atmRow : null} data-strike={k}
                   className={`border-b border-border/50 ${k === atm ? 'border-y border-y-accent/30' : ''}`}>
                   {showCalls && sideCells(k, true).map((c, i) => <React.Fragment key={`c${i}`}>{k < spot ? React.cloneElement(c, { className: `${c.props.className || ''} bg-accent/[0.04]` }) : c}</React.Fragment>)}
                   <td className="px-2 py-1 text-center font-mono font-semibold text-text bg-surface whitespace-nowrap">{k.toLocaleString()}{k === atm && <span className="ml-1 text-[9px] text-accent">ATM</span>}</td>

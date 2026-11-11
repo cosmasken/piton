@@ -122,6 +122,9 @@ export const useStore = create((set, get) => ({
   // Pool ask prices per 1 BTC (small reference size) for the selected expiry: { expiry, at, byStrike: { [strike]: { call, put } } }
   chain: null,
   trades: [],
+  // Enter in the option chain asks the trade form to open its review dialog
+  reviewTick: 0,
+  requestReview: () => set(s => ({ reviewTick: s.reviewTick + 1 })),
   // The order currently in the trade form ({ side, isCall, strike, qty, premium, collateral }) for chart overlays
   tradeLeg: null,
   setTradeLeg: leg => set({ tradeLeg: leg }),

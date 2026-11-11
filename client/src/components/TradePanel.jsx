@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { ethers } from 'ethers';
 import { toast } from 'react-toastify';
 import { useAccount, useConnect } from 'wagmi';
@@ -125,6 +125,7 @@ export default function TradePanel() {
   const [quote, setQuote] = useState(null);         // pool price for exactly this order (total MUSD)
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(null);
+  const reviewTick = useStore(s => s.reviewTick);
 
   const inst = selected;
   const buy = side === 'buy';
@@ -173,6 +174,12 @@ export default function TradePanel() {
   useEffect(() => () => setTradeLeg(null), []); // eslint-disable-line
 
   const needWallet = !poolContract;
+  // Enter in the option chain: open the review dialog if the order is ready (connect the wallet otherwise)
+  useEffect(() => {
+    if (!reviewTick) return;
+    if (!poolContract && !isConnected) { connect({ connector: injected() }); return; }
+    if (!busy && !blockedMsgRef.current) setConfirm(true);
+  }, [reviewTick]); // eslint-disable-line
   const overCap = poolParams && collateral > poolParams.maxOptionCollateral;
   const blockedMsg = !inst ? 'Pick an option in the chain.'
     : expired ? 'This expiry has passed.'
@@ -184,6 +191,9 @@ export default function TradePanel() {
     : musdBalance !== '—' && !(side === 'sell' && marginType === 'trove')
       && (buy ? premium : collateral) > parseFloat(musdRaw)
       ? `Not enough MUSD: this needs ${fmt(buy ? premium : collateral)} and the wallet has ${musdBalance}.` : null;
+
+  const blockedMsgRef = useRef(null);
+  blockedMsgRef.current = blockedMsg;
 
   const run = async (fn, okMsg) => {
     setBusy(true);
