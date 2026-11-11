@@ -15,6 +15,7 @@ import AccountSummary from './components/AccountSummary';
 import YourOrders  from './components/YourOrders';
 import Pool        from './components/Pool';
 import MarketHeader from './components/MarketHeader';
+import ExpiryAlerts from './components/ExpiryAlerts';
 import { useNow } from './useNow';
 import { breakerActive } from './poolRules.mjs';
 
@@ -151,6 +152,7 @@ export default function Dashboard() {
       <WatchBanner />
       {live && <OracleBanner />}
       {live && <BreakerBanner />}
+      {live && <ExpiryAlerts />}
       {live && isNewUser && <OnboardingCard onDismiss={dismissOnboarding} />}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-[230px_minmax(0,1fr)_340px] gap-2 p-2 lg:overflow-hidden lg:min-h-0">
         <div className="flex flex-col gap-2 lg:overflow-y-auto lg:min-h-0">
