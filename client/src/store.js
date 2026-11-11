@@ -98,6 +98,9 @@ export const useStore = create((set, get) => ({
   // Pool ask prices per 1 BTC (small reference size) for the selected expiry: { expiry, at, byStrike: { [strike]: { call, put } } }
   chain: null,
   trades: [],
+  // The order currently in the trade form ({ side, isCall, strike, qty, premium, collateral }) for chart overlays
+  tradeLeg: null,
+  setTradeLeg: leg => set({ tradeLeg: leg }),
   // 24h market data from outside the chain: { change24hPct, high24h, low24h, dvol, at }
   market: null,
 
@@ -190,7 +193,7 @@ export const useStore = create((set, get) => ({
     const pool  = new ethers.Contract(addrs.pool,  OptionPoolABI.abi, roProvider(network));
     const ymusd = new ethers.Contract(addrs.ymusd, yMUSD_ABI.abi,    roProvider(network));
     try {
-      const [total, locked, util, supply, nav, feeBps, lockSecs, minExp, strikeBps, utilMax, expMax, cbUntil, openN, ivMid, ivAsk, premEarned, settlePaid, perfPaid, unrecog, maxColl] = await Promise.all([
+      const [total, locked, util, supply, nav, feeBps, lockSecs, minExp, strikeBps, utilMax, expMax, cbUntil, openN, ivMid, ivAsk, premEarned, settlePaid, perfPaid, unrecog, maxColl, cbRef, cbRefT, cbWin, cbMove] = await Promise.all([
         pool.totalAssets(),
         pool.lockedCollateral(),
         pool.utilisation(),
@@ -211,6 +214,10 @@ export const useStore = create((set, get) => ({
         pool.totalPerformanceFeePaid(),
         pool.unrecognizedPremium(),
         pool.maxOptionCollateral(),
+        pool.cbRefPrice(),
+        pool.cbRefTime(),
+        pool.cbWindow(),
+        pool.cbMaxMoveBps(),
       ]);
       if (get().network !== network) return; // switched network meanwhile
       // Share value is the net asset value (assets minus what open options may owe), the price shares trade at
@@ -226,7 +233,8 @@ export const useStore = create((set, get) => ({
           withdrawalFeeBps: Number(feeBps), depositLockSeconds: Number(lockSecs), minPoolExpiry: Number(minExp),
           strikeDistanceBps: Number(strikeBps), maxUtilisationBps: Number(utilMax), maxOptionExposureBps: Number(expMax),
           cbUntil: Number(cbUntil), openPoolOptions: Number(openN),
-          totalAssets: parseFloat(ethers.formatEther(total)), lockedCollateral: parseFloat(ethers.formatEther(locked)), maxOptionCollateral: parseFloat(ethers.formatEther(maxColl)),
+          totalAssets: parseFloat(ethers.formatEther(total)), lockedCollateral: parseFloat(ethers.formatEther(locked)),
+          cbRefPrice: parseFloat(ethers.formatEther(cbRef)), cbRefTime: Number(cbRefT), cbWindow: Number(cbWin), cbMaxMoveBps: Number(cbMove), maxOptionCollateral: parseFloat(ethers.formatEther(maxColl)),
           iv: parseFloat(ethers.formatEther(ivMid)), askIv: parseFloat(ethers.formatEther(ivAsk)),
           premiumsEarned: parseFloat(ethers.formatEther(premEarned)), settlementsPaid: parseFloat(ethers.formatEther(settlePaid)),
           performanceFeesPaid: parseFloat(ethers.formatEther(perfPaid)), unearnedPremium: parseFloat(ethers.formatEther(unrecog)),

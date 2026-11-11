@@ -103,7 +103,7 @@ function UnitToggle({ value, options, onChange, label }) {
 export default function TradePanel() {
   const {
     signer, account, chainId, poolContract, musdContract, btcPrice: spot, options, poolParams,
-    selected, setSelected, refresh, oracleStale, roPool, musdBalance, musdRaw,
+    selected, setSelected, refresh, oracleStale, roPool, musdBalance, musdRaw, setTradeLeg,
   } = useStore();
   const now = useNow(5000);
   const { isConnected } = useAccount();
@@ -164,6 +164,11 @@ export default function TradePanel() {
   const result = inst && q > 0 && px > 0 ? orderOutcome({ side, reasons, quote, premium, pricePerBtc: px, bestAsk: book.bestAsk, bestBid: book.bestBid }) : null;
   const poolWillFill = result?.kind === 'fills';
   const leg = inst && premium > 0 && q > 0 ? { side, isCall: inst.isCall, strike: inst.strike, qty: q, premium, collateral, feeBps: PROTOCOL_FEE_BPS } : null;
+
+  // share the order with the chart (break-even line); only when it actually changes
+  const legKey = leg ? [leg.side, leg.isCall, leg.strike, leg.qty, leg.premium.toFixed(6), leg.collateral.toFixed(6)].join('|') : '';
+  useEffect(() => { setTradeLeg(leg); }, [legKey]); // eslint-disable-line
+  useEffect(() => () => setTradeLeg(null), []); // eslint-disable-line
 
   const needWallet = !poolContract;
   const overCap = poolParams && collateral > poolParams.maxOptionCollateral;
