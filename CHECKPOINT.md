@@ -50,6 +50,21 @@ Where the project stands, and what to pick up next. Read this first when resumin
 - Not yet used for: pool share-price/yield charts and per-user history (the data is indexed; UI not built). Delete the
   unused 1.0.0 version with `goldsky subgraph delete piton-testnet/1.0.0` when convenient.
 
+## Live data (11 Nov)
+- One Multicall3 read per Mezo block (~4.2s) for oracle, pool stats and balances; pool event logs update options,
+  trades and positions within a block; chain and trade-form quotes re-read every block; Binance miniTicker for the
+  "last" price and 24h stats; polling slows to 30s and the ticker closes while the tab is hidden.
+- Mezo's RPC caps one eth_call at ~1M gas: quotePremium (~83k gas) is batched 8 per request (see client/src/multicall.js).
+- Visuals: flash on change, tick arrows, rolling totals, new trades slide in, "Chain #block · Ns ago" indicator.
+- Store subscriptions use selectors (useShallow), so per-second ticks don't re-render the whole dashboard.
+
+## URGENT: retired V1 bot still running on the VPS
+- pm2 process `piton-bot` (the V1 bot.js) is still trading against the dead V1 CallOption/PutOption contracts
+  (0xaDaf…09CD, 0x233f…5033) and has spent nearly all of the 150 MUSD given to bot wallets 1-3 on 10 Nov.
+- Fix: run `./scripts/push-ops-vps.sh` (it now deletes `piton-bot`), or `ssh septem@173.249.33.115 'pm2 delete piton-bot && pm2 save'`.
+- Then refund the bot wallets before enabling the V2 demo bot: `JOBS=iv,exercise,refund,poke,bot ./scripts/push-ops-vps.sh`.
+  The V2 bot now uses standard expiry slots and round strikes, and places ~1/3 resting bids (every 6 min by default).
+
 ## Waiting on the user
 - **Manual testing:** run [WALKTHROUGH.md](WALKTHROUGH.md) and report back step by step.
 - **Keeper is running on the VPS** (11 Nov 2026) under pm2 as `piton-ops`, jobs `iv,exercise,refund,poke` (no demo bot).
