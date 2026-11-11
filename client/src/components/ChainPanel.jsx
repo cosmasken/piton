@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { getNetwork } from '../network.mjs';
 import { useStore } from '../store';
 import { useShallow } from 'zustand/react/shallow';
 import { Flash } from './Live';
@@ -78,7 +79,8 @@ export default function ChainPanel() {
   useEffect(() => { try { localStorage.setItem(COLS_KEY, JSON.stringify(cols)); } catch { /* ignore */ } }, [cols]);
   useEffect(() => { try { localStorage.setItem('piton_chain_unit', unit); } catch { /* ignore */ } }, [unit]);
 
-  const slots = useMemo(() => expirySlots(now), [Math.floor(now / 600)]); // eslint-disable-line
+  const expCfg = useStore(s => getNetwork(s.network).expiries);
+  const slots = useMemo(() => expirySlots(now, expCfg), [Math.floor(now / 300), expCfg]); // eslint-disable-line
   const expiries = useMemo(() => [...slots, ...extraExpiries(options, slots, now)].sort((a, b) => a - b), [slots, options, now]);
   const expiry = selected?.expiry && expiries.includes(selected.expiry)
     ? selected.expiry

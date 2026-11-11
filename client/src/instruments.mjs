@@ -7,19 +7,33 @@ const HOUR = 3600, DAY = 86400;
 export const MIN_SLOT_LEAD = 65 * 60;       // slots must be a bit more than an hour away (pool needs > 15 min, default 1 h)
 export const MAX_EXPIRY_SECS = 14 * DAY;    // contract MAX_EXPIRY
 
-/** Standard expiry slots after `nowSec`: next two top-of-hour times, daily 08:00 UTC for a week, Friday 08:00 UTC to 14 days. */
-export function expirySlots(nowSec) {
+/**
+ * Expiry schedule per network (network.mjs `expiries`). Kept to four numbers on purpose:
+ *   shortEveryMin / shortCount: short slots every N minutes, the next `shortCount` of them (testnet only)
+ *   dailyDays: 08:00 UTC every day for this many days (Deribit's settlement time)
+ *   fridaysToDays: after that, Fridays at 08:00 UTC up to this many days
+ */
+export const DEFAULT_EXPIRIES = { shortEveryMin: 0, shortCount: 0, dailyDays: 7, fridaysToDays: 14 };
+export const SHORT_SLOT_LEAD = 20 * 60;     // a short slot must be at least 20 min away (contract minimum is 15 min)
+
+/** Standard expiry slots after `nowSec` for a network's schedule (sorted, unique, within the contract's 14-day limit). */
+export function expirySlots(nowSec, cfg = DEFAULT_EXPIRIES) {
+  const c = { ...DEFAULT_EXPIRIES, ...(cfg || {}) };
   const out = new Set();
-  const earliest = nowSec + MIN_SLOT_LEAD;
   const latest = nowSec + MAX_EXPIRY_SECS - HOUR;
-  let h = Math.ceil(earliest / HOUR) * HOUR;
-  for (let i = 0; i < 2; i++, h += HOUR) out.add(h);                 // intraday
+  if (c.shortEveryMin > 0 && c.shortCount > 0) {
+    const step = c.shortEveryMin * 60;
+    let t = Math.ceil((nowSec + SHORT_SLOT_LEAD) / step) * step;
+    for (let i = 0; i < c.shortCount; i++, t += step) out.add(t);
+  }
+  // daily slots need more than an hour, the pool's default minimum time to expiry
+  const earliest = nowSec + MIN_SLOT_LEAD;
   const day0 = Math.floor(nowSec / DAY) * DAY;
-  for (let d = 0; d <= 15; d++) {
+  for (let d = 0; d <= Math.ceil(c.fridaysToDays) + 1; d++) {
     const t = day0 + d * DAY + 8 * HOUR;                             // 08:00 UTC
-    if (t < earliest || t > latest) continue;
+    if (t < earliest || t > latest || t - nowSec > c.fridaysToDays * DAY) continue;
     const weekday = new Date(t * 1000).getUTCDay();                  // 5 = Friday
-    if (d <= 7 || weekday === 5) out.add(t);
+    if (d <= c.dailyDays || weekday === 5) out.add(t);              // every day for a week, then Fridays
   }
   return [...out].sort((a, b) => a - b);
 }

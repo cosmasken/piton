@@ -7,15 +7,32 @@ const A = '0x00000000000000000000000000000000000000a1', B = '0x00000000000000000
 const E = v => BigInt(Math.round(v * 1e6)) * 10n ** 12n;
 const T0 = Date.UTC(2026, 10, 10, 20, 30) / 1000; // 10 Nov 2026 20:30 UTC (Tuesday)
 
-test('expiry slots are in range, sorted, unique, and include intraday + daily', () => {
-  const s = expirySlots(T0);
+test('mainnet schedule: daily 08:00 UTC for a week, then Fridays, nothing intraday', () => {
+  const s = expirySlots(T0);                                  // default = mainnet schedule
   assert.deepEqual([...s].sort((a, b) => a - b), s);
   assert.equal(new Set(s).size, s.length);
   assert.ok(s.every(t => t >= T0 + 65 * 60 && t <= T0 + 14 * 86400));
-  assert.equal(expiryLabel(s[0]), '10 NOV 22:00');           // next full hour >= 65 min away (21:35 -> 22:00)
-  assert.ok(s.includes(Date.UTC(2026, 10, 11, 8) / 1000));    // tomorrow 08:00
+  assert.ok(s.every(t => new Date(t * 1000).getUTCHours() === 8));
+  assert.equal(expiryLabel(s[0]), '11 NOV 08:00');            // first daily slot (more than an hour away)
+  assert.ok(s.includes(Date.UTC(2026, 10, 17, 8) / 1000));    // a week out
   assert.ok(s.includes(Date.UTC(2026, 10, 20, 8) / 1000));    // Friday 20 Nov (beyond a week)
   assert.ok(!s.includes(Date.UTC(2026, 10, 19, 8) / 1000));   // Thursday 19 Nov (beyond a week, not Friday)
+  assert.equal(s.length, 8);                                  // 11..17 Nov daily + Fri 20 Nov
+});
+
+test('testnet schedule adds six 30-minute slots, the first at least 20 minutes away', () => {
+  const cfg = { shortEveryMin: 30, shortCount: 6, dailyDays: 7, fridaysToDays: 14 };
+  const s = expirySlots(T0, cfg);                             // T0 = 20:30 UTC
+  const short = s.filter(t => t < T0 + 4 * 3600);
+  assert.deepEqual(short.map(expiryLabel), ['10 NOV 21:00', '10 NOV 21:30', '10 NOV 22:00', '10 NOV 22:30', '10 NOV 23:00', '10 NOV 23:30']);
+  const atEdge = expirySlots(Date.UTC(2026, 10, 10, 20, 45) / 1000, cfg);   // 20:45: 21:00 is only 15 min away
+  assert.equal(expiryLabel(atEdge[0]), '10 NOV 21:30');
+  assert.ok(s.includes(Date.UTC(2026, 10, 11, 8) / 1000));    // daily slots still there
+});
+
+test('the daily slot under an hour away is skipped (pool minimum)', () => {
+  const s = expirySlots(Date.UTC(2026, 10, 11, 7, 30) / 1000); // 07:30 UTC
+  assert.equal(expiryLabel(s[0]), '12 NOV 08:00');
 });
 
 test('instrument names and ids round-trip', () => {

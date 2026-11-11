@@ -3,6 +3,7 @@ import { ethers } from 'ethers';
 import { toast } from 'react-toastify';
 import { useAccount, useConnect } from 'wagmi';
 import { injected } from 'wagmi/connectors';
+import { getNetwork } from '../network.mjs';
 import { useStore, ADDRESSES } from '../store';
 import { useShallow } from 'zustand/react/shallow';
 import { explorerTx } from '../network.mjs';
@@ -132,7 +133,8 @@ export default function TradePanel() {
   const q = sizeUnit === 'btc' ? parseFloat(qty) : sizeFromNotional(parseFloat(notional), spot);
   const secs = inst ? inst.expiry - now : 0;
   const expired = inst && secs <= 0;
-  const slots = useMemo(() => expirySlots(now), [Math.floor(now / 600)]); // eslint-disable-line
+  const expCfg = useStore(s => getNetwork(s.network).expiries);
+  const slots = useMemo(() => expirySlots(now, expCfg), [Math.floor(now / 300), expCfg]); // eslint-disable-line
 
   // follow the chain's choice of instrument and side
   useEffect(() => { if (inst?.side) setSide(inst.side); if (inst?.side === 'sell') setOrderType('limit'); }, [inst?.isCall, inst?.strike, inst?.expiry, inst?.side]); // eslint-disable-line
