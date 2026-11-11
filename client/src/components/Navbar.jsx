@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useAccount, useConnect, useSwitchChain } from 'wagmi';
+import { useAccount, useConnect, useSwitchChain, useDisconnect } from 'wagmi';
 import { injected } from 'wagmi/connectors';
 import { startTour } from '../tour';
 import { useStore } from '../store';
@@ -8,6 +8,8 @@ import NetworkToggle from './NetworkToggle';
 import Settings from './Settings';
 
 export default function Navbar({ onDisconnect }) {
+  const { disconnect } = useDisconnect();
+  const onDash = typeof window !== 'undefined' && window.location.pathname.startsWith('/dashboard');
   const { address, isConnected, chainId } = useAccount();
   const { connect } = useConnect();
   const { switchChain } = useSwitchChain();
@@ -24,12 +26,14 @@ export default function Navbar({ onDisconnect }) {
       </div>
       <div className="flex items-center gap-3">
         <NetworkToggle />
-        <button onClick={startTour} className="btn-ghost text-xs">Tour</button>
+        {!onDash && <a href="/dashboard" className="btn-ghost text-xs">Trade</a>}
+        <a href="/stats" className="btn-ghost text-xs">Stats</a>
+        {onDash && <button onClick={startTour} className="btn-ghost text-xs">Tour</button>}
         <button onClick={() => setSettings(true)} className="btn-ghost text-xs" aria-label="Settings" title="Settings">⚙</button>
         {isLive(net) && !isConnected && <button className="btn-primary text-xs" onClick={() => connect({ connector: injected() })}>Connect wallet</button>}
         {wrongChain && <button className="btn-primary text-xs" onClick={() => switchChain({ chainId: net.chain.id })}>Switch to {net.chain.name}</button>}
         {isConnected && <span className="font-mono text-xs text-dim">{short}</span>}
-        {isConnected && <button onClick={onDisconnect} className="btn-ghost text-xs">Disconnect</button>}
+        {isConnected && <button onClick={onDisconnect || (() => disconnect())} className="btn-ghost text-xs">Disconnect</button>}
       </div>
       {settings && <Settings onClose={() => setSettings(false)} />}
     </nav>

@@ -55,6 +55,14 @@ Anyone can browse without a wallet; connect only to trade.
 - **Order book and trades.** The selected option's resting orders sit under the trade form; all orders and recent fills have their own tabs.
 - **Positions.** Entry price, mark price, profit and loss, delta, break-even and a payoff chart per position; sell an option back to the pool, exercise a winning option, turn on auto-exercise, cancel a resting order, or refund after expiry.
 - **Closing early.** Options bought from the pool can be sold back to it at any time before expiry. The pool pays its mid-volatility value less a 10% volatility spread (it sells at mid plus 15% and a utilisation markup), so a round trip always costs a little. Exercising a winning option pays its full exercise value and is never blocked.
+- **Account and history.** The left panel sums your wallet, pool share, open positions, and open and realised P&L.
+  Positions → History lists every action (from the subgraph) with realised P&L and CSV export; open positions show
+  portfolio delta, gamma, theta and vega. A banner (and optional browser notification) warns when an option you hold
+  is in the money near expiry with auto-exercise off.
+- **Settings (⚙).** Default size, price unit, sell-back slippage, alert window, notifications. Keyboard: arrows move
+  around the chain, B / S pick the side, Enter reviews the order; 1-6 chart interval, F full-screen chart.
+- **Stats (`/stats`).** All-time volume, trades, traders and LPs, payouts and daily history, from the subgraph.
+- **Read-only view.** `?watch=0x…` shows any address's account, positions and history without connecting a wallet.
 - **Share a trade.** The address bar carries the selected option (`?i=P-74000-<expiry>`).
 - Expiries are standard slots (the next hours, daily 08:00 UTC, Fridays out to two weeks) so orders for the same option meet in one book. Prices are MUSD per 1 BTC option.
 

@@ -50,6 +50,14 @@ Where the project stands, and what to pick up next. Read this first when resumin
 - Not yet used for: pool share-price/yield charts and per-user history (the data is indexed; UI not built). Delete the
   unused 1.0.0 version with `goldsky subgraph delete piton-testnet/1.0.0` when convenient.
 
+## UI round (11 Nov, after live data)
+- Done: account summary (replaces Market + Wallet), History tab from the subgraph with realised/unrealised P&L and
+  CSV, portfolio greeks, expiry alerts + browser notifications, pool position/utilisation gauge/exposure, Settings,
+  keyboard trading, dead code removed, tour updated, bundle split (landing page ~480 KB instead of 1.6 MB; charts load
+  on demand), /stats page, read-only ?watch=0x… mode.
+- Not verified by hand: keyboard trading and the expiry banner/notification (need a browser and a near-expiry ITM position).
+- Deferred by the user: mobile layout. Blocked: MEZO options (no fresh MEZO oracle feed).
+
 ## Live data (11 Nov)
 - One Multicall3 read per Mezo block (~4.2s) for oracle, pool stats and balances; pool event logs update options,
   trades and positions within a block; chain and trade-form quotes re-read every block; Binance miniTicker for the
