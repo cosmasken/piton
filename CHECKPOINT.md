@@ -42,6 +42,14 @@ Where the project stands, and what to pick up next. Read this first when resumin
    - read-only browsing without a wallet, shareable `?i=` links
 5. Operational scripts are untracked (git-ignored `scripts/`). Private notes are in `docs/OPERATIONS.md` (also git-ignored).
 
+## Indexer
+- Goldsky subgraph `piton-testnet`, versions 1.0.0 and 1.0.1; tag `prod` -> 1.0.1. Code in `subgraph/`.
+- Verified on 11 Nov: pool totals, all 3 options, both trades, the sell-back payout and account totals match the chain.
+- The dapp's trade history (Recent trades tab, 24h volume, last trade) uses it, with a chain-log fallback.
+- After any redeploy run `npm run subgraph:deploy` (reads `deployments/matsnet.json`, which now stores `deployBlock`).
+- Not yet used for: pool share-price/yield charts and per-user history (the data is indexed; UI not built). Delete the
+  unused 1.0.0 version with `goldsky subgraph delete piton-testnet/1.0.0` when convenient.
+
 ## Waiting on the user
 - **Manual testing:** run [WALKTHROUGH.md](WALKTHROUGH.md) and report back step by step.
 - **Keeper is running on the VPS** (11 Nov 2026) under pm2 as `piton-ops`, jobs `iv,exercise,refund,poke` (no demo bot).
@@ -83,7 +91,7 @@ Where the project stands, and what to pick up next. Read this first when resumin
 8. **Later:**
    - mobile layout
    - selling back options bought from another trader (needs transferable positions)
-   - pool yield history (needs an indexer; Goldsky was deferred)
+   - pool yield history charts (data now in the subgraph)
    - ask Block Scholes about a volatility feed on Mezo
    - external audit before any mainnet launch
 

@@ -288,7 +288,7 @@ export const useStore = create((set, get) => ({
   },
 
   /**
-   * Fills from OrderFilled events over the last ~26 hours (enough for 24h volume and the trades tab).
+   * Recent fills, from the subgraph when configured. Fallback: OrderFilled events over the last ~26 hours (enough for 24h volume and the trades tab).
    * Scanned in 9,000-block chunks (the RPC rejects bigger ranges). Times are estimated from the block
    * number using the measured block time, which is accurate to seconds on Mezo's regular blocks.
    */
@@ -296,6 +296,22 @@ export const useStore = create((set, get) => ({
     const { network } = get();
     const net = getNetwork(network);
     if (!isLive(net)) { set({ trades: [] }); return; }
+    // Preferred: the subgraph (full history, one request). Falls back to scanning chain logs if it is down.
+    if (net.subgraph) {
+      try {
+        const res = await fetch(net.subgraph, {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ query: '{ trades(first: 500, orderBy: timestamp, orderDirection: desc) { id option { id } buyer { id } byPool timestamp tx } }' }),
+        });
+        const j = await res.json();
+        if (j?.data?.trades && get().network === network) {
+          set({ trades: j.data.trades.map(t => ({
+            id: BigInt(t.option.id), filler: t.buyer.id, byPool: t.byPool, time: Number(t.timestamp), tx: t.tx,
+          })) });
+          return;
+        }
+      } catch { /* fall through to the chain scan */ }
+    }
     const provider = roProvider(network);
     const pool = new ethers.Contract(net.addresses.pool, OptionPoolABI.abi, provider);
     try {

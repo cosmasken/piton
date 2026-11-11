@@ -194,6 +194,20 @@ What has to run off-chain for the protocol to work well: a keeper that sets the 
 
 ---
 
+## Indexer (Goldsky subgraph)
+
+`subgraph/` indexes the OptionPool: options with their full lifecycle, trades, per-account activity, live pool state and
+hourly/daily pool snapshots (assets, locked collateral, share price, IV, volume, payouts, deposits, withdrawals), IV
+updates and circuit-breaker trips.
+
+- Testnet endpoint (stable tag): `https://api.goldsky.com/api/public/project_cm3n60bzt1tjh01u89zk3d2n9/subgraphs/piton-testnet/prod/gn`
+- The dapp reads trade history from it and falls back to scanning chain logs if it is unavailable.
+- After a contract redeploy: `npm run subgraph:deploy`. It reads the new address and start block from
+  `deployments/matsnet.json`, deploys a new version, waits for it to sync, then moves the `prod` tag, so the dapp's URL
+  never changes. Needs `goldsky login` once and `npm install --prefix subgraph`.
+
+---
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -204,6 +218,7 @@ What has to run off-chain for the protocol to work well: a keeper that sets the 
 | Charts | Recharts |
 | Contracts | Solidity 0.8.28, Hardhat, OpenZeppelin 5 |
 | Oracle | Mezo Skip oracle (BTC/USD, every block); Deribit DVOL for IV (off-chain keeper) |
+| Indexer | Goldsky subgraph (The Graph tooling, AssemblyScript mappings) |
 | Mezo integration | TroveManager reads, BorrowerOperationsSignatures (`withdrawMUSDWithSignature`) |
 | Chain | Mezo (EVM-compatible Bitcoin L2) |
 

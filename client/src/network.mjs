@@ -23,6 +23,8 @@ export const NETWORKS = {
     isTestnet: true,
     explorer: 'https://explorer.test.mezo.org',
     faucetUrl: 'https://faucet.test.mezo.org',
+    // Goldsky subgraph (stable "prod" tag; `npm run subgraph:deploy` moves it to each new version)
+    subgraph: 'https://api.goldsky.com/api/public/project_cm3n60bzt1tjh01u89zk3d2n9/subgraphs/piton-testnet/prod/gn',
     borrowUrl: 'https://testnet.mezo.org',
     addresses: {
       pool:            '0x21F83eEcF5561AB721ec4f8E96279EC1BFCb8221',

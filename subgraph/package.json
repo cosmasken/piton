@@ -1,0 +1,15 @@
+{
+  "name": "piton-subgraph",
+  "private": true,
+  "description": "Goldsky subgraph for the Piton OptionPool (Mezo)",
+  "scripts": {
+    "prepare-manifest": "node prepare.js",
+    "codegen": "graph codegen",
+    "build": "node prepare.js && graph codegen && graph build",
+    "deploy": "node deploy.js"
+  },
+  "devDependencies": {
+    "@graphprotocol/graph-cli": "0.98.1",
+    "@graphprotocol/graph-ts": "0.38.2"
+  }
+}

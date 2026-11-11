@@ -1,0 +1,58 @@
+# Template: prepare.js fills in the network, address and start block from ../deployments/<network>.json
+# and writes subgraph.yaml (git-ignored). Do not edit subgraph.yaml by hand.
+specVersion: 1.0.0
+indexerHints:
+  prune: auto
+schema:
+  file: ./schema.graphql
+dataSources:
+  - kind: ethereum
+    name: OptionPool
+    network: {{network}}
+    source:
+      address: "{{address}}"
+      abi: OptionPool
+      startBlock: {{startBlock}}
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      entities:
+        - Option
+        - Trade
+        - Activity
+        - Account
+        - Pool
+        - PoolHourSnapshot
+        - PoolDaySnapshot
+        - IvUpdate
+        - BreakerTrip
+      abis:
+        - name: OptionPool
+          file: ./abis/OptionPool.json
+        - name: ERC20
+          file: ./abis/ERC20.json
+      eventHandlers:
+        - event: OrderCreated(indexed uint256,uint8,indexed address,bool)
+          handler: handleOrderCreated
+        - event: OrderFilled(indexed uint256,indexed address,bool)
+          handler: handleOrderFilled
+        - event: Settled(indexed uint256,indexed address,uint256)
+          handler: handleSettled
+        - event: Refunded(indexed uint256,indexed address)
+          handler: handleRefunded
+        - event: Cancelled(indexed uint256,indexed address)
+          handler: handleCancelled
+        - event: SoldBack(indexed uint256,indexed address,uint256)
+          handler: handleSoldBack
+        - event: AutoExerciseSet(indexed uint256,bool)
+          handler: handleAutoExerciseSet
+        - event: Deposited(indexed address,uint256,uint256)
+          handler: handleDeposited
+        - event: Withdrawn(indexed address,uint256,uint256)
+          handler: handleWithdrawn
+        - event: IVUpdated(uint256,indexed address)
+          handler: handleIVUpdated
+        - event: BreakerTripped(uint256,uint256,uint256)
+          handler: handleBreakerTripped
+      file: ./src/mapping.ts

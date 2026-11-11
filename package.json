@@ -20,7 +20,8 @@
     "test:mezo": "hardhat test test/mezo.integration.test.js",
     "fuzz:setup": "forge install foundry-rs/forge-std@v1.17.0 --no-git",
     "fuzz": "forge test",
-    "analyze": "./tools/static-analysis.sh"
+    "analyze": "./tools/static-analysis.sh",
+    "subgraph:deploy": "npm run deploy --prefix subgraph"
   },
   "keywords": [],
   "author": "",

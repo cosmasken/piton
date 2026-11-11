@@ -1,0 +1,140 @@
+# Piton OptionPool subgraph. Amounts are in MUSD or BTC as decimals (already divided by 1e18).
+
+enum OptionType { CALL, PUT }
+
+# OPEN = resting order, FILLED = live position, SETTLED = exercised, REFUNDED = expired,
+# CLOSED = sold back to the pool, CANCELLED = resting order withdrawn by its owner.
+enum OptionStatus { OPEN, FILLED, SETTLED, REFUNDED, CLOSED, CANCELLED }
+
+enum ActivityKind { ORDER, FILL, EXERCISE, REFUND, SELL_BACK, CANCEL, DEPOSIT, WITHDRAW }
+
+type Option @entity(immutable: false) {
+  id: ID!                        # option id in the contract
+  optionType: OptionType!
+  strike: BigDecimal!            # MUSD per BTC
+  quantity: BigDecimal!          # BTC
+  premium: BigDecimal!           # MUSD, total
+  expiry: BigInt!                # unix seconds
+  collateral: BigDecimal!        # MUSD locked
+  status: OptionStatus!
+  isLongOrder: Boolean!          # created by a buyer (true) or a seller (false)
+  creator: Account!
+  long: Account
+  short: Bytes                   # seller address (the pool's own address for pool sales)
+  filledByPool: Boolean!
+  autoExercise: Boolean!
+  payout: BigDecimal!            # MUSD paid to the long (exercise or sell-back)
+  createdAt: BigInt!
+  filledAt: BigInt
+  closedAt: BigInt
+  createdTx: Bytes!
+  trades: [Trade!]! @derivedFrom(field: "option")
+}
+
+type Trade @entity(immutable: true) {
+  id: ID!                        # tx hash - log index
+  option: Option!
+  optionType: OptionType!
+  strike: BigDecimal!
+  expiry: BigInt!
+  quantity: BigDecimal!
+  premium: BigDecimal!
+  pricePerBtc: BigDecimal!
+  buyer: Account!
+  seller: Bytes!
+  byPool: Boolean!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+  tx: Bytes!
+}
+
+type Activity @entity(immutable: true) {
+  id: ID!                        # tx hash - log index
+  kind: ActivityKind!
+  account: Account!
+  option: Option
+  amount: BigDecimal!            # MUSD moved (premium, payout, deposit, withdrawal)
+  shares: BigDecimal             # yMUSD, for deposits and withdrawals
+  timestamp: BigInt!
+  tx: Bytes!
+}
+
+type Account @entity(immutable: false) {
+  id: ID!                        # address
+  deposited: BigDecimal!
+  withdrawn: BigDecimal!
+  premiumPaid: BigDecimal!
+  payoutsReceived: BigDecimal!
+  tradeCount: Int!
+  activity: [Activity!]! @derivedFrom(field: "account")
+  optionsHeld: [Option!]! @derivedFrom(field: "long")
+}
+
+# Singleton (id "pool"): pool state after the most recent event, plus running totals.
+type Pool @entity(immutable: false) {
+  id: ID!
+  address: Bytes!
+  totalAssets: BigDecimal!
+  lockedCollateral: BigDecimal!
+  netAssetValue: BigDecimal!
+  shareSupply: BigDecimal!
+  sharePrice: BigDecimal!
+  iv: BigDecimal!
+  openPoolOptions: Int!
+  tradeCount: Int!
+  volumeQuantity: BigDecimal!
+  volumePremium: BigDecimal!
+  payouts: BigDecimal!
+  breakerTrips: Int!
+  updatedAt: BigInt!
+}
+
+# One per hour / per day (id = start of period, unix seconds). State at the period's last event.
+type PoolHourSnapshot @entity(immutable: false) {
+  id: ID!
+  periodStart: BigInt!
+  totalAssets: BigDecimal!
+  lockedCollateral: BigDecimal!
+  netAssetValue: BigDecimal!
+  sharePrice: BigDecimal!
+  iv: BigDecimal!
+  trades: Int!
+  volumeQuantity: BigDecimal!
+  volumePremium: BigDecimal!
+  payouts: BigDecimal!
+  deposits: BigDecimal!
+  withdrawals: BigDecimal!
+}
+
+type PoolDaySnapshot @entity(immutable: false) {
+  id: ID!
+  periodStart: BigInt!
+  totalAssets: BigDecimal!
+  lockedCollateral: BigDecimal!
+  netAssetValue: BigDecimal!
+  sharePrice: BigDecimal!
+  iv: BigDecimal!
+  trades: Int!
+  volumeQuantity: BigDecimal!
+  volumePremium: BigDecimal!
+  payouts: BigDecimal!
+  deposits: BigDecimal!
+  withdrawals: BigDecimal!
+}
+
+type IvUpdate @entity(immutable: true) {
+  id: ID!
+  iv: BigDecimal!
+  by: Bytes!
+  timestamp: BigInt!
+  tx: Bytes!
+}
+
+type BreakerTrip @entity(immutable: true) {
+  id: ID!
+  price: BigDecimal!
+  refPrice: BigDecimal!
+  until: BigInt!
+  timestamp: BigInt!
+  tx: Bytes!
+}
