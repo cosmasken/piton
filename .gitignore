@@ -51,3 +51,7 @@ scripts/
 
 # client build output (regenerate with: npm run build --prefix client)
 /client/dist
+
+# Pitch deck: published to the site (piton.surge.sh/deck) but never committed
+deck/
+client/public/deck/
