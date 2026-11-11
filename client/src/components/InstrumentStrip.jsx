@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import { useNow } from '../useNow';
 import { instrumentName, expiryLabel } from '../instruments.mjs';
 import { instrumentStats } from '../orderForm.mjs';
@@ -30,7 +31,7 @@ function Item({ label, children, title, tone = 'text-text' }) {
  * in the form (or null).
  */
 export default function InstrumentStrip({ inst, askPerBtc }) {
-  const { btcPrice: spot, options, trades, poolParams } = useStore();
+  const { btcPrice: spot, options, trades, poolParams } = useStore(useShallow(s => ({ btcPrice: s.btcPrice, options: s.options, trades: s.trades, poolParams: s.poolParams })));
   const now = useNow(1000);
   const secs = inst.expiry - now;
   const hours = Math.max(0, secs / 3600);

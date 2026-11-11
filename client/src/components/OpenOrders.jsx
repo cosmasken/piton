@@ -3,6 +3,7 @@ import { ethers } from 'ethers';
 import { toast } from 'react-toastify';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { useStore, STATUS, TYPE } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import { explorerTx } from '../network.mjs';
 import { useCountdown } from '../useCountdown';
 import { parseTxError } from '../txUtils';
@@ -93,7 +94,7 @@ function OrderRow({ o, account, onFill }) {
 const COLS = ['Expiry', 'Type', 'Side', 'Strike', 'Premium', 'Qty'];
 
 export default function OpenOrders() {
-  const { account, poolContract, musdContract, btcPrice, options, ordersLoading, refresh } = useStore();
+  const { account, poolContract, musdContract, btcPrice, options, ordersLoading, refresh } = useStore(useShallow(s => ({ account: s.account, poolContract: s.poolContract, musdContract: s.musdContract, btcPrice: s.btcPrice, options: s.options, ordersLoading: s.ordersLoading, refresh: s.refresh })));
 
   const [tab,       setTab]       = useState('call');
   const [view,      setView]      = useState('book');

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { LineSeries, LineType } from 'lightweight-charts';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import { makeChart, COLORS } from '../chartTheme';
 import { ivSteps, parseDvol } from '../chartMath.mjs';
 
@@ -8,7 +9,7 @@ const RANGES = [['7d', 7], ['30d', 30]];
 
 /** Pool mid and ask volatility (from the subgraph's IV updates) against Deribit's DVOL index. */
 export default function VolChart({ utc }) {
-  const { poolParams, querySubgraph, network } = useStore();
+  const { poolParams, querySubgraph, network } = useStore(useShallow(s => ({ poolParams: s.poolParams, querySubgraph: s.querySubgraph, network: s.network })));
   const box = useRef(null);
   const chart = useRef(null);
   const s = useRef({});

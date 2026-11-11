@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import { useNow } from '../useNow';
 import { expirySlots, extraExpiries, expiryLabel, strikeLadder, atmStrike, bestQuotes } from '../instruments.mjs';
 import { poolWontFill, fmtDuration } from '../poolRules.mjs';
@@ -61,7 +62,7 @@ const plain = (v, tone = 'text-dim') => <td className={`px-2 py-1 text-right fon
  * Ask = cheapest of the pool's price and users' resting sell orders. Bid = best resting buy order.
  */
 export default function ChainPanel() {
-  const { btcPrice: spot, options, trades, poolParams, chain, selected, setSelected, fetchChain, ordersLoading } = useStore();
+  const { btcPrice: spot, options, trades, poolParams, chain, selected, setSelected, fetchChain, ordersLoading } = useStore(useShallow(s => ({ btcPrice: s.btcPrice, options: s.options, trades: s.trades, poolParams: s.poolParams, chain: s.chain, selected: s.selected, setSelected: s.setSelected, fetchChain: s.fetchChain, ordersLoading: s.ordersLoading })));
   const now = useNow(30_000);
   const [cols, setCols] = useState(loadCols);
   const [unit, setUnit] = useState(() => localStorage.getItem('piton_chain_unit') || 'musd');
@@ -91,12 +92,12 @@ export default function ChainPanel() {
 
   // Pool prices come from the contract itself; refresh while the chain is visible
   const key = `${expiry}|${strikes.join(',')}`;
+  // pool prices for every visible strike: one batched read, refreshed on each new block (about every 4s)
+  const blockNo = useStore(s => s.block?.number);
   useEffect(() => {
     if (!expiry || !strikes.length) return;
     fetchChain(expiry, strikes);
-    const id = setInterval(() => fetchChain(expiry, strikes), 15_000);
-    return () => clearInterval(id);
-  }, [key]); // eslint-disable-line
+  }, [key, blockNo]); // eslint-disable-line
 
   // keep the at-the-money row in view when the expiry or range changes
   useEffect(() => {

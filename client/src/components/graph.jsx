@@ -4,6 +4,7 @@ import {
   createChart, createSeriesMarkers, CandlestickSeries, HistogramSeries, LineSeries, CrosshairMode, LineStyle,
 } from 'lightweight-charts';
 import { useStore, ADDRESSES } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import { INTERVALS, parseKlines, parseKlineMessage, fmtTime, expectedMoveCone, liquidationPrice } from '../chartMath.mjs';
 import { tickFormatter } from '../chartTheme';
 import { expiryLabel } from '../instruments.mjs';
@@ -41,7 +42,7 @@ function setLines(series, ref, specs) {
 
 /** BTC price chart: Binance BTCUSDT candles (history over REST, live candle over websocket) with options overlays. */
 function PriceChart({ utc, interval, setIntervalKey }) {
-  const { btcPrice, selected, setSelected, tradeLeg, poolParams, options, account, provider, chainId } = useStore();
+  const { btcPrice, selected, setSelected, tradeLeg, poolParams, options, account, provider, chainId } = useStore(useShallow(s => ({ btcPrice: s.btcPrice, selected: s.selected, setSelected: s.setSelected, tradeLeg: s.tradeLeg, poolParams: s.poolParams, options: s.options, account: s.account, provider: s.provider, chainId: s.chainId })));
   const box = useRef(null);
   const chartRef = useRef(null);
   const series = useRef({});
@@ -348,7 +349,7 @@ const TABS = [['price', 'Price'], ['vol', 'Volatility'], ['pool', 'Pool'], ['pay
  * Shortcuts (when not typing in a field): 1-6 pick the candle interval, F toggles full screen.
  */
 export default function Graph() {
-  const { tradeLeg, btcPrice } = useStore();
+  const { tradeLeg, btcPrice } = useStore(useShallow(s => ({ tradeLeg: s.tradeLeg, btcPrice: s.btcPrice })));
   const panel = useRef(null);
   const [tab, setTab] = useState(() => {
     const fromUrl = new URLSearchParams(window.location.search).get('chart');

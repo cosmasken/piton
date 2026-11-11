@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ethers } from 'ethers';
 import { useStore, ADDRESSES } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import { suggestProtection, MCR } from '../troveProtect.mjs';
 
 const TROVE_MANAGER_ABI = [
@@ -16,7 +17,7 @@ const usd = n => `$${Number(n).toLocaleString('en-US', { maximumFractionDigits: 
  * liquidation price. `onApply({ strike, qty })` prefills the order form (long put).
  */
 export default function ProtectTrove({ onApply }) {
-  const { provider, account, chainId, poolContract, btcPrice } = useStore();
+  const { provider, account, chainId, poolContract, btcPrice } = useStore(useShallow(s => ({ provider: s.provider, account: s.account, chainId: s.chainId, poolContract: s.poolContract, btcPrice: s.btcPrice })));
   const [state, setState] = useState({ loading: false, error: null, trove: null, sug: null });
   const [coverage, setCoverage] = useState(100);
 

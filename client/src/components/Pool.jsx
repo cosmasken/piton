@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ethers } from 'ethers';
 import { toast } from 'react-toastify';
 import { useStore, ADDRESSES } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import { explorerTx } from '../network.mjs';
 import { parseTxError } from '../txUtils';
 import { useNow } from '../useNow';
@@ -67,7 +68,7 @@ export default function Pool() {
     musdBalance, ymusdBalance,
     poolTotalAssets, poolLocked, poolUtilisation, poolShareValue, poolParams, lockExpiry, musdRaw, ymusdRaw,
     refresh,
-  } = useStore();
+  } = useStore(useShallow(s => ({ poolContract: s.poolContract, musdContract: s.musdContract, chainId: s.chainId, musdBalance: s.musdBalance, ymusdBalance: s.ymusdBalance, poolTotalAssets: s.poolTotalAssets, poolLocked: s.poolLocked, poolUtilisation: s.poolUtilisation, poolShareValue: s.poolShareValue, poolParams: s.poolParams, lockExpiry: s.lockExpiry, musdRaw: s.musdRaw, ymusdRaw: s.ymusdRaw, refresh: s.refresh })));
 
   const [tab,     setTab]     = useState('deposit');
   const [amount,  setAmount]  = useState('');

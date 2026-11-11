@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { ethers } from 'ethers';
 import { toast } from 'react-toastify';
 import { useStore, ADDRESSES } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import { explorerTx } from '../network.mjs';
 import { parseTxError } from '../txUtils';
 import { useNow } from '../useNow';
@@ -45,7 +46,7 @@ function Row({ label, value, accent }) {
 }
 
 export default function NewOrder() {
-  const { signer, account, chainId, poolContract, musdContract, btcPrice, musdBalance, oracleStale, poolParams, refresh } = useStore();
+  const { signer, account, chainId, poolContract, musdContract, btcPrice, musdBalance, oracleStale, poolParams, refresh } = useStore(useShallow(s => ({ signer: s.signer, account: s.account, chainId: s.chainId, poolContract: s.poolContract, musdContract: s.musdContract, btcPrice: s.btcPrice, musdBalance: s.musdBalance, oracleStale: s.oracleStale, poolParams: s.poolParams, refresh: s.refresh })));
 
   const [position,   setPosition]   = useState('long');
   const [optionType, setOptionType] = useState('call');

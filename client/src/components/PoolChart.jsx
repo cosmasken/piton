@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AreaSeries, LineSeries } from 'lightweight-charts';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import { makeChart, COLORS } from '../chartTheme';
 import { uniqueByTime } from '../chartMath.mjs';
 
 /** Pool share price (right axis) and pool assets (left axis) over time, from the subgraph's snapshots. */
 export default function PoolChart({ utc }) {
-  const { poolParams, poolShareValue, querySubgraph, network } = useStore();
+  const { poolParams, poolShareValue, querySubgraph, network } = useStore(useShallow(s => ({ poolParams: s.poolParams, poolShareValue: s.poolShareValue, querySubgraph: s.querySubgraph, network: s.network })));
   const box = useRef(null);
   const chart = useRef(null);
   const s = useRef({});

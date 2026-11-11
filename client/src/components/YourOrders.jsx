@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { ethers } from 'ethers';
 import { toast } from 'react-toastify';
 import { useStore, STATUS } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import { explorerTx } from '../network.mjs';
 import { useCountdown } from '../useCountdown';
 import { parseTxError } from '../txUtils';
@@ -136,7 +137,7 @@ function OptionRow({ o, account, spot, iv, poolContract, refresh }) {
 }
 
 export default function YourOrders() {
-  const { account, poolContract, btcPrice, options, poolParams, ordersLoading, refresh } = useStore();
+  const { account, poolContract, btcPrice, options, poolParams, ordersLoading, refresh } = useStore(useShallow(s => ({ account: s.account, poolContract: s.poolContract, btcPrice: s.btcPrice, options: s.options, poolParams: s.poolParams, ordersLoading: s.ordersLoading, refresh: s.refresh })));
   const [tab, setTab] = useState('active');
   const now = Math.floor(Date.now() / 1000);
 

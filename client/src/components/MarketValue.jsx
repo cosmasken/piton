@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 
 const PYTH_FEEDS = [
   { label: 'MEZO / USD', id: '0x80beaaedbdd228e77c5d62dfcd74b0305674b7e27a5cc6a46e71bd3a696826df' },
@@ -20,7 +21,7 @@ async function fetchPythPrices() {
 }
 
 export default function MarketValue() {
-  const { btcPrice, oracleStale, priceSource } = useStore();
+  const { btcPrice, oracleStale, priceSource } = useStore(useShallow(s => ({ btcPrice: s.btcPrice, oracleStale: s.oracleStale, priceSource: s.priceSource })));
   const [pythPrices, setPythPrices] = useState({});
 
   useEffect(() => {

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAccount, useConnect, useDisconnect, useSwitchChain, useWalletClient } from 'wagmi';
 import { injected } from 'wagmi/connectors';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from './store';
 import { parseInstrumentId } from './instruments.mjs';
 import { getNetwork, isLive } from './network.mjs';
@@ -19,7 +20,7 @@ import { useNow } from './useNow';
 import { breakerActive } from './poolRules.mjs';
 
 function OracleBanner() {
-  const { oracleStale, priceSource } = useStore();
+  const { oracleStale, priceSource } = useStore(useShallow(s => ({ oracleStale: s.oracleStale, priceSource: s.priceSource })));
   if (!oracleStale && priceSource !== 'binance') return null;
   return (
     <div className="shrink-0 flex items-center gap-2 px-4 py-2 bg-yellow-900/40 border-b border-yellow-700/40 text-yellow-400 text-xs font-body">
@@ -93,7 +94,11 @@ export default function Dashboard() {
   const { switchChain } = useSwitchChain();
   const { data: walletClient } = useWalletClient();
 
-  const { init, reset, fetchPrice, fetchBalances, fetchOptions, fetchPoolStats, fetchTrades, setSelected, btcBalance, options, tick, network } = useStore();
+  const { init, reset, fetchOptions, fetchTrades, refreshState, startLive, stopLive, setSelected, btcBalance, optionCount, tick, network } = useStore(useShallow(s => ({
+    init: s.init, reset: s.reset, fetchOptions: s.fetchOptions, fetchTrades: s.fetchTrades, refreshState: s.refreshState,
+    startLive: s.startLive, stopLive: s.stopLive, setSelected: s.setSelected, btcBalance: s.btcBalance,
+    optionCount: s.options.length, tick: s.tick, network: s.network,
+  })));
   const net  = getNetwork(network);
   const live = isLive(net);
   const onSelectedChain = chainId === net.chain.id;
@@ -101,7 +106,7 @@ export default function Dashboard() {
   const [showOnboarding, setShowOnboarding] = useState(() => !localStorage.getItem('piton_onboarding_dismissed'));
   const [showMobile,     setShowMobile]     = useState(() => window.innerWidth < 1024);
 
-  const isNewUser = showOnboarding && btcBalance !== '—' && parseFloat(btcBalance) === 0 && options.length === 0;
+  const isNewUser = showOnboarding && btcBalance !== '—' && parseFloat(btcBalance) === 0 && optionCount === 0;
 
   useEffect(() => {
     if (live && walletClient && onSelectedChain) init(walletClient, chainId);
@@ -113,17 +118,17 @@ export default function Dashboard() {
     if (link && link.expiry > Math.floor(Date.now() / 1000)) setSelected({ ...link, side: 'buy' });
   }, []); // eslint-disable-line
 
+  // full load once per network, then the live engine keeps everything current block by block
   useEffect(() => {
-    fetchPrice();
     fetchOptions();
-    fetchPoolStats();
     fetchTrades();
-    const id = setInterval(() => { fetchPrice(); fetchPoolStats(); }, 30_000);
-    return () => clearInterval(id);
+    startLive();
+    return () => stopLive();
   }, [network]); // eslint-disable-line
 
+  // after the user's own transaction: refresh at once rather than waiting for the next block
   useEffect(() => {
-    if (live && isConnected && onSelectedChain) { fetchBalances(); fetchOptions(); fetchPoolStats(); }
+    if (live && isConnected && onSelectedChain) { refreshState(); fetchOptions(); }
   }, [tick]); // eslint-disable-line
 
   const dismissOnboarding = () => { localStorage.setItem('piton_onboarding_dismissed', '1'); setShowOnboarding(false); };

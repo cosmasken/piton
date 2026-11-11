@@ -4,6 +4,8 @@ import OptionPoolABI from './contracts/OptionPool.json';
 import yMUSD_ABI    from './contracts/yMUSD.json';
 import MUSDABI      from './abi/musd.json';
 import { instrumentId, parseInstrumentId } from './instruments.mjs';
+import { multicall, MULTICALL3, MC_IFACE } from './multicall';
+import { toast } from 'react-toastify';
 import { NETWORKS, DEFAULT_NETWORK, NETWORK_STORAGE_KEY, getNetwork, isLive, networkByChainId, resolveInitialNetwork } from './network.mjs';
 
 // Contract addresses by chain id, from the single network config (network.mjs).
@@ -17,6 +19,15 @@ const SKIP_ORACLE_ABI  = [
     ]},
   { name: 'decimals', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint8' }] },
 ];
+
+const ORACLE_IFACE = new ethers.Interface(SKIP_ORACLE_ABI);
+const POOL_IFACE   = new ethers.Interface(OptionPoolABI.abi);
+const YMUSD_IFACE  = new ethers.Interface(yMUSD_ABI.abi); // ERC20 reads (also used for MUSD balanceOf)
+// Pool view functions read every block (names are the contract's own)
+const POOL_FIELDS = ['totalAssets', 'lockedCollateral', 'utilisation', 'netAssetValue', 'withdrawalFeeBps', 'depositLockSeconds',
+  'minPoolExpiry', 'maxStrikeDistanceBps', 'maxUtilisationBps', 'maxOptionExposureBps', 'cbUntil', 'openPoolOptionCount', 'iv', 'askIv',
+  'totalPremiumsEarned', 'totalSettlementsPaid', 'totalPerformanceFeePaid', 'unrecognizedPremium', 'maxOptionCollateral',
+  'cbRefPrice', 'cbRefTime', 'cbWindow', 'cbMaxMoveBps'];
 
 // Must match OptionPool.PRICE_STALENESS: the contract rejects oracle prices older than this.
 export const PRICE_STALENESS_S = 300;
@@ -47,10 +58,8 @@ export const useStore = create((set, get) => ({
     if (!NETWORKS[key] || key === get().network) return;
     try { localStorage.setItem(NETWORK_STORAGE_KEY, key); } catch { /* private mode */ }
     get().reset();
-    set({ network: key, btcPrice: 0, oracleStale: false, priceSource: 'oracle' });
-    get().fetchPrice();
-    get().fetchOptions();
-    get().fetchPoolStats();
+    set({ network: key, btcPrice: 0, oracleStale: false, priceSource: 'oracle', block: null, trades: [], chain: null });
+    // the dashboard restarts the live engine and reloads options when the network changes
   },
 
   provider:     null,
@@ -139,142 +148,226 @@ export const useStore = create((set, get) => ({
     ...EMPTY_POOL_STATS,
   }),
 
-  fetchPrice: async () => {
-    // Mezo's Skip oracle on the selected network: via the wallet if connected there, else read-only RPC.
-    const { network, provider: walletProvider, chainId } = get();
+  /**
+   * Everything that changes block by block, in one Multicall3 request: oracle price, block number and time,
+   * all pool stats, and (when a wallet is connected) its balances and deposit lock.
+   * fetchPrice / fetchBalances / fetchPoolStats are kept as names for existing callers.
+   */
+  refreshState: async () => {
+    const { network, account } = get();
     const net = getNetwork(network);
-    const provider = walletProvider && chainId === net.chain.id ? walletProvider : roProvider(network);
-    const stillCurrent = () => get().network === network; // ignore results after a network switch
-    try {
-      const oracle = new ethers.Contract(net.addresses.oracle, SKIP_ORACLE_ABI, provider);
-      const [, answer, , updatedAt] = await oracle.latestRoundData();
-      const dec   = await oracle.decimals();
-      const price = parseFloat(ethers.formatUnits(answer, dec));
-      const age   = Math.floor(Date.now() / 1000) - Number(updatedAt);
-      if (!stillCurrent()) return;
-      if (age <= PRICE_STALENESS_S) {
-        set({ btcPrice: price, oracleStale: false, priceSource: 'oracle' });
-        return;
+    const provider = roProvider(network);
+    const live = isLive(net);
+    const a = net.addresses;
+    const keys = [], calls = [];
+    const add = (key, target, iface, fn, args = []) => { keys.push(key); calls.push({ target, iface, fn, args }); };
+    add('block', MULTICALL3, MC_IFACE, 'getBlockNumber');
+    add('blockTime', MULTICALL3, MC_IFACE, 'getCurrentBlockTimestamp');
+    add('oracle', a.oracle, ORACLE_IFACE, 'latestRoundData');
+    add('dec', a.oracle, ORACLE_IFACE, 'decimals');
+    if (live) {
+      for (const f of POOL_FIELDS) add(f, a.pool, POOL_IFACE, f);
+      add('supply', a.ymusd, YMUSD_IFACE, 'totalSupply');
+      if (account) {
+        add('btc', MULTICALL3, MC_IFACE, 'getEthBalance', [account]);
+        add('musd', a.musd, YMUSD_IFACE, 'balanceOf', [account]);
+        add('ymusd', a.ymusd, YMUSD_IFACE, 'balanceOf', [account]);
+        add('lock', a.pool, POOL_IFACE, 'depositLockExpiry', [account]);
       }
-      set({ oracleStale: true });
-    } catch {}
+    }
+    let r;
     try {
-      const { price } = await (await fetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT')).json();
-      if (stillCurrent()) set({ btcPrice: parseFloat(price), priceSource: 'binance' });
-    } catch {}
-  },
+      const res = await multicall(provider, calls);
+      r = Object.fromEntries(keys.map((k, i) => [k, res[i]]));
+    } catch { return; }
+    if (get().network !== network) return; // switched network meanwhile
+    const E = v => (v == null ? null : parseFloat(ethers.formatEther(v)));
+    const patch = {};
+    if (r.block != null) patch.block = { number: Number(r.block), time: Number(r.blockTime || 0), seenAt: Date.now() };
 
-  fetchBalances: async () => {
-    const { provider, account, musdContract, ymusdContract, poolContract } = get();
-    if (!provider || !account || !musdContract) return;
-    try {
-      const [b, m, y, lock] = await Promise.all([
-        provider.getBalance(account),
-        musdContract.balanceOf(account),
-        ymusdContract ? ymusdContract.balanceOf(account) : Promise.resolve(0n),
-        poolContract ? poolContract.depositLockExpiry(account) : Promise.resolve(0n),
-      ]);
-      set({
-        lockExpiry:   Number(lock),
-        musdRaw:      ethers.formatEther(m),
-        ymusdRaw:     ethers.formatEther(y),
-        btcBalance:   parseFloat(ethers.formatEther(b)).toFixed(4),
-        musdBalance:  parseFloat(ethers.formatEther(m)).toLocaleString('en-US', { maximumFractionDigits: 2 }),
-        ymusdBalance: parseFloat(ethers.formatEther(y)).toLocaleString('en-US', { maximumFractionDigits: 2 }),
-      });
-    } catch {}
-  },
+    // Skip oracle: the settlement price. Older than PRICE_STALENESS_S means the contract would reject trades.
+    if (r.oracle && r.dec != null) {
+      const price = parseFloat(ethers.formatUnits(r.oracle[1], r.dec));
+      const age = Math.floor(Date.now() / 1000) - Number(r.oracle[3]);
+      if (age <= PRICE_STALENESS_S && price > 0) {
+        const prev = get().btcPrice;
+        Object.assign(patch, { btcPrice: price, oracleStale: false, priceSource: 'oracle', priceDir: prev && price !== prev ? (price > prev ? 'up' : 'down') : get().priceDir });
+      } else {
+        patch.oracleStale = true;
+        const last = get().lastPrice; // fall back to the exchange price for display only
+        if (last) Object.assign(patch, { btcPrice: last, priceSource: 'binance' });
+      }
+    }
 
-  fetchPoolStats: async () => {
-    const { network } = get();
-    const net = getNetwork(network);
-    if (!isLive(net)) { set(EMPTY_POOL_STATS); return; } // never call placeholder (zero) addresses
-    const addrs = net.addresses;
-    const pool  = new ethers.Contract(addrs.pool,  OptionPoolABI.abi, roProvider(network));
-    const ymusd = new ethers.Contract(addrs.ymusd, yMUSD_ABI.abi,    roProvider(network));
-    try {
-      const [total, locked, util, supply, nav, feeBps, lockSecs, minExp, strikeBps, utilMax, expMax, cbUntil, openN, ivMid, ivAsk, premEarned, settlePaid, perfPaid, unrecog, maxColl, cbRef, cbRefT, cbWin, cbMove] = await Promise.all([
-        pool.totalAssets(),
-        pool.lockedCollateral(),
-        pool.utilisation(),
-        ymusd.totalSupply(),
-        pool.netAssetValue(),
-        pool.withdrawalFeeBps(),
-        pool.depositLockSeconds(),
-        pool.minPoolExpiry(),
-        pool.maxStrikeDistanceBps(),
-        pool.maxUtilisationBps(),
-        pool.maxOptionExposureBps(),
-        pool.cbUntil(),
-        pool.openPoolOptionCount(),
-        pool.iv(),
-        pool.askIv(),
-        pool.totalPremiumsEarned(),
-        pool.totalSettlementsPaid(),
-        pool.totalPerformanceFeePaid(),
-        pool.unrecognizedPremium(),
-        pool.maxOptionCollateral(),
-        pool.cbRefPrice(),
-        pool.cbRefTime(),
-        pool.cbWindow(),
-        pool.cbMaxMoveBps(),
-      ]);
-      if (get().network !== network) return; // switched network meanwhile
-      // Share value is the net asset value (assets minus what open options may owe), the price shares trade at
-      const shareValue = supply > 0n
-        ? parseFloat(ethers.formatEther(nav * ethers.parseEther('1') / supply)).toFixed(4)
-        : '1.0000';
-      set({
-        poolTotalAssets: parseFloat(ethers.formatEther(total)).toLocaleString('en-US', { maximumFractionDigits: 2 }),
-        poolLocked:      parseFloat(ethers.formatEther(locked)).toLocaleString('en-US', { maximumFractionDigits: 2 }),
-        poolUtilisation: (parseFloat(ethers.formatEther(util)) * 100).toFixed(1),
+    if (live && r.totalAssets != null) {
+      const supply = r.supply ?? 0n;
+      const shareValue = supply > 0n && r.netAssetValue != null
+        ? parseFloat(ethers.formatEther(r.netAssetValue * ethers.parseEther('1') / supply)).toFixed(4) : '1.0000';
+      Object.assign(patch, {
+        poolTotalAssets: E(r.totalAssets).toLocaleString('en-US', { maximumFractionDigits: 2 }),
+        poolLocked:      E(r.lockedCollateral).toLocaleString('en-US', { maximumFractionDigits: 2 }),
+        poolUtilisation: (E(r.utilisation) * 100).toFixed(1),
         poolShareValue:  shareValue,
         poolParams: {
-          withdrawalFeeBps: Number(feeBps), depositLockSeconds: Number(lockSecs), minPoolExpiry: Number(minExp),
-          strikeDistanceBps: Number(strikeBps), maxUtilisationBps: Number(utilMax), maxOptionExposureBps: Number(expMax),
-          cbUntil: Number(cbUntil), openPoolOptions: Number(openN),
-          totalAssets: parseFloat(ethers.formatEther(total)), lockedCollateral: parseFloat(ethers.formatEther(locked)),
-          cbRefPrice: parseFloat(ethers.formatEther(cbRef)), cbRefTime: Number(cbRefT), cbWindow: Number(cbWin), cbMaxMoveBps: Number(cbMove), maxOptionCollateral: parseFloat(ethers.formatEther(maxColl)),
-          iv: parseFloat(ethers.formatEther(ivMid)), askIv: parseFloat(ethers.formatEther(ivAsk)),
-          premiumsEarned: parseFloat(ethers.formatEther(premEarned)), settlementsPaid: parseFloat(ethers.formatEther(settlePaid)),
-          performanceFeesPaid: parseFloat(ethers.formatEther(perfPaid)), unearnedPremium: parseFloat(ethers.formatEther(unrecog)),
-          utilisationBps: Math.round(parseFloat(ethers.formatEther(util)) * 10000),
+          withdrawalFeeBps: Number(r.withdrawalFeeBps), depositLockSeconds: Number(r.depositLockSeconds), minPoolExpiry: Number(r.minPoolExpiry),
+          strikeDistanceBps: Number(r.maxStrikeDistanceBps), maxUtilisationBps: Number(r.maxUtilisationBps), maxOptionExposureBps: Number(r.maxOptionExposureBps),
+          cbUntil: Number(r.cbUntil), openPoolOptions: Number(r.openPoolOptionCount),
+          totalAssets: E(r.totalAssets), lockedCollateral: E(r.lockedCollateral),
+          cbRefPrice: E(r.cbRefPrice), cbRefTime: Number(r.cbRefTime), cbWindow: Number(r.cbWindow), cbMaxMoveBps: Number(r.cbMaxMoveBps),
+          maxOptionCollateral: E(r.maxOptionCollateral),
+          iv: E(r.iv), askIv: E(r.askIv),
+          premiumsEarned: E(r.totalPremiumsEarned), settlementsPaid: E(r.totalSettlementsPaid),
+          performanceFeesPaid: E(r.totalPerformanceFeePaid), unearnedPremium: E(r.unrecognizedPremium),
+          utilisationBps: Math.round(E(r.utilisation) * 10000),
         },
       });
-    } catch {}
+    } else if (!live) Object.assign(patch, EMPTY_POOL_STATS);
+
+    if (live && account && r.musd != null) {
+      Object.assign(patch, {
+        lockExpiry:   Number(r.lock ?? 0),
+        musdRaw:      ethers.formatEther(r.musd),
+        ymusdRaw:     ethers.formatEther(r.ymusd ?? 0n),
+        btcBalance:   r.btc != null ? E(r.btc).toFixed(4) : get().btcBalance,
+        musdBalance:  E(r.musd).toLocaleString('en-US', { maximumFractionDigits: 2 }),
+        ymusdBalance: E(r.ymusd ?? 0n).toLocaleString('en-US', { maximumFractionDigits: 2 }),
+      });
+    }
+    set(patch);
   },
+
+  fetchPrice:     () => get().refreshState(),
+  fetchBalances:  () => get().refreshState(),
+  fetchPoolStats: () => get().refreshState(),
 
   fetchOptions: async () => {
     const { network } = get();
     const net = getNetwork(network);
     if (!isLive(net)) { set({ options: [], ordersLoading: false }); return; }
-    const pool  = new ethers.Contract(net.addresses.pool, OptionPoolABI.abi, roProvider(network));
+    const provider = roProvider(network);
     set({ ordersLoading: true });
     try {
+      const pool = new ethers.Contract(net.addresses.pool, OptionPoolABI.abi, provider);
       const total = Number(await pool.nextId());
-      const options = [];
-      for (let i = 1; i < total; i++) {
-        try {
-          const o = await pool.getOption(i);
-          options.push({
-            id:          o.id,
-            optionType:  o.optionType,   // 0=CALL 1=PUT
-            status:      o.status,       // 0=OPEN 1=FILLED 2=SETTLED 3=REFUNDED
-            long:        o.long,
-            short:       o.short,
-            filledByPool: o.filledByPool,
-            marginType:  o.marginType,
-            strike:      o.strike,
-            premium:     o.premium,
-            quantity:    o.quantity,
-            expiry:      o.expiry,
-            collateral:  o.collateral,
-          });
-        } catch {}
-      }
+      const ids = Array.from({ length: Math.max(0, total - 1) }, (_, i) => BigInt(i + 1));
+      const options = await get().loadOptions(ids);
       if (get().network === network) set({ options }); // ignore if the user switched network meanwhile
     } catch {}
     finally { if (get().network === network) set({ ordersLoading: false }); }
+  },
+
+  /** Read options by id in batched multicalls; returns plain objects (BigInt fields, as the contract returns). */
+  loadOptions: async (ids) => {
+    if (!ids.length) return [];
+    const net = getNetwork(get().network);
+    const res = await multicall(roProvider(get().network), ids.map(id => ({ target: net.addresses.pool, iface: POOL_IFACE, fn: 'getOption', args: [id] })));
+    return res.filter(Boolean).map(o => ({
+      id: o.id, optionType: o.optionType, status: o.status, long: o.long, short: o.short, filledByPool: o.filledByPool,
+      marginType: o.marginType, strike: o.strike, premium: o.premium, quantity: o.quantity, expiry: o.expiry, collateral: o.collateral,
+    }));
+  },
+
+  // ─── live updates ─────────────────────────────────────────────────────────
+  // block: latest block seen ({ number, time, seenAt }); lastPrice: exchange "last" (Binance), ticking every second.
+  block: null,
+  lastPrice: 0,
+  lastDir: null,
+  priceDir: null,
+  _live: null,
+
+  /**
+   * Watch for new blocks (every 2s while the tab is visible, 30s when hidden). On each new block: one
+   * multicall for prices, pool stats and balances, then the pool's event logs since the last block, which
+   * update only the options they touch. Also streams Binance's BTCUSDT ticker for the "last" price.
+   */
+  startLive: () => {
+    get().stopLive();
+    const network = get().network;
+    let stopped = false, timer = null, lastBlock = 0, logFrom = null, ws = null, wsRetry = null;
+    const visible = () => typeof document === 'undefined' || !document.hidden;
+
+    const tick = async () => {
+      if (stopped) return;
+      try {
+        const n = await roProvider(network).getBlockNumber();
+        if (n !== lastBlock) {
+          lastBlock = n;
+          await get().refreshState();
+          if (logFrom == null) logFrom = n + 1;                       // first block: the full load covers history
+          else if (n - logFrom > 8000) { logFrom = n + 1; get().fetchOptions(); get().fetchTrades(); } // long gap: reload
+          else if (n >= logFrom) { await get().processLogs(logFrom, n); logFrom = n + 1; }
+        }
+      } catch { /* try again next tick */ }
+      if (!stopped) timer = setTimeout(tick, visible() ? 2000 : 30000);
+    };
+
+    const openTicker = () => {
+      if (stopped || ws || !visible()) return;
+      try { ws = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@miniTicker'); } catch { return; }
+      ws.onmessage = ev => {
+        try {
+          const m = JSON.parse(ev.data);
+          const c = parseFloat(m.c), o = parseFloat(m.o);
+          if (!(c > 0)) return;
+          const prev = get().lastPrice;
+          set({
+            lastPrice: c, lastDir: prev && c !== prev ? (c > prev ? 'up' : 'down') : get().lastDir,
+            market: { ...(get().market || {}), change24hPct: o > 0 ? (c - o) / o * 100 : null, high24h: parseFloat(m.h), low24h: parseFloat(m.l) },
+          });
+        } catch { /* ignore malformed */ }
+      };
+      ws.onclose = () => { ws = null; if (!stopped) wsRetry = setTimeout(openTicker, 5000); };
+    };
+    const closeTicker = () => { clearTimeout(wsRetry); if (ws) { ws.onclose = null; ws.close(); ws = null; } };
+
+    const onVisibility = () => {
+      if (visible()) { clearTimeout(timer); tick(); openTicker(); }   // back in view: refresh at once
+      else closeTicker();                                            // hidden: no ticker, slow block polling
+    };
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibility);
+    tick(); openTicker();
+    set({ _live: { stop: () => {
+      stopped = true; clearTimeout(timer); closeTicker();
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibility);
+    } } });
+  },
+
+  stopLive: () => { get()._live?.stop(); set({ _live: null }); },
+
+  /** Apply pool events from blocks [from, to]: refresh touched options, add new trades, and announce others' fills. */
+  processLogs: async (from, to) => {
+    const network = get().network;
+    const net = getNetwork(network);
+    if (!isLive(net)) return;
+    const provider = roProvider(network);
+    const logs = await provider.getLogs({ address: net.addresses.pool, fromBlock: from, toBlock: to });
+    if (!logs.length || get().network !== network) return;
+    const touched = new Set(), fills = [];
+    for (const l of logs) {
+      let ev; try { ev = POOL_IFACE.parseLog(l); } catch { continue; }
+      if (!ev) continue;
+      if (['OrderCreated', 'OrderFilled', 'Settled', 'Refunded', 'Cancelled', 'SoldBack', 'AutoExerciseSet'].includes(ev.name)) touched.add(ev.args[0]);
+      if (ev.name === 'OrderFilled') fills.push({ id: ev.args[0], filler: ev.args[1], byPool: ev.args[2], tx: l.transactionHash, block: l.blockNumber });
+    }
+    if (touched.size) {
+      const fresh = await get().loadOptions([...touched]);
+      if (get().network !== network) return;
+      const byId = new Map(get().options.map(o => [String(o.id), o]));
+      for (const o of fresh) byId.set(String(o.id), o);
+      set({ options: [...byId.values()].sort((x, y) => Number(x.id - y.id)) });
+    }
+    if (fills.length) {
+      const blockTime = get().block?.time || Math.floor(Date.now() / 1000);
+      const added = fills.map(f => ({ ...f, time: blockTime, live: Date.now() }));
+      set({ trades: [...added.reverse(), ...get().trades].slice(0, 500) });
+      const me = get().account?.toLowerCase();
+      for (const f of fills) {
+        const o = get().options.find(x => String(x.id) === String(f.id));
+        if (!o || o.long?.toLowerCase() === me || o.short?.toLowerCase() === me) continue; // your own trades already toast
+        const q = parseFloat(ethers.formatEther(o.quantity)), k = Math.round(parseFloat(ethers.formatEther(o.strike)));
+        toast.info(`${f.byPool ? 'Pool sold' : 'Trade:'} ${q} BTC ${k.toLocaleString()} ${Number(o.optionType) === 0 ? 'call' : 'put'} for ${parseFloat(ethers.formatEther(o.premium)).toFixed(2)} MUSD`, { autoClose: 4000 });
+      }
+    }
   },
 
   /** Pool ask price per BTC for every strike of one expiry (calls and puts), read from the contract's own quote. */
@@ -282,15 +375,22 @@ export const useStore = create((set, get) => ({
     const { network } = get();
     const net = getNetwork(network);
     if (!isLive(net) || !expiry || !strikes?.length) return;
-    const pool = new ethers.Contract(net.addresses.pool, OptionPoolABI.abi, roProvider(network));
     const REF = ethers.parseEther('0.01'); // small reference size; bigger orders cost more (utilisation markup)
     const cells = strikes.flatMap(k => [true, false].map(isCall => ({ k, isCall })));
-    const res = await Promise.allSettled(cells.map(c => pool.quotePremium(c.isCall, ethers.parseEther(String(c.k)), REF, expiry)));
+    let res;
+    try {
+      res = await multicall(roProvider(network), cells.map(c => ({
+        target: net.addresses.pool, iface: POOL_IFACE, fn: 'quotePremium', args: [c.isCall, ethers.parseEther(String(c.k)), REF, expiry],
+      })), 8); // each quote runs Black-Scholes on-chain (~83k gas): small chunks stay under the RPC's per-call gas cap
+    } catch { return; }
     if (get().network !== network) return;
+    const prev = get().chain && get().chain.expiry === expiry ? get().chain.byStrike : {};
     const byStrike = {};
     cells.forEach((c, i) => {
       const cell = (byStrike[c.k] ||= {});
-      cell[c.isCall ? 'call' : 'put'] = res[i].status === 'fulfilled' ? parseFloat(ethers.formatEther(res[i].value)) * 100 : null;
+      cell[c.isCall ? 'call' : 'put'] = res[i] != null ? parseFloat(ethers.formatEther(res[i])) * 100 : null;
+      // remember the previous price so the chain can flash the change
+      cell[c.isCall ? 'callPrev' : 'putPrev'] = prev[c.k]?.[c.isCall ? 'call' : 'put'] ?? null;
     });
     set({ chain: { expiry, at: Date.now(), byStrike } });
   },
@@ -371,10 +471,8 @@ export const useStore = create((set, get) => ({
   },
 
   fetchAll: () => {
-    get().fetchPrice();
-    get().fetchBalances();
+    get().refreshState();
     get().fetchOptions();
-    get().fetchPoolStats();
     get().fetchTrades();
   },
 }));

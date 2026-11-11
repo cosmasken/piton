@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo } from 'react';
 import { ethers } from 'ethers';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import { explorerTx } from '../network.mjs';
 import { instrumentName } from '../instruments.mjs';
 
@@ -8,7 +9,7 @@ const ago = s => { const d = Math.max(0, Math.floor(Date.now() / 1000) - s); ret
 
 /** Recent fills, newest first, from the pool's OrderFilled events. */
 export default function TradesPanel() {
-  const { trades, options, network, fetchTrades } = useStore();
+  const { trades, options, network, fetchTrades } = useStore(useShallow(s => ({ trades: s.trades, options: s.options, network: s.network, fetchTrades: s.fetchTrades })));
   useEffect(() => { fetchTrades(); const id = setInterval(fetchTrades, 30_000); return () => clearInterval(id); }, [network]); // eslint-disable-line
   const byId = useMemo(() => Object.fromEntries(options.map(o => [String(o.id), o])), [options]);
   const rows = trades.slice(0, 50).map(t => ({ t, o: byId[String(t.id)] })).filter(r => r.o);

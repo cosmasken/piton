@@ -4,6 +4,7 @@ import { toast } from 'react-toastify';
 import { useAccount, useConnect } from 'wagmi';
 import { injected } from 'wagmi/connectors';
 import { useStore, ADDRESSES } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import { explorerTx } from '../network.mjs';
 import { parseTxError } from '../txUtils';
 import { useNow } from '../useNow';
@@ -104,8 +105,9 @@ export default function TradePanel() {
   const {
     signer, account, chainId, poolContract, musdContract, btcPrice: spot, options, poolParams,
     selected, setSelected, refresh, oracleStale, roPool, musdBalance, musdRaw, setTradeLeg,
-  } = useStore();
+  } = useStore(useShallow(s => ({ signer: s.signer, account: s.account, chainId: s.chainId, poolContract: s.poolContract, musdContract: s.musdContract, btcPrice: s.btcPrice, options: s.options, poolParams: s.poolParams, selected: s.selected, setSelected: s.setSelected, refresh: s.refresh, oracleStale: s.oracleStale, roPool: s.roPool, musdBalance: s.musdBalance, musdRaw: s.musdRaw, setTradeLeg: s.setTradeLeg })));
   const now = useNow(5000);
+  const blockNo = useStore(s => s.block?.number); // re-quote on every new block
   const { isConnected } = useAccount();
   const { connect } = useConnect();
 
@@ -134,9 +136,9 @@ export default function TradePanel() {
   useEffect(() => { if (inst?.side) setSide(inst.side); if (inst?.side === 'sell') setOrderType('limit'); }, [inst?.isCall, inst?.strike, inst?.expiry, inst?.side]); // eslint-disable-line
   useEffect(() => { if (side === 'sell') setOrderType('limit'); }, [side]);
 
-  // ask the contract what the pool would charge for exactly this order
+  useEffect(() => { setQuote(null); }, [inst?.isCall, inst?.strike, inst?.expiry, q]); // a different order: drop the old quote
+  // ask the contract what the pool would charge for exactly this order (on every block)
   useEffect(() => {
-    setQuote(null);
     if (!inst || !(q > 0) || expired) return;
     let off = false;
     const run = async () => {
@@ -147,9 +149,8 @@ export default function TradePanel() {
       } catch { if (!off) setQuote(null); }
     };
     run();
-    const id = setInterval(run, 15_000);
-    return () => { off = true; clearInterval(id); };
-  }, [inst?.isCall, inst?.strike, inst?.expiry, q]); // eslint-disable-line
+    return () => { off = true; };
+  }, [inst?.isCall, inst?.strike, inst?.expiry, q, blockNo]); // eslint-disable-line
 
   // default the limit price to the pool's price per BTC
   useEffect(() => { if (quote != null && q > 0 && (price === '' || orderType === 'market')) setPrice((quote / q).toFixed(2)); }, [quote]); // eslint-disable-line
