@@ -10,6 +10,7 @@ import { parseTxError } from '../txUtils';
 import { instrumentName } from '../instruments.mjs';
 import { bsPrice, greeks } from '../greeks';
 import { breakEven, maxGain, maxLoss, PROTOCOL_FEE_BPS } from '../payoff.mjs';
+import { livePositions, realisedPnl, toCsv } from '../portfolio.mjs';
 import { SkeletonRow } from './Skeleton';
 import PayoffChart from './PayoffChart';
 
@@ -137,30 +138,91 @@ function OptionRow({ o, account, spot, iv, poolContract, refresh }) {
   );
 }
 
+const KIND = { ORDER: 'Order placed', FILL: 'Bought / filled', EXERCISE: 'Exercised', REFUND: 'Expired / refunded', SELL_BACK: 'Sold back', CANCEL: 'Cancelled', DEPOSIT: 'Pool deposit', WITHDRAW: 'Pool withdrawal' };
+const optName = o => (o ? instrumentName({ isCall: o.optionType === 'CALL', strike: Number(o.strike), expiry: Number(o.expiry) }).replace('BTC-', '') : '');
+const when = t => new Date(Number(t) * 1000).toISOString().slice(5, 16).replace('T', ' ');
+
+/** Portfolio greeks and money totals for live positions. */
+function Totals({ t }) {
+  const g = (label, v, d, title) => <span className="text-dim" title={title}>{label} <span className={`font-mono ${v >= 0 ? 'text-text' : 'text-red'}`}>{v >= 0 ? '+' : ''}{d(v)}</span></span>;
+  return (
+    <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 py-2 border-b border-border text-[11px]">
+      <span className="text-dim">Open P&L <Flash value={Math.round(t.pnl * 100)} className={`font-mono px-0.5 ${t.pnl >= 0 ? 'text-accent' : 'text-red'}`}>{signed(t.pnl)} MUSD</Flash></span>
+      <span className="text-dim">Premium at risk <span className="font-mono text-text">{money(t.premiumAtRisk)}</span></span>
+      {t.collateralLocked > 0 && <span className="text-dim">Collateral locked <span className="font-mono text-text">{money(t.collateralLocked)}</span></span>}
+      {g('Δ', t.delta, v => v.toFixed(4), 'Portfolio delta: BTC-equivalent exposure (MUSD change per $1 BTC move)')}
+      {g('Γ', t.gamma, v => v.toExponential(2), 'Portfolio gamma: change in delta per $1 BTC move')}
+      {g('Θ/day', t.theta, v => v.toFixed(2), 'Portfolio theta: MUSD gained (+) or lost (-) per day from time passing')}
+      {g('Vega', t.vega, v => v.toFixed(2), 'Portfolio vega: MUSD change for a 1-point rise in volatility')}
+    </div>
+  );
+}
+
+/** Wallet activity from the subgraph: every order, fill, exercise, sell-back, refund, cancel, deposit and withdrawal. */
+function HistoryTab({ history, account, network, unrealised }) {
+  const realised = useMemo(() => realisedPnl(history.ended, account), [history, account]);
+  const pnlById = useMemo(() => Object.fromEntries(realised.rows.map(r => [r.id, r.pnl])), [realised]);
+  const rows = history.activities;
+  const exportCsv = () => {
+    const csv = toCsv(['time_utc', 'action', 'option', 'amount_musd', 'shares_ymusd', 'realised_pnl_musd', 'tx'],
+      rows.map(a => [new Date(Number(a.timestamp) * 1000).toISOString(), KIND[a.kind] || a.kind, optName(a.option), a.amount, a.shares ?? '',
+        ['EXERCISE', 'SELL_BACK', 'REFUND'].includes(a.kind) && a.option && pnlById[a.option.id] != null ? pnlById[a.option.id].toFixed(6) : '', a.tx]));
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    const el = document.createElement('a');
+    el.href = url; el.download = `piton-${account.slice(0, 8)}-history.csv`; el.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2 border-b border-border text-[11px]">
+        <span className="text-dim">Realised P&L <span className={`font-mono ${realised.total >= 0 ? 'text-accent' : 'text-red'}`}>{signed(realised.total)} MUSD</span></span>
+        <span className="text-dim">Unrealised <span className={`font-mono ${unrealised >= 0 ? 'text-accent' : 'text-red'}`}>{signed(unrealised)} MUSD</span></span>
+        <span className="text-dim">{realised.rows.length} ended · {rows.length} actions</span>
+        <button onClick={exportCsv} disabled={!rows.length} className="ml-auto text-[10px] px-2 py-0.5 rounded border border-border text-dim hover:text-accent disabled:opacity-40">Export CSV</button>
+      </div>
+      {!rows.length ? <div className="flex items-center justify-center h-16 text-dim text-xs">No activity yet</div> : (
+        <table className="w-full text-xs min-w-[640px]">
+          <thead className="sticky top-0 bg-bg"><tr className="border-b border-border">
+            {['Time (UTC)', 'Action', 'Option', 'Amount', 'Realised', ''].map(h => <th key={h} className="text-left px-3 py-2 text-[10px] uppercase tracking-wider text-dim">{h}</th>)}
+          </tr></thead>
+          <tbody>
+            {rows.map(a => {
+              const pnl = ['EXERCISE', 'SELL_BACK', 'REFUND'].includes(a.kind) && a.option ? pnlById[a.option.id] : null;
+              return (
+                <tr key={a.id} className="border-b border-border hover:bg-surface/50">
+                  <td className="px-3 py-2 font-mono text-dim">{when(a.timestamp)}</td>
+                  <td className="px-3 py-2">{KIND[a.kind] || a.kind}</td>
+                  <td className="px-3 py-2 font-mono">{a.option ? <span className={a.option.optionType === 'CALL' ? 'text-accent' : 'text-red'}>{optName(a.option)}</span> : '—'}</td>
+                  <td className="px-3 py-2 font-mono">{money(Number(a.amount))}{a.shares != null && Number(a.shares) > 0 ? <span className="text-dim"> · {money(Number(a.shares))} yMUSD</span> : ''}</td>
+                  <td className={`px-3 py-2 font-mono ${pnl == null ? 'text-dim' : pnl >= 0 ? 'text-accent' : 'text-red'}`}>{pnl == null ? '' : signed(pnl)}</td>
+                  <td className="px-3 py-2"><a href={explorerTx(network, a.tx)} target="_blank" rel="noreferrer" className="text-dim hover:text-accent">tx ↗</a></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+
 export default function YourOrders() {
-  const { account, poolContract, btcPrice, options, poolParams, ordersLoading, refresh } = useStore(useShallow(s => ({ account: s.account, poolContract: s.poolContract, btcPrice: s.btcPrice, options: s.options, poolParams: s.poolParams, ordersLoading: s.ordersLoading, refresh: s.refresh })));
-  const [tab, setTab] = useState('active');
+  const { account, poolContract, btcPrice, options, poolParams, ordersLoading, refresh, history, historyLoading, network } = useStore(useShallow(s => ({
+    account: s.account, poolContract: s.poolContract, btcPrice: s.btcPrice, options: s.options, poolParams: s.poolParams,
+    ordersLoading: s.ordersLoading, refresh: s.refresh, history: s.history, historyLoading: s.historyLoading, network: s.network,
+  })));
+  const [tab, setTab] = useState(() => (new URLSearchParams(window.location.search).get('pos') === 'history' ? 'history' : 'active'));
   const now = Math.floor(Date.now() / 1000);
 
   const mine = useMemo(() => options.filter(o =>
     o.long?.toLowerCase() === account?.toLowerCase() || o.short?.toLowerCase() === account?.toLowerCase()), [options, account]);
-  const active = mine.filter(o => o.status === STATUS.OPEN || (o.status === STATUS.FILLED && Number(o.expiry) > now) || (o.status === STATUS.FILLED && Number(o.expiry) <= now));
-  const history = mine.filter(o => o.status === STATUS.SETTLED || o.status === STATUS.REFUNDED || o.status === STATUS.CLOSED);
-  const list = (tab === 'active' ? active : history).slice().sort((a, b) => Number(b.id - a.id));
+  const active = mine.filter(o => o.status === STATUS.OPEN || o.status === STATUS.FILLED);
+  const closed = mine.filter(o => o.status === STATUS.SETTLED || o.status === STATUS.REFUNDED || o.status === STATUS.CLOSED);
   const iv = poolParams?.iv || 0.8;
-
-  // headline numbers for the live book
-  const totals = useMemo(() => {
-    let pnl = 0, atRisk = 0, locked = 0;
-    for (const o of mine) {
-      if (o.status !== STATUS.FILLED || Number(o.expiry) <= now || !btcPrice) continue;
-      const isCall = o.optionType === 0n, strike = fmtE(o.strike), qty = fmtE(o.quantity), premium = fmtE(o.premium);
-      const mark = bsPrice(isCall, btcPrice, strike, (Number(o.expiry) - now) / 3600, iv) * qty;
-      if (o.long?.toLowerCase() === account?.toLowerCase()) { pnl += mark - premium; atRisk += premium; }
-      else { pnl += premium * (1 - PROTOCOL_FEE_BPS / 10000) - mark; locked += fmtE(o.collateral); }
-    }
-    return { pnl, atRisk, locked };
-  }, [mine, btcPrice, iv]); // eslint-disable-line
+  const { totals } = useMemo(() => livePositions(options, account, btcPrice, iv, now), [options, account, btcPrice, iv, Math.floor(now / 15)]); // eslint-disable-line
+  // history comes from the subgraph; if it is unavailable, show ended options read from the chain instead
+  const list = (tab === 'active' ? active : closed).slice().sort((a, b) => Number(b.id - a.id));
+  const showSubgraphHistory = tab === 'history' && history;
 
   return (
     <div className="panel flex flex-col overflow-hidden flex-1 min-h-0">
@@ -173,18 +235,16 @@ export default function YourOrders() {
           ))}
         </div>
       </div>
-      {account && tab === 'active' && (totals.atRisk > 0 || totals.locked > 0) && (
-        <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 py-2 border-b border-border text-[11px]">
-          <span className="text-dim">Open P&L <Flash value={Math.round(totals.pnl * 100)} className={`font-mono px-0.5 ${totals.pnl >= 0 ? 'text-accent' : 'text-red'}`}>{signed(totals.pnl)} MUSD</Flash></span>
-          <span className="text-dim">Premium at risk <span className="font-mono text-text">{money(totals.atRisk)}</span></span>
-          <span className="text-dim">Collateral locked <span className="font-mono text-text">{money(totals.locked)}</span></span>
-        </div>
-      )}
+      {account && tab === 'active' && (totals.premiumAtRisk > 0 || totals.collateralLocked > 0) && <Totals t={totals} />}
       <div className="flex-1 overflow-auto min-h-0">
-        {ordersLoading ? (
-          <div>{[...Array(3)].map((_, i) => <SkeletonRow key={i} />)}</div>
-        ) : !account ? (
+        {!account ? (
           <div className="flex items-center justify-center h-16 text-dim text-xs">Connect your wallet to see positions</div>
+        ) : showSubgraphHistory ? (
+          <HistoryTab history={history} account={account} network={network} unrealised={totals.pnl} />
+        ) : tab === 'history' && historyLoading ? (
+          <div>{[...Array(3)].map((_, i) => <SkeletonRow key={i} />)}</div>
+        ) : ordersLoading ? (
+          <div>{[...Array(3)].map((_, i) => <SkeletonRow key={i} />)}</div>
         ) : list.length === 0 ? (
           <div className="flex items-center justify-center h-16 text-dim text-xs">No {tab} positions</div>
         ) : (
@@ -202,7 +262,8 @@ export default function YourOrders() {
           </table>
         )}
       </div>
-      {account && list.length > 0 && <p className="px-4 py-1.5 text-[10px] text-dim/60 border-t border-border">Entry and mark are MUSD per 1 BTC. Mark uses the pool's mid volatility; Sell back pays the pool's bid, a little under mark. Click a row for the payoff at expiry.</p>}
+      {account && tab === 'active' && list.length > 0 && <p className="px-4 py-1.5 text-[10px] text-dim/60 border-t border-border">Entry and mark are MUSD per 1 BTC. Mark uses the pool's mid volatility; Sell back pays the pool's bid, a little under mark. Click a row for the payoff at expiry.</p>}
+      {account && tab === 'history' && !history && !historyLoading && <p className="px-4 py-1.5 text-[10px] text-dim/60 border-t border-border">History service unavailable: showing ended options read from the chain (no P&L).</p>}
     </div>
   );
 }
