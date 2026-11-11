@@ -49,7 +49,13 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     address public immutable TROVE_MANAGER;
     address public immutable BORROWER_OPS_SIGS;
 
-    uint256 public constant PRICE_STALENESS   = 300;  // oracle updates every block; options can be 15 min
+    /// @notice Oldest oracle price (seconds) accepted for anything that opens or prices risk: pool sales, orders,
+    ///         sell-back, deposits, quotes. Mezo's Skip oracle updates every block (~4 s): 30 s is about 7 blocks.
+    ///         A looser limit lets a trader act on a price the contract hasn't seen yet (stale-price arbitrage).
+    uint256 public constant PRICE_STALENESS   = 30;
+    /// @notice Oldest price accepted to exercise. Looser, so a short oracle hiccup near expiry does not stop a
+    ///         holder from exercising a winning option (an option that expires unexercised loses its value).
+    uint256 internal constant EXERCISE_PRICE_STALENESS = 120;
     uint256 public constant MIN_EXPIRY        = 15 minutes;
     uint256 public constant MAX_EXPIRY        = 14 days;
     uint256 public constant PRECISION         = 1e18;
@@ -83,7 +89,6 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
 
     uint256 public nextId = 1;
     mapping(uint256 => Option) public options;
-    mapping(address => uint256[]) public userOptions;
 
     // Pool accounting
     uint256 public totalAssets;       // MUSD owned by pool (deposits + premiums - losses)
@@ -234,10 +239,12 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
 
     // ─── Oracle ──────────────────────────────────────────────────────────────
 
-    function _spot() internal view returns (uint256) {
+    function _spot() internal view returns (uint256) { return _spotMaxAge(PRICE_STALENESS); }
+
+    function _spotMaxAge(uint256 maxAge) internal view returns (uint256) {
         (, int256 answer,, uint256 updatedAt,) = ISkipOracle(SKIP_ORACLE).latestRoundData();
         require(answer > 0, "invalid price");
-        require(block.timestamp - updatedAt <= PRICE_STALENESS, "stale price");
+        require(block.timestamp - updatedAt <= maxAge, "stale price");
         uint8 dec = ISkipOracle(SKIP_ORACLE).decimals();
         return uint256(answer) * PRECISION / (10 ** uint256(dec));
     }
@@ -373,8 +380,8 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     function deposit(uint256 amount) external nonReentrant notPaused {
         require(amount > 0, "zero amount");
         require(totalAssets + amount <= tvlCap, "tvl cap");
-        (bool oracleOk, uint256 spotNow) = _trySpot();
-        require(!(oracleOk && _breaker(spotNow)), "circuit breaker");
+        // A stale price makes NAV assume the worst case (shares look cheap): never let new money in at that price
+        require(!_breaker(_spot()), "circuit breaker");
 
         uint256 shares;
         uint256 supply = ymusd.totalSupply();
@@ -608,7 +615,6 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
         o.quantity   = quantity;
         o.expiry     = expiry;
 
-        userOptions[msg.sender].push(id);
         emit OrderCreated(id, optionType, msg.sender, true);
 
         // Attempt automatic pool fill
@@ -692,7 +698,6 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
         o.collateral = collateral;
         o.marginType = MarginType.MUSD;
 
-        userOptions[msg.sender].push(id);
         emit OrderCreated(id, optionType, msg.sender, false);
     }
 
@@ -747,7 +752,6 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
         o.expiry     = expiry;
         o.collateral = marginAmount;
         o.marginType = MarginType.TROVE;
-        userOptions[msg.sender].push(id);
 
         // Borrow into the short's own wallet, verify the amount, then pull it as margin.
         uint256 balBefore = musd.balanceOf(msg.sender);
@@ -775,7 +779,6 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
 
         o.long   = msg.sender;
         o.status = OrderStatus.FILLED;
-        userOptions[msg.sender].push(id);
 
         emit OrderFilled(id, msg.sender, false);
     }
@@ -804,7 +807,6 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
         o.collateral = collateral;
         o.marginType = MarginType.MUSD;
         o.status     = OrderStatus.FILLED;
-        userOptions[msg.sender].push(id);
 
         emit OrderFilled(id, msg.sender, false);
     }
@@ -852,7 +854,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
         require(o.status == OrderStatus.FILLED, "not filled");
         require(o.expiry > block.timestamp, "expired");
 
-        uint256 spot   = _spot();
+        uint256 spot   = _spotMaxAge(EXERCISE_PRICE_STALENESS);
         uint256 profit = _profit(o, spot);
         require(profit > 0, "not in the money");
 
@@ -976,9 +978,6 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
         return options[id];
     }
 
-    function getUserOptions(address user) external view returns (uint256[] memory) {
-        return userOptions[user];
-    }
 
     function spotPrice() external view returns (uint256) {
         return _spot();

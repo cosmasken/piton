@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 contract MockOracle {
     int256  private _answer;
     bool    private _stale;
+    uint256 private _age;     // seconds since the last update (0 = fresh)
 
     constructor(int256 price) {
         _answer    = price * 1e8;
@@ -13,9 +14,10 @@ contract MockOracle {
 
     function setPrice(int256 price) external { _answer = price * 1e8; }
     function setStale() external { _stale = true; }
+    function setAge(uint256 secs) external { _age = secs; }
 
     function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80) {
-        uint256 t = _stale ? block.timestamp - 10801 : block.timestamp;
+        uint256 t = _stale ? block.timestamp - 10801 : block.timestamp - _age;
         return (1, _answer, t, t, 1);
     }
 

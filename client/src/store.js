@@ -29,8 +29,9 @@ const POOL_FIELDS = ['totalAssets', 'lockedCollateral', 'utilisation', 'netAsset
   'totalPremiumsEarned', 'totalSettlementsPaid', 'totalPerformanceFeePaid', 'unrecognizedPremium', 'maxOptionCollateral',
   'cbRefPrice', 'cbRefTime', 'cbWindow', 'cbMaxMoveBps'];
 
-// Must match OptionPool.PRICE_STALENESS: the contract rejects oracle prices older than this.
-export const PRICE_STALENESS_S = 300;
+// Must match OptionPool.PRICE_STALENESS: the contract rejects oracle prices older than this for trades and deposits.
+export const PRICE_STALENESS_S = 30;
+// (Exercise accepts prices up to 120 s old — OptionPool.EXERCISE_PRICE_STALENESS — so exercise is not gated on this.)
 
 // Read-only providers per network (used before a wallet connects, or when it's on another chain).
 const roProviders = {};
@@ -206,7 +207,9 @@ export const useStore = create((set, get) => ({
     // Skip oracle: the settlement price. Older than PRICE_STALENESS_S means the contract would reject trades.
     if (r.oracle && r.dec != null) {
       const price = parseFloat(ethers.formatUnits(r.oracle[1], r.dec));
-      const age = Math.floor(Date.now() / 1000) - Number(r.oracle[3]);
+      // age against the block's own timestamp (what the contract uses), not the browser clock, which can drift
+      const nowS = Number(r.blockTime) || Math.floor(Date.now() / 1000);
+      const age = nowS - Number(r.oracle[3]);
       if (age <= PRICE_STALENESS_S && price > 0) {
         const prev = get().btcPrice;
         Object.assign(patch, { btcPrice: price, oracleStale: false, priceSource: 'oracle', priceDir: prev && price !== prev ? (price > prev ? 'up' : 'down') : get().priceDir });

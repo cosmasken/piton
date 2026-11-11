@@ -12,8 +12,16 @@ Where the project stands, and what to pick up next. Read this first when resumin
   - The IV keeper `0xdE33…7948` is authorised.
 - **Site:** https://piton.surge.sh, pointing at the deployment above.
 - **Older pools:** emptied. Balances under 20 MUSD are ignored by agreement.
-- **Tests:** Hardhat 158, Foundry 16 (invariants and fuzz), client 33, all passing.
-- **Contract size:** 24,411 of 24,576 bytes.
+- **Tests:** Hardhat 162, Foundry 16 (invariants and fuzz), client 58, all passing.
+- **Contract size:** 24,203 of 24,576 bytes (source; the live deployment is the older 24,4xx-byte build).
+
+## Pending redeploy (committed, not deployed)
+- Oracle price age: at most **30 s** (~7 Mezo blocks) to open or price risk (pool sales, orders, sell-back, deposits,
+  quotes); **120 s** to exercise, so a short oracle hiccup near expiry does not cost a holder a winning option. Was 300 s.
+  Measured: the Skip oracle updated every block (age 0 s) over 400 consecutive blocks and 1,001 samples across ~24 h.
+- Deposits now revert "stale price" instead of going through on a stale price (stale NAV made shares look cheap).
+- Removed the unused `userOptions` mapping / `getUserOptions` (saves ~20–40k gas per trade; nothing read it).
+- Needs: recover the pool's 2,200 MUSD first, then redeploy, re-seed, re-point client/subgraph/ops. Ask the user first.
 
 ## Done recently
 1. Twelve pool protections:

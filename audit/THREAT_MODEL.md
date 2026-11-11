@@ -73,7 +73,7 @@ keeper key has the same `setIV` risk as the owner, but no other power.
 
 | Dependency | Assumed | If wrong |
 |---|---|---|
-| **Skip oracle** `0x7b7c…0015` (BTC/USD, Mezo validators, every block) | Honest and live. Piton rejects prices ≤ 0 or older than 300 s. | A wrong price lets longs settle ITM options at the wrong value. Loss per option is capped at its collateral, but many options could be drained in one block. No deviation/sanity bound yet (open item O-2). |
+| **Skip oracle** `0x7b7c…0015` (BTC/USD, Mezo validators, every block) | Honest and live. Piton rejects prices ≤ 0, or older than 30 s for anything that opens or prices risk (orders, pool sales, sell-back, deposits) and 120 s for exercise. | A wrong price lets longs settle ITM options at the wrong value. Loss per option is capped at its collateral, but many options could be drained in one block. No deviation/sanity bound yet (open item O-2). |
 | **MUSD** | Standard ERC-20: no fee-on-transfer, no rebasing, no transfer hooks, no blocklist. | Fee-on-transfer would break the exact accounting; a blocklist could block a specific user's payout (their `settle` reverts). |
 | **Mezo `BorrowerOperationsSignatures`** | Verifies the EIP-712 WithdrawMUSD signature, consumes the nonce, mints exactly `amount` to `recipient`. | Integration-tested against Mezo's real contracts (`test/mezo.integration.test.js`). |
 | **Mezo `TroveManager`** | Reports correct coll/debt for the 150% post-draw check. | Only affects whether a Trove-funded order is accepted; the margin itself is real MUSD in the pool. |
@@ -124,7 +124,7 @@ keeper key has the same `setIV` risk as the owner, but no other power.
 - Cancelled or settled orders can't be filled again (status checks; covered by the fuzz handler).
 
 ### 5.5 Denial of service / griefing
-- `userOptions[user]` arrays grow without bound but are only read by views.
+- Per-user option lists were removed (they were never read on-chain); the dapp and subgraph index events instead.
 - `clearWorthlessShares` loops over a caller-supplied list; split it if it hits the gas limit.
 - Spam orders cost the spammer premium or collateral and don't affect the pool.
 

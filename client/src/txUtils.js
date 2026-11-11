@@ -7,7 +7,7 @@ const REVERT_MAP = {
   'Only long party can settle':              'Only the buyer (long party) can settle this option.',
   'Insufficient MUSD approved for strike':   'Approve more MUSD before settling — the strike payment was not approved.',
   'Incorrect BTC amount sent':               'Wrong BTC amount sent. Check the quantity.',
-  'stale price':                             'The on-chain oracle price is stale (more than 5 minutes old). Try again shortly.',
+  'stale price':                             'The on-chain oracle price is stale (older than 30 seconds for trades, 2 minutes for exercise). Try again shortly.',
   'Invalid price':                           'Oracle returned an invalid price. Try again shortly.',
   'Trove equity insufficient':               'Your Mezo Trove does not have enough equity to cover this margin.',
   'Cannot fill your own order':              'You cannot fill your own order.',

@@ -137,8 +137,10 @@ contract Handler is Test {
         uint256 bal = musd.balanceOf(o.long);
         vm.prank(o.long);
         try pool.sellBack(id, 0) { calls["sellBack"]++; } catch { return; }
-        // tolerance of 1 part in a million: the on-chain normal-CDF approximation is not exactly monotonic where vega is ~0 (deep in the money)
-        if (musd.balanceOf(o.long) - bal > mid + mid / 1e6) ghost_sellBackAboveMid = true;
+        // tolerance of 1 part in a million plus 1e12 wei (0.000001 MUSD) of dust: the on-chain normal-CDF approximation is
+        // not exactly monotonic where vega is ~0 (deep in or out of the money; e.g. a far-OTM put can price at 0 at mid vol
+        // and 0.0000004 MUSD at the lower bid vol)
+        if (musd.balanceOf(o.long) - bal > mid + mid / 1e6 + 1e12) ghost_sellBackAboveMid = true;
         _trackFees();
     }
 

@@ -32,8 +32,8 @@ Re-run after the 12 pool-protection changes (second review): Slither 55 results,
 | Remaining Aderyn H-1 "state change after external call" | Aderyn | The remaining hits are *view* calls before state writes (`ymusd.totalSupply()`, `TroveManager.getTrove*`). These cannot re-enter. |
 | `divide-before-multiply` (20) | Slither | Fixed-point maths in `_ln`, `_cdf`, `_expNeg`, `_bs` and the 95% fill threshold. Each step rescales by 1e18; precision is verified by the Black-Scholes accuracy tests (within 1% of a reference model across 8 cases). |
 | `incorrect-equality` (2) | Slither | `timeToExpiry == 0` and `x == 0` early returns on exact integers; intended. |
-| `timestamp` (14) | Slither | Expiry and oracle-staleness checks must use `block.timestamp`. Minute-level validator drift is irrelevant at 15-minute minimum expiries and a 300 s staleness limit. |
-| `unused-return` on `latestRoundData` | Slither | Only `answer` and `updatedAt` are needed; the price is checked `> 0` and fresher than 300 s. Skip's `roundId`/`answeredInRound` carry no extra safety information for a per-block feed. |
+| `timestamp` (14) | Slither | Expiry and oracle-staleness checks must use `block.timestamp`. Minute-level validator drift is irrelevant at 15-minute minimum expiries; the 30 s staleness limit is ~7 blocks, and Mezo's block time (4 s median, 9 s max measured) is far below it. |
+| `unused-return` on `latestRoundData` | Slither | Only `answer` and `updatedAt` are needed; the price is checked `> 0` and fresher than 30 s (120 s for exercise). Skip's `roundId`/`answeredInRound` carry no extra safety information for a per-block feed. |
 | `missing-zero-check` on `setIvKeeper` | Slither; Aderyn L-4 | Deliberate: `address(0)` disables the keeper. Documented in a NatSpec comment. |
 | `calls-loop`, `reentrancy-events` in `clearWorthlessShares` | Slither | Owner-only, only callable when the pool holds no assets, calls only the pool's own yMUSD. A huge holder list could hit the gas limit; the owner can split it across calls. |
 | Centralization risk | Aderyn L-1 | Real but bounded; see the owner-powers section of `audit/THREAT_MODEL.md`. |

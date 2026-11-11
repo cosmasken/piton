@@ -79,11 +79,10 @@ becomes a large price error.
 
 **Fix:** add more series terms or narrow the range reduction (e.g. normalise around sqrt(2)).
 
-### 3. Oracle staleness window is 2 hours (`PRICE_STALENESS = 7200`)
-Min expiry is 15 minutes and the oracle updates every block. A stale price can open or settle
-options.
-
-**Fix:** reduce to ~60–300 seconds.
+### 3. Oracle staleness window — FIXED
+Was 2 hours, then 300 s. Now `PRICE_STALENESS = 30` s for anything that opens or prices risk (deposits included) and
+120 s (`EXERCISE_PRICE_STALENESS`) for exercise only. The Skip oracle updates every ~4 s block; measured age was 0 s
+in every sample over ~24 h. (Pending redeploy; the live testnet pool still uses 300 s.)
 
 ## High — Trove margin
 
