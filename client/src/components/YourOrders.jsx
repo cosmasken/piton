@@ -105,7 +105,7 @@ function OptionRow({ o, account, spot, iv, poolContract, refresh }) {
               className={`mr-2 text-[10px] px-1.5 py-0.5 rounded border ${auto ? 'text-accent border-accent/40 bg-accent/10' : 'text-dim border-border'}`}>Auto {auto ? 'on' : 'off'}</button>
           )}
           {!loading && canSellBack && bid > 0 && (
-            <button onClick={() => act(() => poolContract.sellBack(o.id, ethers.parseEther((bid * 0.98).toFixed(8))).then(tx => tx.wait()), `Sold back to the pool for about ${money(bid)} MUSD.`)}
+            <button onClick={() => act(() => poolContract.sellBack(o.id, ethers.parseEther((bid * (1 - (useStore.getState().settings.slippagePct || 2) / 100)).toFixed(8))).then(tx => tx.wait()), `Sold back to the pool for about ${money(bid)} MUSD.`)}
               title="Sell this option back to the pool now, at its bid price" className="mr-2 text-xs font-display font-semibold text-accent hover:opacity-70">Sell back {money(bid)}</button>
           )}
           {!loading && canSettle && <button onClick={() => act(() => poolContract.settle(o.id).then(tx => tx.wait()), 'Exercised!')} className="text-accent text-xs font-display font-semibold hover:opacity-70">Exercise</button>}

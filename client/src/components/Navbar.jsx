@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAccount, useConnect, useSwitchChain } from 'wagmi';
 import { injected } from 'wagmi/connectors';
 import { startTour } from '../tour';
 import { useStore } from '../store';
 import { getNetwork, isLive } from '../network.mjs';
 import NetworkToggle from './NetworkToggle';
+import Settings from './Settings';
 
 export default function Navbar({ onDisconnect }) {
   const { address, isConnected, chainId } = useAccount();
@@ -13,6 +14,7 @@ export default function Navbar({ onDisconnect }) {
   const net = getNetwork(useStore(s => s.network));
   const short = address ? `${address.slice(0, 6)}…${address.slice(-4)}` : '';
   const wrongChain = isConnected && chainId !== net.chain.id;
+  const [settings, setSettings] = useState(false);
 
   return (
     <nav className="flex items-center justify-between gap-2 px-4 py-3 border-b border-border bg-bg shrink-0 flex-wrap">
@@ -23,11 +25,13 @@ export default function Navbar({ onDisconnect }) {
       <div className="flex items-center gap-3">
         <NetworkToggle />
         <button onClick={startTour} className="btn-ghost text-xs">Tour</button>
+        <button onClick={() => setSettings(true)} className="btn-ghost text-xs" aria-label="Settings" title="Settings">⚙</button>
         {isLive(net) && !isConnected && <button className="btn-primary text-xs" onClick={() => connect({ connector: injected() })}>Connect wallet</button>}
         {wrongChain && <button className="btn-primary text-xs" onClick={() => switchChain({ chainId: net.chain.id })}>Switch to {net.chain.name}</button>}
         {isConnected && <span className="font-mono text-xs text-dim">{short}</span>}
         {isConnected && <button onClick={onDisconnect} className="btn-ghost text-xs">Disconnect</button>}
       </div>
+      {settings && <Settings onClose={() => setSettings(false)} />}
     </nav>
   );
 }

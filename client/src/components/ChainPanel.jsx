@@ -66,7 +66,9 @@ export default function ChainPanel() {
   const { btcPrice: spot, options, trades, poolParams, chain, selected, setSelected, fetchChain, ordersLoading } = useStore(useShallow(s => ({ btcPrice: s.btcPrice, options: s.options, trades: s.trades, poolParams: s.poolParams, chain: s.chain, selected: s.selected, setSelected: s.setSelected, fetchChain: s.fetchChain, ordersLoading: s.ordersLoading })));
   const now = useNow(30_000);
   const [cols, setCols] = useState(loadCols);
-  const [unit, setUnit] = useState(() => localStorage.getItem('piton_chain_unit') || 'musd');
+  const prefUnit = useStore(s => s.settings.priceUnit);
+  const [unit, setUnit] = useState(() => localStorage.getItem('piton_chain_unit') || prefUnit || 'musd');
+  useEffect(() => { if (prefUnit) setUnit(prefUnit); }, [prefUnit]); // a new default in Settings applies at once
   const [range, setRange] = useState(20);
   const [view, setView] = useState('both');
   const [menu, setMenu] = useState(false);

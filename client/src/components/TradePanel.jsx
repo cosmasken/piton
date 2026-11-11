@@ -67,7 +67,8 @@ function CloseBox({ inst, options, account, poolContract, refresh }) {
   const sell = async o => {
     setBusy(o.id);
     try {
-      const tx = await (await poolContract.sellBack(o.id, E18((bids[String(o.id)] || 0) * 0.98))).wait();
+      const slip = (useStore.getState().settings.slippagePct || 2) / 100;
+      const tx = await (await poolContract.sellBack(o.id, E18((bids[String(o.id)] || 0) * (1 - slip)))).wait();
       refresh(); toast.success(<TxToast msg="Sold back to the pool." hash={tx?.hash} />);
     } catch (e) { toast.error(parseTxError(e)); } finally { setBusy(null); }
   };
@@ -113,11 +114,11 @@ export default function TradePanel() {
 
   const [side, setSide] = useState('buy');
   const [orderType, setOrderType] = useState('market');
-  const [qty, setQty] = useState('0.01');
+  const [qty, setQty] = useState(() => useStore.getState().settings.defaultSize || '0.01');
   const [price, setPrice] = useState('');           // MUSD per 1 BTC
   const [sizeUnit, setSizeUnit] = useState('btc');  // size typed as BTC, or as MUSD notional (size x spot)
   const [notional, setNotional] = useState('');
-  const [priceUnit, setPriceUnit] = useState('musd'); // price typed as MUSD per BTC, or as % of spot
+  const [priceUnit, setPriceUnit] = useState(() => (useStore.getState().settings.priceUnit === 'pct' ? 'pct' : 'musd')); // MUSD per BTC, or % of spot
   const [pctInput, setPctInput] = useState('');
   const [marginType, setMarginType] = useState('musd');
   const [autoEx, setAutoEx] = useState(true);
