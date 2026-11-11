@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store';
 import { useShallow } from 'zustand/react/shallow';
+import { Flash } from './Live';
 import { useNow } from '../useNow';
 import { expirySlots, extraExpiries, expiryLabel, strikeLadder, atmStrike, bestQuotes } from '../instruments.mjs';
 import { poolWontFill, fmtDuration } from '../poolRules.mjs';
@@ -38,7 +39,7 @@ function PriceCell({ value, unit, spot, tone, pool, active, onClick, title }) {
     <td className="p-0">
       <button type="button" onClick={onClick} title={title}
         className={`w-full px-2 py-1 text-right font-mono transition-colors hover:bg-white/5 ${tone} ${active ? 'bg-white/10' : ''}`}>
-        {fmtUnit(shown, unit)}{pool && <span className="ml-1 text-[8px] text-accent/70" aria-label="pool price">●</span>}
+        <Flash value={value}>{fmtUnit(shown, unit)}</Flash>{pool && <span className="ml-1 text-[8px] text-accent/70" aria-label="pool price">●</span>}
       </button>
     </td>
   );

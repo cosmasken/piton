@@ -25,7 +25,7 @@ export default function TradesPanel() {
             const qty = parseFloat(ethers.formatEther(o.quantity)), prem = parseFloat(ethers.formatEther(o.premium));
             const isCall = o.optionType === 0n;
             return (
-              <tr key={`${t.tx}-${t.id}`} className="border-b border-border hover:bg-surface/50">
+              <tr key={`${t.tx}-${t.id}`} className={`border-b border-border hover:bg-surface/50 ${t.live && Date.now() - t.live < 10_000 ? 'slide-in' : ''}`}>
                 <td className="px-3 py-2 font-mono text-dim">{t.time ? ago(t.time) : '—'}</td>
                 <td className="px-3 py-2 font-mono"><a href={explorerTx(network, t.tx)} target="_blank" rel="noreferrer" className={isCall ? 'text-accent' : 'text-red'}>{instrumentName({ isCall, strike: parseFloat(ethers.formatEther(o.strike)), expiry: o.expiry }).replace('BTC-', '')}</a></td>
                 <td className="px-3 py-2 font-mono">{qty.toFixed(4)}</td>

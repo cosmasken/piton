@@ -78,3 +78,14 @@
 .piton-tour .driver-popover-close-btn {
   color: #3a5a3a;
 }
+
+/* live updates: brief green/red flash when a value changes, and new rows sliding in */
+@keyframes flashUp   { from { background-color: rgba(0, 255, 136, 0.28); } to { background-color: transparent; } }
+@keyframes flashDown { from { background-color: rgba(255, 68, 102, 0.28); } to { background-color: transparent; } }
+@keyframes slideIn   { from { opacity: 0; transform: translateY(-6px); background-color: rgba(0, 255, 136, 0.12); } to { opacity: 1; transform: none; background-color: transparent; } }
+@keyframes pulseDot  { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.flash-up   { animation: flashUp 0.8s ease-out; border-radius: 2px; }
+.flash-down { animation: flashDown 0.8s ease-out; border-radius: 2px; }
+.slide-in   { animation: slideIn 0.6s ease-out; }
+.pulse-dot  { animation: pulseDot 2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .flash-up, .flash-down, .slide-in, .pulse-dot { animation: none; } }

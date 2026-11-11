@@ -3,6 +3,7 @@ import { ethers } from 'ethers';
 import { toast } from 'react-toastify';
 import { useStore, STATUS } from '../store';
 import { useShallow } from 'zustand/react/shallow';
+import { Flash } from './Live';
 import { explorerTx } from '../network.mjs';
 import { useCountdown } from '../useCountdown';
 import { parseTxError } from '../txUtils';
@@ -91,9 +92,9 @@ function OptionRow({ o, account, spot, iv, poolContract, refresh }) {
         <td className="px-3 py-2.5 text-xs text-dim">{isLong ? 'Long' : 'Short'}</td>
         <td className="px-3 py-2.5 font-mono text-xs">{money(qty, 4)}</td>
         <td className="px-3 py-2.5 font-mono text-xs text-dim">{money(premium / qty, 1)}</td>
-        <td className="px-3 py-2.5 font-mono text-xs">{mark != null ? money(mark / qty, 1) : '—'}</td>
+        <td className="px-3 py-2.5 font-mono text-xs">{mark != null ? <Flash value={Math.round(mark / qty * 10)}>{money(mark / qty, 1)}</Flash> : '—'}</td>
         <td className="px-3 py-2.5 font-mono text-xs">
-          {pnl != null ? <span className={pnl >= 0 ? 'text-accent' : 'text-red'}>{signed(pnl)}</span> : <StatusBadge o={o} live={live} />}
+          {pnl != null ? <Flash value={Math.round(pnl * 100)} className={`px-0.5 ${pnl >= 0 ? 'text-accent' : 'text-red'}`}>{signed(pnl)}</Flash> : <StatusBadge o={o} live={live} />}
         </td>
         <td className="px-3 py-2.5 font-mono text-xs">{o.status === STATUS.SETTLED || o.status === STATUS.REFUNDED || o.status === STATUS.CLOSED ? '—' : exp}</td>
         <td className="px-3 py-2.5 whitespace-nowrap" onClick={e => e.stopPropagation()}>
@@ -174,7 +175,7 @@ export default function YourOrders() {
       </div>
       {account && tab === 'active' && (totals.atRisk > 0 || totals.locked > 0) && (
         <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 py-2 border-b border-border text-[11px]">
-          <span className="text-dim">Open P&L <span className={`font-mono ${totals.pnl >= 0 ? 'text-accent' : 'text-red'}`}>{signed(totals.pnl)} MUSD</span></span>
+          <span className="text-dim">Open P&L <Flash value={Math.round(totals.pnl * 100)} className={`font-mono px-0.5 ${totals.pnl >= 0 ? 'text-accent' : 'text-red'}`}>{signed(totals.pnl)} MUSD</Flash></span>
           <span className="text-dim">Premium at risk <span className="font-mono text-text">{money(totals.atRisk)}</span></span>
           <span className="text-dim">Collateral locked <span className="font-mono text-text">{money(totals.locked)}</span></span>
         </div>

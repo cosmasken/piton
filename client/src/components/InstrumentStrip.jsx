@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { useStore } from '../store';
 import { useShallow } from 'zustand/react/shallow';
+import { Flash } from './Live';
 import { useNow } from '../useNow';
 import { instrumentName, expiryLabel } from '../instruments.mjs';
 import { instrumentStats } from '../orderForm.mjs';
@@ -53,7 +54,7 @@ export default function InstrumentStrip({ inst, askPerBtc }) {
         </span>
       </div>
       <div className="grid grid-cols-4 gap-x-3 gap-y-1.5">
-        <Item label="Mark / BTC" title="Fair value at the pool's mid volatility">{n(mark)}</Item>
+        <Item label="Mark / BTC" title="Fair value at the pool's mid volatility"><Flash value={mark != null ? Math.round(mark * 100) : null}>{n(mark)}</Flash></Item>
         <Item label="Ask IV" title="Volatility implied by the pool's price for your size">{askIv != null ? `${(askIv * 100).toFixed(1)}%` : '—'}</Item>
         <Item label="Mid IV" title="The pool's mid volatility">{(mid * 100).toFixed(1)}%</Item>
         <Item label="Delta" title="Price change per 1 USD move in BTC">{g.delta ?? '—'}</Item>
@@ -65,7 +66,7 @@ export default function InstrumentStrip({ inst, askPerBtc }) {
         </Item>
         <Item label="24h vol" title="Size traded in the last 24 hours (BTC)">{stats.vol24 > 0 ? n(stats.vol24, 4) : '—'}</Item>
         <Item label="Open int." title="Size of live positions in this option (BTC)">{stats.oi > 0 ? n(stats.oi, 4) : '—'}</Item>
-        <Item label="Spot">{n(spot, 0)}</Item>
+        <Item label="Spot"><Flash value={spot}>{n(spot, 0)}</Flash></Item>
       </div>
     </div>
   );
