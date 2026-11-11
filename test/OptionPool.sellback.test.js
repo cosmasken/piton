@@ -1,5 +1,6 @@
 // Selling an option back to the pool before expiry (closing a long position).
 const { expect } = require('chai');
+const { poolFactory } = require('./helpers/poolFactory');
 const { ethers } = require('hardhat');
 const { time } = require('@nomicfoundation/hardhat-network-helpers');
 const E18 = ethers.parseEther, f = v => Number(ethers.formatEther(v));
@@ -9,7 +10,7 @@ async function deploy() {
   const musd = await (await ethers.getContractFactory('MockERC20v2')).deploy('MUSD', 'MUSD');
   const oracle = await (await ethers.getContractFactory('MockOracle')).deploy(100_000);
   const ymusd = await (await ethers.getContractFactory('yMUSD')).deploy();
-  const pool = await (await ethers.getContractFactory('OptionPool')).deploy(
+  const pool = await (await poolFactory()).deploy(
     await musd.getAddress(), await ymusd.getAddress(), await oracle.getAddress(),
     await (await (await ethers.getContractFactory('MockTrove')).deploy()).getAddress(),
     await (await (await ethers.getContractFactory('MockBorrowerOps')).deploy()).getAddress());

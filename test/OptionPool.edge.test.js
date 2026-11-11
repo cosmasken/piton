@@ -1,4 +1,5 @@
 const { expect } = require('chai');
+const { poolFactory } = require('./helpers/poolFactory');
 const { ethers } = require('hardhat');
 const { time }   = require('@nomicfoundation/hardhat-network-helpers');
 
@@ -23,7 +24,7 @@ async function deploy() {
   const YMUSD = await ethers.getContractFactory('yMUSD');
   const ymusd = await YMUSD.deploy();
 
-  const Pool = await ethers.getContractFactory('OptionPool');
+  const Pool = await poolFactory();
   const pool = await Pool.deploy(
     await musd.getAddress(),
     await ymusd.getAddress(),
@@ -351,7 +352,7 @@ describe('Total loss: deposits blocked until worthless shares are cleared', () =
     const ctx = await deploy();
     // yMUSD's pool is one-time, so the harness gets its own yMUSD
     const ymusd = await (await ethers.getContractFactory('yMUSD')).deploy();
-    const Pool = await ethers.getContractFactory('OptionPoolHarness');
+    const Pool = await poolFactory(undefined, 'OptionPoolHarness');
     const pool = await Pool.deploy(
       await ctx.musd.getAddress(), await ymusd.getAddress(), await ctx.oracle.getAddress(),
       await ctx.trove.getAddress(), await ctx.borrowerOps.getAddress()
@@ -418,7 +419,7 @@ describe('Static-analysis hardening', () => {
 
   it('constructor rejects zero addresses', async () => {
     const { musd, ymusd, oracle, trove, borrowerOps } = await deploy();
-    const Pool = await ethers.getContractFactory('OptionPool');
+    const Pool = await poolFactory();
     const a = [await musd.getAddress(), await ymusd.getAddress(), await oracle.getAddress(),
                await trove.getAddress(), await borrowerOps.getAddress()];
     for (let i = 0; i < a.length; i++) {

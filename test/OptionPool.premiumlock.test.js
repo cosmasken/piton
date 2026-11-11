@@ -1,6 +1,7 @@
 // Suggestion #1: unearned premium is not LP profit. These tests target the "become the pool" and
 // "join just before expiry" attacks found while comparing Piton with Hegic and Derive.
 const { expect } = require('chai');
+const { poolFactory } = require('./helpers/poolFactory');
 const { ethers } = require('hardhat');
 const { time } = require('@nomicfoundation/hardhat-network-helpers');
 
@@ -11,7 +12,7 @@ async function deploy() {
   const musd = await (await ethers.getContractFactory('MockERC20v2')).deploy('MUSD', 'MUSD');
   const oracle = await (await ethers.getContractFactory('MockOracle')).deploy(100_000);
   const ymusd = await (await ethers.getContractFactory('yMUSD')).deploy();
-  const pool = await (await ethers.getContractFactory('OptionPool')).deploy(
+  const pool = await (await poolFactory()).deploy(
     await musd.getAddress(), await ymusd.getAddress(), await oracle.getAddress(),
     await (await (await ethers.getContractFactory('MockTrove')).deploy()).getAddress(),
     await (await (await ethers.getContractFactory('MockBorrowerOps')).deploy()).getAddress());

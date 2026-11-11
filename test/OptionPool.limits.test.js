@@ -1,5 +1,6 @@
 // Suggestions #3-#8: limits on what the pool will sell.
 const { expect } = require('chai');
+const { poolFactory } = require('./helpers/poolFactory');
 const { ethers } = require('hardhat');
 const { time } = require('@nomicfoundation/hardhat-network-helpers');
 const E18 = ethers.parseEther;
@@ -9,7 +10,7 @@ async function deploy() {
   const musd = await (await ethers.getContractFactory('MockERC20v2')).deploy('MUSD', 'MUSD');
   const oracle = await (await ethers.getContractFactory('MockOracle')).deploy(100_000);
   const ymusd = await (await ethers.getContractFactory('yMUSD')).deploy();
-  const pool = await (await ethers.getContractFactory('OptionPool')).deploy(
+  const pool = await (await poolFactory()).deploy(
     await musd.getAddress(), await ymusd.getAddress(), await oracle.getAddress(),
     await (await (await ethers.getContractFactory('MockTrove')).deploy()).getAddress(),
     await (await (await ethers.getContractFactory('MockBorrowerOps')).deploy()).getAddress());
@@ -132,7 +133,7 @@ describe('#7 minimum time left for pool-sold options', () => {
     await expect(pool.setMinPoolExpiry(7 * 86400 + 1)).to.be.revertedWith('out of range');
     await expect(pool.setMinPoolExpiry(1800)).to.emit(pool, 'MinPoolExpirySet').withArgs(1800n);
     await expect(pool.connect(lp).setMinPoolExpiry(1800)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
-    const fresh = await (await ethers.getContractFactory('OptionPool')).deploy(
+    const fresh = await (await poolFactory()).deploy(
       ethers.Wallet.createRandom().address, ethers.Wallet.createRandom().address, ethers.Wallet.createRandom().address,
       ethers.Wallet.createRandom().address, ethers.Wallet.createRandom().address);
     expect(await fresh.minPoolExpiry()).to.equal(3600n);

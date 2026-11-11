@@ -1,6 +1,7 @@
 // Economic-safety tests: nobody (buyer, LP, or the fee recipient) can extract value from the pool
 // without taking real risk. Each test targets a specific attack.
 const { expect } = require('chai');
+const { poolFactory } = require('./helpers/poolFactory');
 const { ethers } = require('hardhat');
 const { time } = require('@nomicfoundation/hardhat-network-helpers');
 
@@ -13,7 +14,7 @@ async function deploy() {
   const trove = await (await ethers.getContractFactory('MockTrove')).deploy();
   const bo = await (await ethers.getContractFactory('MockBorrowerOps')).deploy();
   const ymusd = await (await ethers.getContractFactory('yMUSD')).deploy();
-  const pool = await (await ethers.getContractFactory('OptionPool')).deploy(
+  const pool = await (await poolFactory()).deploy(
     await musd.getAddress(), await ymusd.getAddress(), await oracle.getAddress(), await trove.getAddress(), await bo.getAddress());
   await ymusd.setPool(await pool.getAddress());
   await pool.setDepositLock(0); await pool.setWithdrawalFeeBps(0); await pool.setMinPoolExpiry(900); await pool.setBreaker(600, 50000, 0); // exit protections have their own tests

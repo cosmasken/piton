@@ -2,6 +2,7 @@
 // BlackScholes library (ISC, vendored in contracts/test/vendor/derive), an independent implementation
 // that has priced real money. Same inputs, same 5% rate; prices must agree to within a tiny error.
 const { expect } = require('chai');
+const { poolFactory } = require('./helpers/poolFactory');
 const { ethers } = require('hardhat');
 const E18 = ethers.parseEther;
 
@@ -12,7 +13,7 @@ describe('#11 Black-Scholes vs Derive v1 (differential)', function () {
     const musd = await (await ethers.getContractFactory('MockERC20v2')).deploy('MUSD', 'MUSD');
     const oracle = await (await ethers.getContractFactory('MockOracle')).deploy(100_000);
     const ymusd = await (await ethers.getContractFactory('yMUSD')).deploy();
-    pool = await (await ethers.getContractFactory('OptionPool')).deploy(
+    pool = await (await poolFactory()).deploy(
       await musd.getAddress(), await ymusd.getAddress(), await oracle.getAddress(),
       await (await (await ethers.getContractFactory('MockTrove')).deploy()).getAddress(),
       await (await (await ethers.getContractFactory('MockBorrowerOps')).deploy()).getAddress());

@@ -5,6 +5,7 @@
 // Skipped automatically when contracts/mezo is missing.
 
 const fs   = require('fs');
+const { poolFactory } = require('./helpers/poolFactory');
 const path = require('path');
 const { expect } = require('chai');
 const { ethers } = require('hardhat');
@@ -78,7 +79,7 @@ async function deployMezo() {
   // Piton, wired to the real Mezo contracts. The Skip oracle and Mezo's PriceFeed both read the
   // same Chainlink-style aggregator, so Piton and Mezo see one BTC price.
   const ymusd = await (await ethers.getContractFactory('yMUSD')).deploy();
-  const pool  = await (await ethers.getContractFactory('OptionPool')).deploy(
+  const pool  = await (await poolFactory()).deploy(
     await A(musd), await A(ymusd), await A(aggregator), await A(troveManager), await A(bos)
   );
   await ymusd.setPool(await A(pool));

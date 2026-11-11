@@ -1,4 +1,5 @@
 const { expect }      = require('chai');
+const { poolFactory } = require('./helpers/poolFactory');
 const { ethers }      = require('hardhat');
 const { time }        = require('@nomicfoundation/hardhat-network-helpers');
 
@@ -23,7 +24,7 @@ async function deploy() {
   const YMUSD = await ethers.getContractFactory('yMUSD');
   const ymusd = await YMUSD.deploy();
 
-  const Pool = await ethers.getContractFactory('OptionPool');
+  const Pool = await poolFactory();
   const pool = await Pool.deploy(
     await musd.getAddress(),
     await ymusd.getAddress(),
