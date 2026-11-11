@@ -1,13 +1,14 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, lazy, Suspense } from 'react';
 import { ethers } from 'ethers';
 import { toast } from 'react-toastify';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { useStore, STATUS, TYPE } from '../store';
 import { useShallow } from 'zustand/react/shallow';
 import { explorerTx } from '../network.mjs';
 import { useCountdown } from '../useCountdown';
 import { parseTxError } from '../txUtils';
 import Modal from './Modal';
+// the depth chart uses Recharts: load it only when the Depth view is opened
+const DepthView = lazy(() => import('./DepthView'));
 import { SkeletonRow } from './Skeleton';
 
 // Must match OptionPool.CALL_CAP_MULTIPLE and protocolFeeBps
@@ -25,31 +26,6 @@ function Row({ label, value, accent }) {
       <span className="text-xs text-dim">{label}</span>
       <span className={`font-mono text-xs ${accent ? 'text-accent' : 'text-text'}`}>{value}</span>
     </div>
-  );
-}
-
-function DepthView({ options }) {
-  const map = {};
-  options.forEach(o => {
-    const k = Math.round(fmt(o.strike) / 1000) * 1000;
-    const side = o.optionType === TYPE.CALL ? 'calls' : 'puts';
-    map[k] = map[k] || { strike: k, calls: 0, puts: 0 };
-    map[k][side] += fmt(o.quantity);
-  });
-  const data = Object.values(map).sort((a, b) => a.strike - b.strike)
-    .map(d => ({ ...d, strike: `$${(d.strike/1000).toFixed(0)}k` }));
-  if (!data.length) return <div className="flex items-center justify-center h-full text-dim text-xs">No orders to display</div>;
-  return (
-    <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-        <XAxis dataKey="strike" tick={{ fill: '#3a5a3a', fontSize: 10 }} axisLine={false} tickLine={false} />
-        <YAxis tick={{ fill: '#3a5a3a', fontSize: 10 }} axisLine={false} tickLine={false} width={40} tickFormatter={v => v.toFixed(2)} />
-        <Tooltip contentStyle={{ background: '#0d0d0d', border: '1px solid #1a1a1a', borderRadius: 6, fontSize: 11 }}
-          formatter={(v, name) => [v.toFixed(4) + ' BTC', name]} />
-        <Bar dataKey="calls" fill="#00ff88" opacity={0.7} radius={[2,2,0,0]} />
-        <Bar dataKey="puts"  fill="#ff4466" opacity={0.7} radius={[2,2,0,0]} />
-      </BarChart>
-    </ResponsiveContainer>
   );
 }
 
@@ -172,7 +148,7 @@ export default function OpenOrders() {
 
       {view === 'depth' ? (
         <div className="flex-1 min-h-0 p-3">
-          <DepthView options={allOpen} />
+          <Suspense fallback={<div className="flex items-center justify-center h-full text-dim text-xs">Loading chart…</div>}><DepthView options={allOpen} /></Suspense>
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto min-h-0">

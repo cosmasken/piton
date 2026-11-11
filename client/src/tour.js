@@ -5,34 +5,35 @@ import { getNetwork } from './network.mjs';
 
 const STEPS = [
   {
-    element: '[data-tour="market-value"]',
-    popover: { title: 'Live BTC Price', description: 'Real-time BTC/USD from the Skip oracle on Mezo, updated every block. Falls back to Binance if the oracle is stale.' },
-  },
-  {
-    element: '[data-tour="new-order"]',
-    popover: { title: 'Buy or Sell', description: 'Pick an option in the chain, then Buy (take the pool\'s price now, or set a limit price) or Sell (post collateral and a price). You see the cost, the worst case, the break-even and a payoff chart before you sign.' },
-  },
-  {
-    element: '[data-tour="trove-margin"]',
-    popover: { title: 'Trove Margin', description: 'Unique to Piton — use your Mezo Trove equity as collateral for short orders. No capital lockup required.' },
+    element: '[data-tour="market-header"]',
+    popover: { title: 'Market at a glance', description: 'BTC index (the Skip oracle price trades settle on), the live Binance price, 24h stats, volume, open interest, the pool\'s volatility against Deribit\'s DVOL, and the latest Mezo block. Everything refreshes every block.' },
   },
   {
     element: '[data-tour="chart"]',
-    popover: { title: 'BTC Chart', description: 'Candlestick, line, or area chart with volume bars. Switch intervals between 1h, 4h, and 1d. The dashed line shows the current oracle price.' },
+    popover: { title: 'Chart', description: 'Live BTC candles with your selected option\'s strike, break-even, expiry and expected move (Overlays). Other tabs show volatility history, pool history and the payoff of your order. Keys 1-6 change the interval, F goes full screen.' },
   },
   {
     element: '[data-tour="open-orders"]',
-    popover: { title: 'Option Chain', description: 'Choose an expiry, then click an ask to buy or a bid to sell. Calls are on the left, puts on the right. A dot marks the pool\'s own price. Other tabs list every resting order and recent trades.' },
+    popover: { title: 'Option chain', description: 'Pick an expiry, then click an ask to buy or a bid to sell. Calls on the left, puts on the right; a dot marks the pool\'s price. Keyboard: arrows move, B / S choose the side, Enter reviews the order.' },
   },
   {
-    element: '[data-tour="wallet"]',
-    popover: { title: 'Your Wallet', description: 'Live BTC and MUSD balances. You need MUSD to buy options or post margin — borrow it on Mezo.' },
+    element: '[data-tour="new-order"]',
+    popover: { title: 'Trade', description: 'Buy at the pool\'s price or set a limit; sell by posting collateral (MUSD or your Mezo Trove). You see cost, worst case, break-even and a payoff chart before signing. Tick auto-exercise to have winning options exercised for you.' },
   },
   {
     element: '[data-tour="your-orders"]',
-    popover: { title: 'Your Positions', description: 'Open positions with live profit and loss, break-even and a payoff chart (click a row). Exercise a winning option, turn on auto-exercise, cancel a resting order, or refund after expiry.' },
+    popover: { title: 'Positions', description: 'Open positions with live P&L and portfolio greeks; sell back to the pool, exercise, or cancel. History shows every action with realised P&L, and exports to CSV.' },
+  },
+  {
+    element: '[data-tour="wallet"]',
+    popover: { title: 'Account', description: 'Your MUSD and BTC, your pool share, open positions, and open and realised P&L in one place. You need MUSD to trade: borrow it on Mezo.' },
+  },
+  {
+    element: '[data-tour="pool"]',
+    popover: { title: 'Pool', description: 'Deposit MUSD to sell options and earn premiums. See utilisation, the pool\'s exposure, and your share and P&L. "How it works" explains the risks.' },
   },
 ];
+
 
 // Name the borrow site for the selected network (testnet.mezo.org vs mezo.org/borrow).
 function withBorrowLink(steps) {

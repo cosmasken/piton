@@ -25,7 +25,21 @@ const spaFallback = () => {
 export default defineConfig({
   plugins: [react(), spaFallback()],
   server: { port: 3000 },
-  optimizeDeps: {
-    include: ['./src/addon/canvasjs.min.js'],
+  build: {
+    // Split third-party code into stable chunks: they change rarely, so browsers cache them across releases,
+    // and the landing page doesn't download the trading libraries.
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined;
+          if (/lightweight-charts|fancy-canvas/.test(id)) return 'charts-lw';
+          // Recharts is left to the bundler: it is only reached through lazy imports (payoff and depth charts)
+          if (/[\\/](ethers|@adraffy)[\\/]/.test(id)) return 'ethers';
+          if (/wagmi|viem|@tanstack|@wagmi|abitype|ox[\\/]/.test(id)) return 'wallet';
+          if (/react-dom|react-router|scheduler|[\\/]react[\\/]/.test(id)) return 'react';
+          return undefined; // everything else: let the bundler decide (keeps lazy-only code like Recharts out of the first load)
+        },
+      },
+    },
   },
 });

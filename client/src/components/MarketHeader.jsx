@@ -33,7 +33,7 @@ export default function MarketHeader() {
   const breaker = p && breakerActive(p.cbUntil, now);
 
   return (
-    <div className="shrink-0 flex items-center overflow-x-auto border-b border-border bg-bg py-2 px-1" aria-label="Market summary">
+    <div data-tour="market-header" className="shrink-0 flex items-center overflow-x-auto border-b border-border bg-bg py-2 px-1" aria-label="Market summary">
       <Stat label={`BTC index${priceSource === 'binance' ? ' (Binance)' : ''}`} title="Settlement price from Mezo's Skip oracle">
         <Flash value={spot} className="text-accent text-sm px-0.5">${n(spot, 2)}</Flash><TickArrow dir={priceDir} />
       </Stat>
