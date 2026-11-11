@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fmtDuration, lockRemaining, breakerActive, poolWontFill, withdrawEstimate } from './poolRules.mjs';
+import { fmtDuration, lockRemaining, breakerActive, poolWontFill, withdrawEstimate, poolMaxSize } from './poolRules.mjs';
 
 const P = { strikeDistanceBps: 3000, minPoolExpiry: 900, cbUntil: 0, utilisationBps: 1000, maxUtilisationBps: 8000 };
 const base = { spot: 100000, strike: 100000, expirySecs: 3600, nowSec: 1000 };
@@ -60,4 +60,16 @@ test('size limits match the contract: 25% of pool per option, 80% utilisation, a
   assert.deepEqual(poolWontFill({ ...base, collateral: 460 }, { ...P2, lockedCollateral: 1300 }), []);   // 1,760 = 80%
   assert.match(poolWontFill({ ...base, collateral: 20000 }, { ...P2, totalAssets: 1e6 })[0], /at most 10,000/);
   assert.deepEqual(poolWontFill({ ...base, collateral: 740 }, P), []);              // no pool size known: no guess
+});
+
+test('poolMaxSize: the tightest of per-option cap, 25% of the pool and the utilisation limit', () => {
+  const p = { totalAssets: 2100, lockedCollateral: 0, maxOptionExposureBps: 2500, maxUtilisationBps: 8000, maxOptionCollateral: 10000 };
+  const callPerBtc = 3 * 73700 - 74000;                          // 147,100 MUSD per BTC of a 74,000 call
+  assert.equal(poolMaxSize(callPerBtc, p), 0.0035);              // 525 MUSD / 147,100 = 0.00357 -> 0.0035
+  assert.equal(poolMaxSize(74000, p), 0.0070);                   // a 74,000 put: 525 / 74,000 = 0.0071 (less headroom)
+  assert.equal(poolMaxSize(74000, { ...p, lockedCollateral: 1600 }), 0.001);  // utilisation: 1,680 - 1,600 = 80 MUSD left
+  assert.equal(poolMaxSize(74000, { ...p, lockedCollateral: 1700 }), 0);      // already past the limit
+  assert.equal(poolMaxSize(74000, { ...p, maxOptionCollateral: 100 }), 0.0013); // owner cap
+  assert.equal(poolMaxSize(74000, {}), null);                    // pool not loaded yet
+  assert.equal(poolMaxSize(0, p), null);
 });

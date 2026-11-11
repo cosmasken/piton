@@ -25,6 +25,7 @@ export const NETWORKS = {
     faucetUrl: 'https://faucet.test.mezo.org',
     // Expiry slots: testnet adds 30-minute expiries so a whole cycle (buy, auto-exercise, settle) fits in half an hour
     expiries: { shortEveryMin: 30, shortCount: 6, dailyDays: 7, fridaysToDays: 14 },
+    defaultSize: '0.001', // BTC; a small testnet pool caps one option at ~0.003-0.007 BTC
     // Goldsky subgraph (stable "prod" tag; `npm run subgraph:deploy` moves it to each new version)
     subgraph: 'https://api.goldsky.com/api/public/project_cm3n60bzt1tjh01u89zk3d2n9/subgraphs/piton-testnet/prod/gn',
     borrowUrl: 'https://testnet.mezo.org',
@@ -55,6 +56,7 @@ export const NETWORKS = {
     borrowUrl: 'https://mezo.org/borrow',
     // Expiry slots: daily 08:00 UTC for a week, then Fridays (Deribit's schedule); no intraday expiries
     expiries: { shortEveryMin: 0, shortCount: 0, dailyDays: 7, fridaysToDays: 14 },
+    defaultSize: '0.01',  // BTC
     addresses: {
       // Piton is not deployed on mainnet yet: placeholders keep the app in "not live" mode.
       pool:            ZERO_ADDRESS,

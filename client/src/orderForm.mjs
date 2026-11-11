@@ -65,3 +65,15 @@ export function instrumentStats(options, trades, inst, nowSec) {
   for (const o of options) if (same(o) && Number(o.status) === 1 && Number(o.expiry) > nowSec) oi += Number(o.quantity) / 1e18;
   return { last, vol24, oi };
 }
+
+/**
+ * Minimum payout to accept when selling back to the pool. The bid moves every block with BTC: on a short, cheap
+ * option a few dollars of BTC can move it 5-10%, so a plain percentage is too tight. Allow the larger of the
+ * user's slippage (% of the bid) and `moveRisk` (how much the bid falls if BTC moves against the option by a
+ * small amount while the transaction is mined; computed by the caller from the pricing model).
+ */
+export function sellBackMin(bid, slippagePct, moveRisk = 0) {
+  if (!(bid > 0)) return 0;
+  const slack = Math.max(bid * (slippagePct > 0 ? slippagePct : 2) / 100, moveRisk > 0 ? moveRisk : 0);
+  return Math.max(0, bid - slack);
+}

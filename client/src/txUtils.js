@@ -3,6 +3,7 @@ import { useStore } from './store';
 
 // Map known revert reasons to plain English
 const REVERT_MAP = {
+  'no bid':                                  "The pool's bid fell below your minimum before the transaction went through (BTC moved). Nothing was sent; try again.",
   'Option is out of the money':              'Option is out of the money — current price does not make this profitable to settle.',
   'Only long party can settle':              'Only the buyer (long party) can settle this option.',
   'Insufficient MUSD approved for strike':   'Approve more MUSD before settling — the strike payment was not approved.',

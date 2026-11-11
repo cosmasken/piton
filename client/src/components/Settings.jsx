@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useStore, DEFAULT_SETTINGS } from '../store';
 import Modal from './Modal';
 import { zoneLabel } from '../instruments.mjs';
+import { getNetwork } from '../network.mjs';
 
 /** Trading preferences, saved in this browser. */
 export default function Settings({ onClose }) {
@@ -10,6 +11,7 @@ export default function Settings({ onClose }) {
   const [d, setD] = useState(settings);
   const [note, setNote] = useState('');
   const upd = patch => setD(x => ({ ...x, ...patch }));
+  const netSize = useStore(s => getNetwork(s.network).defaultSize || '0.01');
 
   const toggleNotify = async on => {
     if (!on) { upd({ notify: false }); return; }
@@ -18,19 +20,19 @@ export default function Settings({ onClose }) {
     if (perm === 'granted') { upd({ notify: true }); setNote(''); } else setNote('Notifications are blocked for this site in your browser settings.');
   };
   const save = () => {
-    const size = parseFloat(d.defaultSize), slip = parseFloat(d.slippagePct), mins = parseInt(d.alertMinutes, 10);
-    if (!(size > 0)) return setNote('Default size must be above 0.');
+    const size = d.defaultSize === '' ? null : parseFloat(d.defaultSize), slip = parseFloat(d.slippagePct), mins = parseInt(d.alertMinutes, 10);
+    if (size !== null && !(size > 0)) return setNote('Default size must be above 0, or empty for the network default.');
     if (!(slip >= 0.1 && slip <= 10)) return setNote('Sell-back slippage must be between 0.1% and 10%.');
     if (!(mins >= 5 && mins <= 1440)) return setNote('Alert window must be between 5 minutes and 24 hours.');
-    setSettings({ ...d, defaultSize: String(size), slippagePct: slip, alertMinutes: mins });
+    setSettings({ ...d, defaultSize: size === null ? '' : String(size), slippagePct: slip, alertMinutes: mins });
     onClose();
   };
   const field = 'input-field';
   return (
     <Modal title="Settings" onClose={onClose}>
       <div className="space-y-3 text-xs">
-        <label className="block"><span className="text-dim">Default order size (BTC)</span>
-          <input className={field} type="number" step="any" min="0" value={d.defaultSize} onChange={e => upd({ defaultSize: e.target.value })} /></label>
+        <label className="block"><span className="text-dim">Default order size (BTC); empty = network default ({netSize} BTC)</span>
+          <input className={field} type="number" step="any" min="0" placeholder={netSize} value={d.defaultSize} onChange={e => upd({ defaultSize: e.target.value })} /></label>
         <label className="block"><span className="text-dim">Price unit (option chain and order form)</span>
           <select className={field} value={d.priceUnit} onChange={e => upd({ priceUnit: e.target.value })}>
             <option value="musd">MUSD per BTC</option><option value="btc">BTC (chain only; the form uses MUSD)</option><option value="pct">% of spot</option>

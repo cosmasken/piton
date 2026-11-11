@@ -54,7 +54,8 @@ const watchAddress = (() => {
 
 const SETTINGS_KEY = 'piton_settings';
 // Defaults for the trade form, sell-back and the option chain (Settings in the top bar)
-export const DEFAULT_SETTINGS = { defaultSize: '0.01', slippagePct: 2, priceUnit: 'musd', notify: false, alertMinutes: 60, utc: false };
+// defaultSize '' = the network's default (network.mjs: 0.001 BTC on testnet, 0.01 on mainnet)
+export const DEFAULT_SETTINGS = { defaultSize: '', slippagePct: 2, priceUnit: 'musd', notify: false, alertMinutes: 60, utc: false };
 function loadSettings() {
   try { return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; } catch { return { ...DEFAULT_SETTINGS }; }
 }

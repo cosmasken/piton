@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { floorSize, sizeFromNotional, sizeForBudget, priceFromPct, pctFromPrice, outcome, instrumentStats } from './orderForm.mjs';
+import { floorSize, sizeFromNotional, sizeForBudget, priceFromPct, pctFromPrice, outcome, instrumentStats, sellBackMin } from './orderForm.mjs';
 
 const close = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) <= eps, `${a} != ${b}`);
 
@@ -51,4 +51,14 @@ test('instrument stats: last trade, 24h size and open interest for one option on
   close(s.last.price, 900); close(s.last.qty, 0.02);   // id 4 is newest in time but listed after: trades list order is used (newest first)
   close(s.vol24, 0.02 + 0.5);                          // id 1 is older than 24h; id 3 is a call
   close(s.oi, 0.03);                                   // id 4 is settled
+});
+
+test('sellBackMin: slippage or the bid move from a small BTC tick, whichever is larger', () => {
+  close(sellBackMin(10, 2), 9.8);                                // big option: 2% applies
+  close(sellBackMin(10, 2, 0.5), 9.5);                           // fast-moving bid: model move applies
+  close(sellBackMin(0.0099, 2, 0.0074), 0.0025);                 // the 11 Nov failure: bid fell 0.0099 -> 0.0085 in 9 blocks
+  assert.ok(sellBackMin(0.0099, 2, 0.0074) < 0.0085);
+  assert.equal(sellBackMin(0.004, 2, 0.01), 0);                  // never below zero
+  assert.equal(sellBackMin(0, 2), 0);
+  close(sellBackMin(10, undefined), 9.8);                        // default 2%
 });

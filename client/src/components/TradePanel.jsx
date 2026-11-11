@@ -9,7 +9,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { explorerTx } from '../network.mjs';
 import { parseTxError } from '../txUtils';
 import { useNow } from '../useNow';
-import { poolWontFill } from '../poolRules.mjs';
+import { poolWontFill, poolMaxSize } from '../poolRules.mjs';
 import { instrumentName, bookFor, expirySlots } from '../instruments.mjs';
 import { collateralFor, breakEven, maxGain, maxLoss, PROTOCOL_FEE_BPS } from '../payoff.mjs';
 import { sizeFromNotional, sizeForBudget, priceFromPct, pctFromPrice, outcome as orderOutcome } from '../orderForm.mjs';
@@ -115,7 +115,7 @@ export default function TradePanel() {
 
   const [side, setSide] = useState('buy');
   const [orderType, setOrderType] = useState('market');
-  const [qty, setQty] = useState(() => useStore.getState().settings.defaultSize || '0.01');
+  const [qty, setQty] = useState(() => { const st = useStore.getState(); return st.settings.defaultSize || getNetwork(st.network).defaultSize || '0.01'; });
   const [price, setPrice] = useState('');           // MUSD per 1 BTC
   const [sizeUnit, setSizeUnit] = useState('btc');  // size typed as BTC, or as MUSD notional (size x spot)
   const [notional, setNotional] = useState('');
@@ -168,6 +168,11 @@ export default function TradePanel() {
   const premium = px * q;                                    // total MUSD
   const result = inst && q > 0 && px > 0 ? orderOutcome({ side, reasons, quote, premium, pricePerBtc: px, bestAsk: book.bestAsk, bestBid: book.bestBid }) : null;
   const poolWillFill = result?.kind === 'fills';
+  // the most the pool can sell of this option now (collateral limits); market buys above it are blocked
+  const maxSize = buy && inst && spot ? poolMaxSize(collateralFor(inst.isCall, spot, inst.strike, 1), poolParams || {}) : null;
+  const overPoolSize = maxSize != null && q > maxSize;
+  const market = buy && orderType === 'market';
+  const marketRefused = market && result?.kind !== 'fills' && q > 0;
   const leg = inst && premium > 0 && q > 0 ? { side, isCall: inst.isCall, strike: inst.strike, qty: q, premium, collateral, feeBps: PROTOCOL_FEE_BPS } : null;
 
   // share the order with the chart (break-even line); only when it actually changes
@@ -188,6 +193,7 @@ export default function TradePanel() {
     : oracleStale ? 'Oracle price is stale; trading resumes when it updates.'
     : !(q > 0) ? 'Enter a size.'
     : !(px > 0) ? (side === 'buy' && orderType === 'market' ? 'The pool has no price for this order.' : 'Enter a price.')
+    : marketRefused ? (result?.poolRefuses ? `The pool won't sell this: ${reasons.join('; ')}. Use a smaller size, or switch to Limit to leave a bid for other traders.` : 'Waiting for the pool price…')
     : overCap ? `Size too large: collateral ${fmt(collateral)} MUSD exceeds the per-option limit of ${fmt(poolParams.maxOptionCollateral, 0)} MUSD.`
     : needWallet ? 'Connect your wallet to trade.'
     : musdBalance !== '—' && !(side === 'sell' && marginType === 'trove')
@@ -218,7 +224,9 @@ export default function TradePanel() {
           await (await poolContract.setAutoExercise(placed.id, true)).wait();
           msg = 'Bought from the pool. Auto-exercise is on: if it is in the money near expiry, a keeper exercises it for 0.5% of the payout.';
         } else if (placed.filledByPool) msg = 'Bought from the pool. Exercise it yourself before expiry if it is in the money.';
-        else msg = 'Not filled by the pool: your order is a resting bid and your premium is held. Cancel it any time in Positions.';
+        else msg = orderType === 'market'
+          ? 'The pool did not sell: the price or the pool changed while your order was being mined. Your premium is held as a bid; cancel it in Open orders to get it back.'
+          : 'Not filled by the pool: your order is a resting bid and your premium is held. Cancel it any time in Open orders.';
         return tx;
       }
       if (marginType === 'trove') {
@@ -233,7 +241,7 @@ export default function TradePanel() {
         return (await poolContract.createShortOrderTrove(typeId, strikeWei, qtyWei, inst.expiry, premiumWei, marginWei, sig, deadline)).wait();
       }
       await (await musdContract.approve(poolAddr, E18(collateral))).wait();
-      msg = 'Sell order posted. It rests on the book until a buyer takes it; cancel it any time in Positions.';
+      msg = 'Sell order posted. It rests on the book until a buyer takes it; cancel it any time in Open orders.';
       return (await poolContract.createShortOrder(typeId, strikeWei, qtyWei, inst.expiry, premiumWei)).wait();
     }, () => msg);
   };
@@ -304,6 +312,12 @@ export default function TradePanel() {
                 <input id="qty" className="input-field" type="number" step="any" min="0" inputMode="decimal"
                   value={sizeUnit === 'btc' ? qty : notional} onChange={e => (sizeUnit === 'btc' ? setQty(e.target.value) : setNotional(e.target.value))} />
                 <p className="text-[10px] text-dim mt-0.5 font-mono">{sizeUnit === 'btc' ? (q > 0 ? `≈ ${fmt(q * spot, 0)} MUSD notional` : '') : (q > 0 ? `= ${q.toFixed(4)} BTC` : '')}</p>
+                {maxSize != null && (
+                  <p className={`text-[10px] mt-0.5 ${overPoolSize ? 'text-yellow-400' : 'text-dim'}`}>
+                    Pool sells up to <button type="button" onClick={() => { setSizeUnit('btc'); setQty(String(maxSize)); }} disabled={!(maxSize > 0)}
+                      className="font-mono underline decoration-dotted hover:text-accent disabled:no-underline" title="Use this size">{maxSize > 0 ? maxSize.toFixed(4) : '0'} BTC</button> of this option
+                  </p>
+                )}
               </div>
               <div>
                 <div className="flex items-center justify-between mb-1">
@@ -349,7 +363,7 @@ export default function TradePanel() {
             {result && (
               <div role="status" className={`rounded-md px-3 py-2 text-xs border ${result.kind === 'fills' ? 'border-accent/40 bg-accent/5 text-accent'
                 : result.poolRefuses ? 'border-yellow-700/40 bg-yellow-900/20 text-yellow-400' : 'border-border bg-surface text-text'}`}>
-                <p>{result.text}</p>
+                <p>{marketRefused && result.poolRefuses ? "The pool won't sell this order, so Buy from pool is off. Nothing is sent." : result.text}</p>
                 {result.hint && <p className="text-dim mt-0.5">{result.hint}</p>}
               </div>
             )}
@@ -385,7 +399,11 @@ export default function TradePanel() {
           </>
         )}
 
-        {blockedMsg && inst && !(needWallet && !isConnected) && <p className="text-xs text-dim" role="status">{blockedMsg}</p>}
+        {blockedMsg && inst && !(needWallet && !isConnected) && <p className={`text-xs ${marketRefused ? 'text-yellow-400' : 'text-dim'}`} role="status">{blockedMsg}</p>}
+        {marketRefused && overPoolSize && maxSize > 0 && (
+          <button type="button" onClick={() => { setSizeUnit('btc'); setQty(String(maxSize)); }}
+            className="w-full py-1.5 rounded-md border border-accent/40 text-accent text-xs font-display font-semibold hover:bg-accent/10">Use max size: {maxSize.toFixed(4)} BTC</button>
+        )}
         <button type="button" disabled={busy || (!!blockedMsg && !(needWallet && !isConnected))} onClick={() => (needWallet && !isConnected) ? connect({ connector: injected() }) : setConfirm(true)}
           className={`w-full py-2.5 rounded-md font-display font-bold text-sm transition-opacity disabled:opacity-40 flex items-center justify-center gap-2 ${buy ? 'bg-accent/20 text-accent border border-accent/30' : 'bg-red/20 text-red border border-red/30'}`}>
           {busy && <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />}{cta}

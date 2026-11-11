@@ -67,3 +67,19 @@ export function withdrawEstimate(shares, shareValue, feeBps, openOptions) {
   const fee = openOptions > 0 ? gross * feeBps / BPS : 0;
   return { gross, fee, net: gross - fee };
 }
+
+/**
+ * Largest size (BTC, rounded down to 0.0001) the pool can sell of one option right now, from its collateral
+ * limits: per-option cap, share of the pool per option, and the utilisation limit. `collateralPerBtc` is the
+ * collateral the pool locks per 1 BTC of this option. Null when the pool state is not known yet.
+ */
+export function poolMaxSize(collateralPerBtc, p) {
+  if (!(collateralPerBtc > 0) || !(p?.totalAssets > 0)) return null;
+  const caps = [];
+  if (p.maxOptionCollateral != null) caps.push(p.maxOptionCollateral);
+  if (p.maxOptionExposureBps != null) caps.push(p.totalAssets * p.maxOptionExposureBps / BPS);
+  if (p.maxUtilisationBps != null && p.lockedCollateral != null) caps.push(p.totalAssets * p.maxUtilisationBps / BPS - p.lockedCollateral);
+  if (!caps.length) return null;
+  // 0.1% headroom: call collateral is recomputed from the price when the order is mined
+  return Math.max(0, Math.floor(Math.min(...caps) * 0.999 / collateralPerBtc * 1e4) / 1e4);
+}
