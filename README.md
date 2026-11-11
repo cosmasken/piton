@@ -123,7 +123,7 @@ Above the buy form, **🛡 Protect my Trove** reads your Trove and shows its col
 
 BTC/USD comes from Mezo's **Skip oracle** at `0x7b7c000000000000000000000000000000000015`. Mezo's validators agree the price during block consensus (Skip Connect) and expose it through a Chainlink-compatible `latestRoundData()`; it updates every block. Mezo's own MUSD `PriceFeed` reads this same contract, so Piton and Trove liquidations see the same price.
 
-- The contract rejects prices older than **30 seconds** (`PRICE_STALENESS`, about 7 Mezo blocks) for orders, pool sales, sell-back and deposits, and older than **120 seconds** for exercise, so a brief oracle pause near expiry can't cost a holder a winning option. (The live testnet pool predates this and uses 300 s.)
+- The contract rejects prices older than **30 seconds** (`PRICE_STALENESS`, about 7 Mezo blocks) for orders, pool sales, sell-back and deposits, and older than **120 seconds** for exercise, so a brief oracle pause near expiry can't cost a holder a winning option.
 - The dapp uses the 30 s limit, measured against the block timestamp. When the oracle is stale it shows a Binance fallback price for display only and disables order submission.
 - Other ecosystem prices in the sidebar come from Pyth and are labelled as such; they are not used by the contracts.
 
@@ -135,8 +135,8 @@ Redeployed 10 Nov 2026 from the current contracts (premium-lock NAV, deposit loc
 
 | Contract | Address |
 |---|---|
-| OptionPool | `0x21F83eEcF5561AB721ec4f8E96279EC1BFCb8221` |
-| yMUSD (LP token) | `0x09Da1957c5E435894D4d11451e9a7b2C9C24500c` |
+| OptionPool | `0xb2a0c6C6452D02380E08D9b01f177551bbccc5fe` |
+| yMUSD (LP token) | `0xc91609942021869Ec465AEa64662b2173baA89C1` |
 | MUSD | `0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503` |
 | Skip Oracle (BTC/USD) | `0x7b7c000000000000000000000000000000000015` |
 | Mezo TroveManager | `0xE47c80e8c23f6B4A1aE41c34837a0599D5D16bb0` |

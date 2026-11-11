@@ -5,7 +5,7 @@ differences are normal. If BTC has moved a lot, shift the strikes by the same am
 nearest the current price).
 
 - Site: https://piton.surge.sh/dashboard
-- Pool: `0x21F83eEcF5561AB721ec4f8E96279EC1BFCb8221` (about 2,500 MUSD)
+- Pool: `0xb2a0c6C6452D02380E08D9b01f177551bbccc5fe` (about 2,200 MUSD)
 - Network: Mezo Testnet, chain id 31611, RPC `https://rpc.test.mezo.org`
 
 ## Before you start

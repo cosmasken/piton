@@ -4,24 +4,26 @@ Where the project stands, and what to pick up next. Read this first when resumin
 
 ## State
 - **Branch / last commit:** `main` @ `6e8b32b` ("Record new matsnet deployment"). Working tree clean.
-- **Live deployment (Mezo testnet, chain 31611):**
-  - OptionPool `0x21F83eEcF5561AB721ec4f8E96279EC1BFCb8221` (deploy block 16700608).
-  - yMUSD `0x09Da1957c5E435894D4d11451e9a7b2C9C24500c`.
-  - Seeded with 2,500 MUSD by the deployer `0x09aB…6D06`; IV 40%.
+- **Live deployment (Mezo testnet, chain 31611), redeployed 11 Nov 2026:**
+  - OptionPool `0xb2a0c6C6452D02380E08D9b01f177551bbccc5fe` (deploy block 16713911).
+  - yMUSD `0xc91609942021869Ec465AEa64662b2173baA89C1`.
+  - Seeded with 2,200 MUSD by the deployer `0x09aB…6D06`; IV 40%.
   - `minPoolExpiry` is 900 s on testnet (default 3600).
   - The IV keeper `0xdE33…7948` is authorised.
+  - Previous pool `0x21F8…8221` is paused and emptied (bots sold back their options, the master withdrew).
 - **Site:** https://piton.surge.sh, pointing at the deployment above.
 - **Older pools:** emptied. Balances under 20 MUSD are ignored by agreement.
 - **Tests:** Hardhat 162, Foundry 16 (invariants and fuzz), client 58, all passing.
-- **Contract size:** 24,203 of 24,576 bytes (source; the live deployment is the older 24,4xx-byte build).
+- **Contract size:** 24,203 of 24,576 bytes.
 
-## Pending redeploy (committed, not deployed)
+## Deployed 11 Nov 2026 (oracle-age change)
 - Oracle price age: at most **30 s** (~7 Mezo blocks) to open or price risk (pool sales, orders, sell-back, deposits,
   quotes); **120 s** to exercise, so a short oracle hiccup near expiry does not cost a holder a winning option. Was 300 s.
   Measured: the Skip oracle updated every block (age 0 s) over 400 consecutive blocks and 1,001 samples across ~24 h.
 - Deposits now revert "stale price" instead of going through on a stale price (stale NAV made shares look cheap).
 - Removed the unused `userOptions` mapping / `getUserOptions` (saves ~20–40k gas per trade; nothing read it).
-- Needs: recover the pool's 2,200 MUSD first, then redeploy, re-seed, re-point client/subgraph/ops. Ask the user first.
+- After deploying: the VPS ops process must be re-pushed (`./scripts/push-ops-vps.sh`, the user does this) so the
+  keeper and bot use the new pool; until then they act on the paused old pool and their transactions revert.
 
 ## Done recently
 1. Twelve pool protections:

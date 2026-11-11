@@ -82,7 +82,7 @@ becomes a large price error.
 ### 3. Oracle staleness window — FIXED
 Was 2 hours, then 300 s. Now `PRICE_STALENESS = 30` s for anything that opens or prices risk (deposits included) and
 120 s (`EXERCISE_PRICE_STALENESS`) for exercise only. The Skip oracle updates every ~4 s block; measured age was 0 s
-in every sample over ~24 h. (Pending redeploy; the live testnet pool still uses 300 s.)
+in every sample over ~24 h. (Deployed 11 Nov 2026: OptionPool `0xb2a0…c5fe`.)
 
 ## High — Trove margin
 
