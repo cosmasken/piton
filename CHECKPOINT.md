@@ -4,14 +4,14 @@ Where the project stands, and what to pick up next. Read this first when resumin
 
 ## State
 - **Branch / last commit:** `main` @ `6e8b32b` ("Record new matsnet deployment"). Working tree clean.
-- **Live deployment (Mezo testnet, chain 31611), redeployed 11 Nov 2026:**
-  - OptionPool `0xb2a0c6C6452D02380E08D9b01f177551bbccc5fe` (deploy block 16713911).
-  - yMUSD `0xc91609942021869Ec465AEa64662b2173baA89C1`.
-  - Seeded with 2,100 MUSD by the deployer `0x09aB…6D06` (a further ~300 is added automatically once the old pool's
-    last option #13 expires at 14:00 UTC on 11 Nov); IV 40%. Smoke-tested: 0.001 BTC call bought and sold back.
-  - `minPoolExpiry` is 900 s on testnet (default 3600).
-  - The IV keeper `0xdE33…7948` is authorised.
-  - Previous pool `0x21F8…8221` is paused and emptied (bots sold back their options, the master withdrew).
+- **Live deployment (Mezo testnet, chain 31611), redeployed 12 Nov 2026 with sMUSD savings:**
+  - OptionPool `0x854448a0e601A7127B9Bf39D6D05fF4dEf055c2d` (deploy block 16728137), linked to PitonMath
+    `0x5357f2d20E0B423284915b149D1ABD23E1c4C849`.
+  - yMUSD `0x511d839a198e02C1CD63295709e13d83C608c612`.
+  - Seeded with 7,000 MUSD by the deployer `0x09aB…6D06`; IV 39% (DVOL); `minPoolExpiry` 900 s; keeper `0xdE33…7948`.
+  - Savings on: sMUSD `0x6f46…8e16`, cap 50% of free capital; 3,150 MUSD invested by the keeper job. Tested live:
+    invest 100 / 1-wei divest / divest all, then a 0.005 BTC put bought and sold back with half the pool in sMUSD.
+  - Previous pools (`0xb2a0…c5fe`, `0x21F8…8221` and older) are empty.
 - **Site:** https://piton.surge.sh, pointing at the deployment above.
 - **Older pools:** emptied. Balances under 20 MUSD are ignored by agreement.
 - **Tests:** Hardhat 162, Foundry 16 (invariants and fuzz), client 58, all passing.
@@ -53,7 +53,7 @@ Where the project stands, and what to pick up next. Read this first when resumin
    - read-only browsing without a wallet, shareable `?i=` links
 5. Operational scripts are untracked (git-ignored `scripts/`). Private notes are in `docs/OPERATIONS.md` (also git-ignored).
 
-## Savings module (12 Nov, committed, NOT deployed)
+## Savings module (12 Nov, deployed)
 - Black-Scholes maths moved into a linked library, `PitonMath` (OptionPool 24,203 -> 22,639 bytes; prices unchanged,
   Derive differential test passes). Deploys now need the library first (`scripts/deployV2.js` does it).
 - Spare pool MUSD can go into Mezo's sMUSD (`0x6f46…8e16` on testnet): `setSavings`, `invest`/`divest` (owner or
@@ -64,7 +64,7 @@ Where the project stands, and what to pick up next. Read this first when resumin
   locked collateral held as cash), with a vault that randomly breaks.
 - Keeper job `savings` in ops.js (every 30 min to 90% of cap; daily yield via a 1-wei divest). Pool panel shows the
   invested amount and yield.
-- Needs a redeploy to go live: recover the current pool's ~7,005 MUSD first. Ask the user before redeploying.
+- Live on `0x8544…5c2d`. The VPS keeper needs re-pushing (`./scripts/push-ops-vps.sh`, JOBS include `savings`).
 
 ## Times (11 Nov)
 - Expiries are one moment for everyone; the dapp shows them in the user's local time by default (zone shown at the start

@@ -151,7 +151,7 @@ Anyone can deposit MUSD and receive **yMUSD** LP tokens.
   - Opt-in auto-exercise: owners can allow a keeper to exercise in-the-money options in the last 5 minutes for 0.5% of the payout.
   - Two-step ownership, and an optional timelock owner (`PitonTimelock`).
 - **After a total loss**, deposits are blocked until worthless yMUSD is cleared, so new depositors are never diluted by old shares.
-- **Spare MUSD earns Mezo's savings rate** (in the code, not yet on the live testnet pool). MUSD that isn't backing any option can be put into Mezo's MUSD Savings Rate vault (sMUSD), at most 50% of it by default (owner-set, up to 80%). LPs then earn premium plus the savings yield.
+- **Spare MUSD earns Mezo's savings rate** (live on the testnet pool since 12 Nov). MUSD that isn't backing any option can be put into Mezo's MUSD Savings Rate vault (sMUSD), at most 50% of it by default (owner-set, up to 80%). LPs then earn premium plus the savings yield.
   - Collateral for live options always stays as MUSD in the pool, so exercising, refunds and sell-back never depend on the vault.
   - LP withdrawals and new pool sales bring MUSD back from sMUSD automatically when the pool's own cash is short. If the vault ever failed, only those would wait.
   - Yield is collected into the pool before every deposit and withdrawal, so a new LP pays a share price that already includes it.
@@ -204,8 +204,10 @@ Redeployed 10 Nov 2026 from the current contracts (premium-lock NAV, deposit loc
 
 | Contract | Address |
 |---|---|
-| OptionPool | `0xb2a0c6C6452D02380E08D9b01f177551bbccc5fe` |
-| yMUSD (LP token) | `0xc91609942021869Ec465AEa64662b2173baA89C1` |
+| OptionPool | `0x854448a0e601A7127B9Bf39D6D05fF4dEf055c2d` |
+| yMUSD (LP token) | `0x511d839a198e02C1CD63295709e13d83C608c612` |
+| PitonMath (pricing library) | `0x5357f2d20E0B423284915b149D1ABD23E1c4C849` |
+| Mezo sMUSD (savings vault used by the pool) | `0x6f461c68B2c5492C0F5CCEc5a264d692aA7A8e16` |
 | MUSD | `0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503` |
 | Skip Oracle (BTC/USD) | `0x7b7c000000000000000000000000000000000015` |
 | Mezo TroveManager | `0xE47c80e8c23f6B4A1aE41c34837a0599D5D16bb0` |
