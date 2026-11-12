@@ -73,3 +73,15 @@ test('poolMaxSize: the tightest of per-option cap, 25% of the pool and the utili
   assert.equal(poolMaxSize(74000, {}), null);                    // pool not loaded yet
   assert.equal(poolMaxSize(0, p), null);
 });
+
+test('series: the 25% limit covers what the pool already holds in that strike and expiry, and new series need room', () => {
+  const p = { totalAssets: 2100, lockedCollateral: 400, maxOptionExposureBps: 2500, maxUtilisationBps: 8000, maxOptionCollateral: 10000 };
+  // 525 MUSD per series; 400 already locked in it leaves 125 -> 125 / 74,000 = 0.0016 BTC
+  assert.equal(poolMaxSize(74000, p, 400), 0.0016);
+  const base = { spot: 74000, strike: 74000, expirySecs: 86400, nowSec: 0 };
+  assert.deepEqual(poolWontFill({ ...base, collateral: 100, seriesCollateral: 400 }, p), []);
+  assert.match(poolWontFill({ ...base, collateral: 200, seriesCollateral: 400 }, p)[0], /already locks 400 MUSD in this option/);
+  const full = { ...p, openSeriesCount: 50, maxOpenSeries: 50 };
+  assert.match(poolWontFill({ ...base, collateral: 100, newSeries: true }, full).at(-1), /limit of 50 open strike\/expiry/);
+  assert.deepEqual(poolWontFill({ ...base, collateral: 100, newSeries: false }, full), []);   // an open series still sells
+});

@@ -30,7 +30,7 @@ export function breakerActive(cbUntil, nowSec) {
  * collateral (optional): MUSD the pool would lock for this order. When given, the size limits are
  * checked exactly as the contract does (against pool assets before the premium is added).
  */
-export function poolWontFill({ spot, strike, expirySecs, nowSec, collateral }, p) {
+export function poolWontFill({ spot, strike, expirySecs, nowSec, collateral, seriesCollateral = 0, newSeries = false }, p) {
   const reasons = [];
   if (!(spot > 0) || !(strike > 0)) return reasons;
   const dist = Math.abs(strike - spot) / spot * BPS;
@@ -48,8 +48,11 @@ export function poolWontFill({ spot, strike, expirySecs, nowSec, collateral }, p
     const fmt = v => v.toLocaleString('en-US', { maximumFractionDigits: 0 });
     if (p.maxOptionCollateral != null && collateral > p.maxOptionCollateral) {
       reasons.push(`this option needs ${fmt(collateral)} MUSD of collateral; the pool locks at most ${fmt(p.maxOptionCollateral)} MUSD per option`);
-    } else if (p.maxOptionExposureBps != null && collateral * BPS > p.totalAssets * p.maxOptionExposureBps) {
-      reasons.push(`this option needs ${fmt(collateral)} MUSD of collateral; one option may use at most ${p.maxOptionExposureBps / 100}% of the pool (${fmt(p.totalAssets * p.maxOptionExposureBps / BPS)} MUSD). Try a smaller size`);
+    } else if (p.maxOptionExposureBps != null && (seriesCollateral + collateral) * BPS > p.totalAssets * p.maxOptionExposureBps) {
+      const cap = p.totalAssets * p.maxOptionExposureBps / BPS;
+      reasons.push(seriesCollateral > 0
+        ? `the pool already locks ${fmt(seriesCollateral)} MUSD in this option and may lock at most ${fmt(cap)} MUSD (${p.maxOptionExposureBps / 100}% of the pool) in one strike and expiry. Try a smaller size`
+        : `this option needs ${fmt(collateral)} MUSD of collateral; one strike and expiry may use at most ${p.maxOptionExposureBps / 100}% of the pool (${fmt(cap)} MUSD). Try a smaller size`);
     }
     if (p.maxUtilisationBps != null && p.lockedCollateral != null
         && (p.lockedCollateral + collateral) * BPS > p.totalAssets * p.maxUtilisationBps) {
@@ -57,6 +60,9 @@ export function poolWontFill({ spot, strike, expirySecs, nowSec, collateral }, p
     }
   } else if (p.maxUtilisationBps != null && p.utilisationBps != null && p.utilisationBps >= p.maxUtilisationBps) {
     reasons.push(`the pool is at its ${p.maxUtilisationBps / 100}% utilisation limit`);
+  }
+  if (newSeries && p.maxOpenSeries != null && p.openSeriesCount != null && p.openSeriesCount >= p.maxOpenSeries) {
+    reasons.push(`the pool is at its limit of ${p.maxOpenSeries} open strike/expiry combinations; pick one it already sells, or wait for some to expire`);
   }
   return reasons;
 }
@@ -70,14 +76,16 @@ export function withdrawEstimate(shares, shareValue, feeBps, openOptions) {
 
 /**
  * Largest size (BTC, rounded down to 0.0001) the pool can sell of one option right now, from its collateral
- * limits: per-option cap, share of the pool per option, and the utilisation limit. `collateralPerBtc` is the
+ * limits: per-option cap, share of the pool per series (minus `seriesCollateral` already locked in it), and the
+ * utilisation limit. `collateralPerBtc` is the
  * collateral the pool locks per 1 BTC of this option. Null when the pool state is not known yet.
  */
-export function poolMaxSize(collateralPerBtc, p) {
+export function poolMaxSize(collateralPerBtc, p, seriesCollateral = 0) {
   if (!(collateralPerBtc > 0) || !(p?.totalAssets > 0)) return null;
   const caps = [];
   if (p.maxOptionCollateral != null) caps.push(p.maxOptionCollateral);
-  if (p.maxOptionExposureBps != null) caps.push(p.totalAssets * p.maxOptionExposureBps / BPS);
+  // the share-of-pool limit covers the whole series (same type, strike and expiry), including what the pool holds
+  if (p.maxOptionExposureBps != null) caps.push(p.totalAssets * p.maxOptionExposureBps / BPS - seriesCollateral);
   if (p.maxUtilisationBps != null && p.lockedCollateral != null) caps.push(p.totalAssets * p.maxUtilisationBps / BPS - p.lockedCollateral);
   if (!caps.length) return null;
   // 0.1% headroom: call collateral is recomputed from the price when the order is mined

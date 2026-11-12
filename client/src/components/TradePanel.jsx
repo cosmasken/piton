@@ -13,6 +13,7 @@ import { useNow } from '../useNow';
 import { poolWontFill, poolMaxSize } from '../poolRules.mjs';
 import { instrumentName, bookFor, expirySlots } from '../instruments.mjs';
 import { collateralFor, breakEven, maxGain, maxLoss, PROTOCOL_FEE_BPS } from '../payoff.mjs';
+import { seriesLocked } from '../portfolio.mjs';
 import { sizeFromNotional, sizeForBudget, priceFromPct, pctFromPrice, outcome as orderOutcome } from '../orderForm.mjs';
 import InstrumentStrip from './InstrumentStrip';
 import Modal from './Modal';
@@ -170,14 +171,16 @@ export default function TradePanel() {
   const book = useMemo(() => inst ? bookFor(options, inst) : { asks: [], bids: [], bestAsk: null, bestBid: null }, [options, inst]);
   const collateral = inst && q > 0 ? collateralFor(inst.isCall, spot, inst.strike, q) : 0;
   // includes the size limits (25% of the pool per option, 80% utilisation), checked before signing
-  const reasons = inst && spot ? poolWontFill({ spot, strike: inst.strike, expirySecs: secs, nowSec: now, collateral }, poolParams || {}) : [];
+  // the pool's share-of-pool limit covers the whole series (type, strike, expiry), including options it already sold
+  const series = useMemo(() => inst ? seriesLocked(options, inst, now) : { collateral: 0, open: false }, [options, inst, Math.floor(now / 60)]); // eslint-disable-line
+  const reasons = inst && spot ? poolWontFill({ spot, strike: inst.strike, expirySecs: secs, nowSec: now, collateral, seriesCollateral: series.collateral, newSeries: !series.open }, poolParams || {}) : [];
   const px = orderType === 'market' && side === 'buy' ? (quote != null && q > 0 ? quote / q : NaN)
     : priceUnit === 'pct' ? priceFromPct(parseFloat(pctInput), spot) : parseFloat(price);
   const premium = px * q;                                    // total MUSD
   const result = inst && q > 0 && px > 0 ? orderOutcome({ side, reasons, quote, premium, pricePerBtc: px, bestAsk: book.bestAsk, bestBid: book.bestBid }) : null;
   const poolWillFill = result?.kind === 'fills';
   // the most the pool can sell of this option now (collateral limits); market buys above it are blocked
-  const maxSize = buy && inst && spot ? poolMaxSize(collateralFor(inst.isCall, spot, inst.strike, 1), poolParams || {}) : null;
+  const maxSize = buy && inst && spot ? poolMaxSize(collateralFor(inst.isCall, spot, inst.strike, 1), poolParams || {}, series.collateral) : null;
   const overPoolSize = maxSize != null && q > maxSize;
   const market = buy && orderType === 'market';
   const marketRefused = market && result?.kind !== 'fills' && q > 0;

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { livePositions, realisedPnl, lpPosition, poolExposure, expiryAlerts, toCsv } from './portfolio.mjs';
+import { livePositions, realisedPnl, lpPosition, poolExposure, expiryAlerts, toCsv, seriesLocked, holderCosts } from './portfolio.mjs';
 
 const E = v => BigInt(Math.round(v * 1e6)) * 10n ** 12n;
 const ME = '0x00000000000000000000000000000000000000aa', POOL = '0x00000000000000000000000000000000000000bb', OTHER = '0x00000000000000000000000000000000000000cc';
@@ -86,4 +86,27 @@ test('expiry alerts: long, in the money, auto-exercise off, inside the window', 
 
 test('CSV quoting', () => {
   assert.equal(toCsv(['a', 'b'], [[1, 'x,y'], ['say "hi"', null]]), 'a,b\n1,"x,y"\n"say ""hi""",\n');
+});
+
+test('series locked: live pool-sold options of one type, strike and expiry', () => {
+  const E = v => BigInt(Math.round(v * 1e6)) * 10n ** 12n;
+  const o = (id, type, strike, expiry, collateral, extra = {}) => ({ id, optionType: BigInt(type), status: 1n, filledByPool: true,
+    strike: E(strike), expiry: BigInt(expiry), collateral: E(collateral), ...extra });
+  const opts = [
+    o(1n, 1, 74000, 5000, 740), o(2n, 1, 74000, 5000, 370),
+    o(3n, 1, 74000, 5000, 999, { filledByPool: false }),       // peer to peer: not the pool's
+    o(4n, 0, 74000, 5000, 999), o(5n, 1, 75000, 5000, 999), o(6n, 1, 74000, 6000, 999),
+    o(7n, 1, 74000, 5000, 999, { status: 2n }),                 // settled
+  ];
+  const s = seriesLocked(opts, { isCall: false, strike: 74000, expiry: 5000 }, 1000);
+  assert.ok(Math.abs(s.collateral - 1110) < 1e-9);
+  assert.equal(s.open, true);
+  assert.equal(seriesLocked(opts, { isCall: false, strike: 73000, expiry: 5000 }, 1000).open, false);
+  assert.equal(seriesLocked(opts, { isCall: false, strike: 74000, expiry: 5000 }, 5000).open, false);   // expired
+});
+
+test('holder costs: what this wallet paid for options it holds after a resale', () => {
+  const h = { ended: [{ id: '1', long: { id: ME }, holderCost: '12.5' }, { id: '2', long: { id: OTHER }, holderCost: '3' }, { id: '3', long: { id: ME }, holderCost: '0' }] };
+  assert.deepEqual(holderCosts(h, ME), { 1: 12.5 });
+  assert.deepEqual(holderCosts(null, ME), {});
 });

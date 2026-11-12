@@ -36,7 +36,8 @@ const POOL_FIELDS = ['totalAssets', 'lockedCollateral', 'utilisation', 'netAsset
   'minPoolExpiry', 'maxStrikeDistanceBps', 'maxUtilisationBps', 'maxOptionExposureBps', 'cbUntil', 'openPoolOptionCount', 'iv', 'askIv',
   'totalPremiumsEarned', 'totalSettlementsPaid', 'totalPerformanceFeePaid', 'unrecognizedPremium', 'maxOptionCollateral',
   'cbRefPrice', 'cbRefTime', 'cbWindow', 'cbMaxMoveBps',
-  'invested', 'investCapBps', 'totalSavingsYield']; // savings fields read as null on pools without the module
+  'invested', 'investCapBps', 'totalSavingsYield', // savings fields read as null on pools without the module
+  'openSeriesCount', 'maxOpenSeries'];               // series fields: null on pools before grouped liability
 
 // Must match OptionPool.PRICE_STALENESS: the contract rejects oracle prices older than this for trades and deposits.
 export const PRICE_STALENESS_S = 30;
@@ -247,6 +248,7 @@ export const useStore = create((set, get) => ({
           withdrawalFeeBps: Number(r.withdrawalFeeBps), depositLockSeconds: Number(r.depositLockSeconds), minPoolExpiry: Number(r.minPoolExpiry),
           strikeDistanceBps: Number(r.maxStrikeDistanceBps), maxUtilisationBps: Number(r.maxUtilisationBps), maxOptionExposureBps: Number(r.maxOptionExposureBps),
           cbUntil: Number(r.cbUntil), openPoolOptions: Number(r.openPoolOptionCount),
+          openSeriesCount: r.openSeriesCount != null ? Number(r.openSeriesCount) : null, maxOpenSeries: r.maxOpenSeries != null ? Number(r.maxOpenSeries) : null,
           totalAssets: E(r.totalAssets), lockedCollateral: E(r.lockedCollateral),
           cbRefPrice: E(r.cbRefPrice), cbRefTime: Number(r.cbRefTime), cbWindow: Number(r.cbWindow), cbMaxMoveBps: Number(r.cbMaxMoveBps),
           maxOptionCollateral: E(r.maxOptionCollateral),

@@ -273,32 +273,37 @@ describe('#9 auto-exercise', () => {
   });
 });
 
-describe('#12 open-option cap and worst-case gas', () => {
+describe('#12 open-series cap and worst-case gas', () => {
   it('cap is adjustable within 1..150 by the owner', async () => {
     const { pool, lp } = await deploy();
-    expect(await pool.maxOpenPoolOptions()).to.equal(50n);
-    await expect(pool.setMaxOpenPoolOptions(0)).to.be.revertedWithCustomError(POOL_ERRORS, 'OutOfRange');
-    await expect(pool.setMaxOpenPoolOptions(151)).to.be.revertedWithCustomError(POOL_ERRORS, 'OutOfRange');
-    await expect(pool.setMaxOpenPoolOptions(150)).to.emit(pool, 'MaxOpenPoolOptionsSet').withArgs(150n);
-    await expect(pool.connect(lp).setMaxOpenPoolOptions(10)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
+    expect(await pool.maxOpenSeries()).to.equal(50n);
+    await expect(pool.setMaxOpenSeries(0)).to.be.revertedWithCustomError(POOL_ERRORS, 'OutOfRange');
+    await expect(pool.setMaxOpenSeries(151)).to.be.revertedWithCustomError(POOL_ERRORS, 'OutOfRange');
+    await expect(pool.setMaxOpenSeries(150)).to.emit(pool, 'MaxOpenSeriesSet').withArgs(150n);
+    await expect(pool.connect(lp).setMaxOpenSeries(10)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
   });
-  it('deposit and withdraw stay far below the block gas limit with 150 open options (half of Mezo\'s 10M block limit)', async function () {
+  it('deposit and withdraw stay far below the block gas limit with 150 open series (half of Mezo\'s 10M block limit)', async function () {
     this.timeout(600000);
     const { pool, ymusd, lp, buyer, other } = await deploy();
-    await pool.setMaxOpenPoolOptions(150);
+    await pool.setMaxOpenSeries(150);
     await pool.setTVLCap(E18('1000000000'));
     await pool.connect(lp).deposit(E18('5000000'));
     const exp = (await now()) + 86400;
-    const q = await pool.quotePremium(false, E18('95000'), E18('0.001'), exp);
-    for (let i = 0; i < 150; i++) await pool.connect(buyer).createLongOrder(1, E18('95000'), E18('0.001'), exp, q);
-    expect(await pool.openPoolOptionCount()).to.equal(150n);
-    await pool.connect(buyer).createLongOrder(1, E18('95000'), E18('0.001'), exp, q);
-    expect((await pool.getOption((await pool.nextId()) - 1n)).filledByPool, 'cap holds at 150').to.equal(false);
+    const K = i => E18(String(90000 + i * 50));
+    for (let i = 0; i < 150; i++) {
+      const q = await pool.quotePremium(false, K(i), E18('0.001'), exp);
+      await pool.connect(buyer).createLongOrder(1, K(i), E18('0.001'), exp, q);
+    }
+    expect(await pool.openSeriesCount()).to.equal(150n);
+    const q = await pool.quotePremium(false, K(150), E18('0.001'), exp);
+    await pool.connect(buyer).createLongOrder(1, K(150), E18('0.001'), exp, q);
+    expect((await pool.getOption((await pool.nextId()) - 1n)).filledByPool, 'cap holds at 150 series').to.equal(false);
     const dep = await (await pool.connect(other).deposit(E18('1000'))).wait();
     await time.increase(1); // pass the withdraw check on a fresh block
     const wd = await (await pool.connect(lp).withdraw((await ymusd.balanceOf(lp.address)) / 100n)).wait();
-    console.log(`      gas with 150 open options: deposit ${dep.gasUsed}, withdraw ${wd.gasUsed}`);
+    console.log(`      gas with 150 open series: deposit ${dep.gasUsed}, withdraw ${wd.gasUsed}`);
     expect(dep.gasUsed).to.be.lt(5_000_000n);
     expect(wd.gasUsed).to.be.lt(5_000_000n);
   });
 });
+

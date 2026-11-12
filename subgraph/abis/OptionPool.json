@@ -667,7 +667,7 @@
         "type": "uint256"
       }
     ],
-    "name": "MaxOpenPoolOptionsSet",
+    "name": "MaxOpenSeriesSet",
     "type": "event"
   },
   {
@@ -1906,7 +1906,7 @@
   },
   {
     "inputs": [],
-    "name": "maxOpenPoolOptions",
+    "name": "maxOpenSeries",
     "outputs": [
       {
         "internalType": "uint256",
@@ -2037,6 +2037,19 @@
   {
     "inputs": [],
     "name": "openPoolOptionCount",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "openSeriesCount",
     "outputs": [
       {
         "internalType": "uint256",
@@ -2326,6 +2339,35 @@
   {
     "inputs": [
       {
+        "internalType": "enum OptionPool.OptionType",
+        "name": "t",
+        "type": "uint8"
+      },
+      {
+        "internalType": "uint256",
+        "name": "strike",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "expiry",
+        "type": "uint256"
+      }
+    ],
+    "name": "seriesCollateral",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint256",
         "name": "id",
         "type": "uint256"
@@ -2481,7 +2523,7 @@
         "type": "uint256"
       }
     ],
-    "name": "setMaxOpenPoolOptions",
+    "name": "setMaxOpenSeries",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

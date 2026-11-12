@@ -148,19 +148,26 @@ describe('Economics: LP shares priced net of open-option liability', () => {
     expect(await pool.netAssetValue()).to.equal(await pool.totalAssets());
   });
 
-  it('open-option set is capped, and frees up on refund', async () => {
+  it('open series are capped (a new strike rests once the cap is reached), and free up on refund', async () => {
     const { pool, lp, buyer } = await deploy();
     await pool.connect(lp).deposit(E18('5000000'));
     const exp = await expiry(3600);
-    const max = Number(await pool.maxOpenPoolOptions());
-    const q = await pool.quotePremium(false, E18('90000'), E18('0.001'), exp); // tiny: rent floor dominates
-    for (let i = 0; i < max; i++) await pool.connect(buyer).createLongOrder(1, E18('90000'), E18('0.001'), exp, q);
-    expect(await pool.openPoolOptionCount()).to.equal(BigInt(max));
-    await pool.connect(buyer).createLongOrder(1, E18('90000'), E18('0.001'), exp, q);
-    expect(await filled(pool, await lastId(pool)), 'cap reached: rests as a bid').to.equal(false);
+    const max = Number(await pool.maxOpenSeries());
+    const K = i => E18(String(90000 + i * 100));                 // one strike = one series
+    for (let i = 0; i < max; i++) {
+      const q = await pool.quotePremium(false, K(i), E18('0.001'), exp); // tiny: rent floor dominates
+      await pool.connect(buyer).createLongOrder(1, K(i), E18('0.001'), exp, q);
+    }
+    expect(await pool.openSeriesCount()).to.equal(BigInt(max));
+    const qNew = await pool.quotePremium(false, K(max), E18('0.001'), exp);
+    await pool.connect(buyer).createLongOrder(1, K(max), E18('0.001'), exp, qNew);
+    expect(await filled(pool, await lastId(pool)), 'cap reached: a new series rests as a bid').to.equal(false);
+    const qOld = await pool.quotePremium(false, K(0), E18('0.001'), exp);
+    await pool.connect(buyer).createLongOrder(1, K(0), E18('0.001'), exp, qOld);
+    expect(await filled(pool, await lastId(pool)), 'an existing series still sells').to.equal(true);
     await time.increase(3601);
-    await pool.refund(1);
-    expect(await pool.openPoolOptionCount()).to.equal(BigInt(max - 1));
+    await pool.refund(2);                                        // the only option in series #1
+    expect(await pool.openSeriesCount()).to.equal(BigInt(max - 1));
   });
 });
 

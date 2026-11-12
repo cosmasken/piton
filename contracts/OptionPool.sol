@@ -184,16 +184,31 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     ///         before any further fee.
     uint256 public perfFeeHighWater;
 
-    /// @notice Open pool-sold options, so LP shares can be priced net of what they would pay out now.
-    ///         Bounded so the pricing loop always fits in a block.
-    ///         Owner-adjustable up to a hard ceiling whose worst-case gas is checked in the test suite.
-    uint256 public maxOpenPoolOptions = 50;
-    uint256 internal constant MAX_OPEN_POOL_OPTIONS_CEILING = 150; // ~4.3M gas to price the book; Mezo's block gas limit is 10M
-    uint256[] internal openPoolOptions;
-    mapping(uint256 => uint256) internal openPoolSlot; // option id => index + 1
+    /// @notice Open pool-sold options are grouped by series (type, strike, expiry), so LP shares are priced with one
+    ///         loop over series, not over options: any number of options can share a series. The number of open
+    ///         series is bounded so the loop always fits in a block; owner-adjustable up to a hard ceiling whose
+    ///         worst-case gas is checked in the test suite.
+    uint256 public maxOpenSeries = 50;
+    uint256 internal constant MAX_OPEN_SERIES_CEILING = 150; // worst case checked in the tests; Mezo's block gas limit is 10M
+    /// @dev Running totals of the open pool options in one series (3 storage slots).
+    struct Series {
+        uint128 quantity;    // BTC
+        uint128 collateral;  // MUSD locked
+        uint128 premium;     // net premium still unearned
+        uint128 weight;      // sum of premium / sqrt(lifetime): unearned premium now = sqrt(time left) x weight
+        uint128 strike;
+        uint64  expiry;
+        uint32  count;       // open options in the series
+        OptionType optionType;
+    }
+    bytes32[] internal openSeries;
+    mapping(bytes32 => uint256) internal seriesSlot; // series key => index + 1
+    mapping(bytes32 => Series) internal series;
+    /// @notice Open pool-sold options, all series.
+    uint256 public openPoolOptionCount;
 
     /// @dev Premium booked on a pool-sold option. It stays "unearned" (not LP profit) until the option
-    ///      ends, and is released gradually as expiry approaches (see _positionLiability).
+    ///      ends, and is released gradually as expiry approaches (see _seriesLiability).
     struct PoolPos { uint128 netPremium; uint64 filledAt; }
     mapping(uint256 => PoolPos) internal poolPos;
     /// @notice Net premium of open pool options: booked, but not yet recognised as yield.
@@ -286,7 +301,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     event WithdrawalFeeSet(uint256 bps);
     event DepositLockSet(uint256 seconds_);
     event IvLimitsSet(uint256 minInterval, uint256 stepBps);
-    event MaxOpenPoolOptionsSet(uint256 n);
+    event MaxOpenSeriesSet(uint256 n);
     event BreakerSet(uint256 window, uint256 maxMoveBps, uint256 cooldown);
     event BreakerTripped(uint256 price, uint256 refPrice, uint256 until);
     event UtilSpreadSet(uint256 bps);
@@ -390,7 +405,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
         // Priced on net asset value so a leaving LP takes their share of open losses with them.
         uint256 musdOut = shares * _netAssets() / supply;
         // Leaving while options are open costs a small fee, which stays in the pool for the LPs who remain.
-        if (openPoolOptions.length > 0) musdOut -= musdOut * withdrawalFeeBps / 10000;
+        if (openPoolOptionCount > 0) musdOut -= musdOut * withdrawalFeeBps / 10000;
         uint256 available = totalAssets - lockedCollateral;
         require(musdOut <= available, InsufficientLiquidity());
         _ensureCash(musdOut); // recall from savings if needed; option payouts never depend on this
@@ -420,34 +435,35 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
 
     // ─── Net asset value ──────────────────────────────────────────────────────
 
-    /// @dev What one open pool option is worth as a liability of the pool: the larger of
+    /// @dev What one open series (all pool-sold options with the same type, strike and expiry) is worth as a
+    ///      liability of the pool: the larger of
     ///      (a) what it would pay if exercised now, and
-    ///      (b) its unearned premium, which decays with the square root of the time left (an option's
-    ///          time value shrinks roughly like sqrt(time), so premium is released slowly at first and
-    ///          faster near expiry). Capped at the option's collateral. If the oracle is unavailable the
-    ///          worst case (full collateral) is assumed, so exits keep working and are never priced too high.
+    ///      (b) its unearned premium, which decays with the square root of the time left (an option's time value
+    ///          shrinks roughly like sqrt(time), so premium is released slowly at first and faster near expiry).
+    ///          Per option that is premium x sqrt(left / lifetime); summed over the series it is
+    ///          sqrt(left) x sum(premium / sqrt(lifetime)) = sqrt(left) x weight, since every option in a series
+    ///          has the same expiry. Rounded up, and never more than the series' premium.
+    ///      Capped at the series' collateral. If the oracle is unavailable the worst case (full collateral) is
+    ///      assumed, so exits keep working and are never priced too high. This equals the per-option sum unless a
+    ///      series mixes options on both sides of (a) vs (b), where it can be slightly lower.
     ///      Counting the premium as a liability stops anyone profiting by joining the pool just before a
     ///      sale/expiry or leaving right after one.
-    function _positionLiability(uint256 id, bool oracleOk, uint256 spot) internal view returns (uint256) {
-        Option storage o = options[id];
-        if (o.expiry <= block.timestamp) return 0; // can no longer be exercised: premium is earned
-        if (!oracleOk) return o.collateral;
-        PoolPos storage p = poolPos[id];
-        uint256 rem   = o.expiry - block.timestamp;
-        uint256 total = o.expiry - p.filledAt;
-        uint256 decayed = (rem >= total || total == 0)
-            ? uint256(p.netPremium)
-            : uint256(p.netPremium) * PitonMath.sqrt(rem * PRECISION / total) / PRECISION;
-        uint256 intr = _intrinsic(o.optionType, o.strike, o.quantity, spot);
+    function _seriesLiability(Series storage s, bool oracleOk, uint256 spot) internal view returns (uint256) {
+        if (s.expiry <= block.timestamp) return 0; // can no longer be exercised: premium is earned
+        uint256 c = s.collateral;
+        if (!oracleOk) return c;
+        uint256 decayed = _ceilDiv(uint256(s.weight) * PitonMath.sqrt((s.expiry - block.timestamp) * PRECISION), PRECISION);
+        if (decayed > s.premium) decayed = s.premium;
+        uint256 intr = _intrinsic(s.optionType, s.strike, s.quantity, spot);
         uint256 l = intr > decayed ? intr : decayed;
-        return l > o.collateral ? o.collateral : l;
+        return l > c ? c : l;
     }
 
     function _poolLiability() internal view returns (uint256 liability) {
-        uint256 n = openPoolOptions.length;
+        uint256 n = openSeries.length;
         if (n == 0) return 0;
         (bool ok, uint256 spot) = _trySpot();
-        for (uint256 i = 0; i < n; i++) liability += _positionLiability(openPoolOptions[i], ok, spot);
+        for (uint256 i = 0; i < n; i++) liability += _seriesLiability(series[openSeries[i]], ok, spot);
     }
 
     function _netAssets() internal view returns (uint256) {
@@ -463,24 +479,66 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     ///         premium, whichever is larger). LP shares are minted and redeemed at this value.
     function netAssetValue() external view returns (uint256) { return _netAssets(); }
 
-    function openPoolOptionCount() external view returns (uint256) { return openPoolOptions.length; }
+    /// @notice Open series (distinct type, strike and expiry) among the pool's live options.
+    function openSeriesCount() external view returns (uint256) { return openSeries.length; }
+
+    /// @notice MUSD locked by the pool in one series (the per-series exposure limit applies to this).
+    function seriesCollateral(OptionType t, uint256 strike, uint256 expiry) external view returns (uint256) {
+        return series[_seriesKey(t, strike, expiry)].collateral;
+    }
+
+    function _seriesKey(OptionType t, uint256 strike, uint256 expiry) internal pure returns (bytes32) {
+        return keccak256(abi.encode(t, strike, expiry));
+    }
+
+    function _ceilDiv(uint256 a, uint256 b) internal pure returns (uint256) { return a == 0 ? 0 : (a - 1) / b + 1; }
+
+    /// @dev premium / sqrt(lifetime), rounded up (the liability errs towards the LPs who stay)
+    function _weight(uint256 premium, uint256 lifetime) internal view returns (uint256) {
+        return _ceilDiv(premium * PRECISION, PitonMath.sqrt(lifetime * PRECISION));
+    }
 
     function _addOpenPoolOption(uint256 id, uint256 netPremium) internal {
-        openPoolOptions.push(id);
-        openPoolSlot[id] = openPoolOptions.length;
+        Option storage o = options[id];
+        bytes32 k = _seriesKey(o.optionType, o.strike, o.expiry);
+        Series storage s = series[k];
+        if (s.count == 0) {
+            openSeries.push(k);
+            seriesSlot[k] = openSeries.length;
+            s.strike = uint128(o.strike); s.expiry = uint64(o.expiry); s.optionType = o.optionType;
+        }
+        s.count      += 1;
+        s.quantity   += uint128(o.quantity);
+        s.collateral += uint128(o.collateral);
+        s.premium    += uint128(netPremium);
+        s.weight     += uint128(_weight(netPremium, o.expiry - block.timestamp));
         poolPos[id] = PoolPos({ netPremium: uint128(netPremium), filledAt: uint64(block.timestamp) });
         unrecognizedPremium += netPremium;
+        openPoolOptionCount += 1;
     }
 
     function _removeOpenPoolOption(uint256 id) internal {
-        uint256 slot = openPoolSlot[id];
-        if (slot == 0) return;
-        uint256 last = openPoolOptions[openPoolOptions.length - 1];
-        openPoolOptions[slot - 1] = last;
-        openPoolSlot[last] = slot;
-        openPoolOptions.pop();
-        delete openPoolSlot[id];
-        unrecognizedPremium -= poolPos[id].netPremium; // the premium is now recognised as yield
+        PoolPos memory p = poolPos[id];
+        if (p.filledAt == 0) return;
+        Option storage o = options[id];
+        bytes32 k = _seriesKey(o.optionType, o.strike, o.expiry);
+        Series storage s = series[k];
+        s.count      -= 1;
+        s.quantity   -= uint128(o.quantity);
+        s.collateral -= uint128(o.collateral);
+        s.premium    -= p.netPremium;
+        s.weight     -= uint128(_weight(p.netPremium, o.expiry - p.filledAt)); // the exact amount added at fill
+        if (s.count == 0) {
+            uint256 slot = seriesSlot[k];
+            bytes32 last = openSeries[openSeries.length - 1];
+            openSeries[slot - 1] = last;
+            seriesSlot[last] = slot;
+            openSeries.pop();
+            delete seriesSlot[k];
+            delete series[k];
+        }
+        unrecognizedPremium -= p.netPremium; // the premium is now recognised as yield
+        openPoolOptionCount -= 1;
         delete poolPos[id];
     }
 
@@ -613,7 +671,8 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
         // Never sell below the hard floors (immediate-exercise value after the fee, minimum rent):
         // otherwise buying and exercising at once, or very cheap long-dated options, would cost LPs.
         if (o.premium < hardFloor) return;
-        if (openPoolOptions.length >= maxOpenPoolOptions) return;
+        Series storage ser = series[_seriesKey(o.optionType, o.strike, o.expiry)];
+        if (ser.count == 0 && openSeries.length >= maxOpenSeries) return; // a new series needs room; existing ones don't
 
         uint256 collateral = _requiredCollateral(o.optionType, spot, o.strike, o.quantity);
         if (collateral == 0 || collateral > maxOptionCollateral) return;
@@ -623,7 +682,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
         _ensureCash(collateral); // locked collateral is always held as MUSD, never in savings
         if (totalAssets >= tvlCap) return;
         if ((lockedCollateral + collateral) * 10000 > totalAssets * maxUtilisationBps) return;
-        if (collateral * 10000 > totalAssets * maxOptionExposureBps) return;
+        if ((uint256(ser.collateral) + collateral) * 10000 > totalAssets * maxOptionExposureBps) return; // per series
 
         if (o.premium > type(uint128).max) return;
 
@@ -1213,10 +1272,10 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     /// @notice Anyone can feed the breaker a fresh price, so a crash is noticed even with no trading.
     function pokeCircuitBreaker() external returns (bool) { return _breaker(_spot()); }
 
-    function setMaxOpenPoolOptions(uint256 n) external onlyOwner {
-        require(n >= 1 && n <= MAX_OPEN_POOL_OPTIONS_CEILING, OutOfRange());
-        maxOpenPoolOptions = n; // lowering never closes existing options; it only stops new pool fills
-        emit MaxOpenPoolOptionsSet(n);
+    function setMaxOpenSeries(uint256 n) external onlyOwner {
+        require(n >= 1 && n <= MAX_OPEN_SERIES_CEILING, OutOfRange());
+        maxOpenSeries = n; // lowering never closes existing options; it only stops the pool opening new series
+        emit MaxOpenSeriesSet(n);
     }
 
     function setDepositLock(uint256 _seconds) external onlyOwner {

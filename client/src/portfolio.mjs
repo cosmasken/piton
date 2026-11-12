@@ -87,6 +87,20 @@ export function lpPosition({ deposited = 0, withdrawn = 0 } = {}, shares, shareV
   };
 }
 
+/**
+ * MUSD the pool already locks in one series (live pool-sold options with this type, strike and expiry), and whether
+ * the series is open at all. The contract's share-of-pool limit applies to the whole series.
+ */
+export function seriesLocked(options, { isCall, strike, expiry }, nowSec) {
+  let collateral = 0, count = 0;
+  for (const o of options) {
+    if (Number(o.status) !== 1 || !o.filledByPool || Number(o.expiry) !== Number(expiry) || Number(o.expiry) <= nowSec) continue;
+    if ((Number(o.optionType) === 0) !== isCall || Math.round(e18(o.strike)) !== Math.round(strike)) continue;
+    collateral += e18(o.collateral); count++;
+  }
+  return { collateral, open: count > 0 };
+}
+
 /** The pool's exposure: collateral and size of live pool-sold options by expiry and by strike. */
 export function poolExposure(options, poolAddress, nowSec) {
   const pa = lc(poolAddress), byExpiry = {}, byStrike = {};
