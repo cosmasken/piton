@@ -250,7 +250,10 @@ export default function TradePanel() {
         const sig = await signTroveWithdraw(signer, sigs, account, marginWei, account, nonce, deadline, chainId);
         await ensureAllowance(musdContract, poolAddr, marginWei);
         msg = 'Sell order posted with Trove margin. It rests on the book until a buyer takes it.';
-        return (await poolContract.createShortOrderTrove(typeId, strikeWei, qtyWei, inst.expiry, premiumWei, marginWei, sig, deadline)).wait();
+        // Mezo re-sorts its Trove list on every borrow, so the cost moves between estimate and block: add a 30% margin
+        const args = [typeId, strikeWei, qtyWei, inst.expiry, premiumWei, marginWei, sig, deadline];
+        const gasLimit = (await poolContract.createShortOrderTrove.estimateGas(...args)) * 13n / 10n;
+        return (await poolContract.createShortOrderTrove(...args, { gasLimit })).wait();
       }
       await ensureAllowance(musdContract, poolAddr, E18(collateral));
       msg = 'Sell order posted. It rests on the book until a buyer takes it; cancel it any time in Open orders.';
@@ -275,7 +278,9 @@ export default function TradePanel() {
       if (!chk.ok) throw new Error(chk.reason);
       toast.info(`Step 1 of 2: borrowing ${fmt(borrow)} MUSD from your Trove.`);
       const bo = new ethers.Contract(a.borrowerOps, BORROWER_OPS_ABI, signer);
-      const t1 = await (await bo.withdrawMUSD(E18(borrow), ethers.ZeroAddress, ethers.ZeroAddress)).wait();
+      const wArgs = [E18(borrow), ethers.ZeroAddress, ethers.ZeroAddress];
+      const wGas = (await bo.withdrawMUSD.estimateGas(...wArgs)) * 13n / 10n; // same Trove re-sorting margin as above
+      const t1 = await (await bo.withdrawMUSD(...wArgs, { gasLimit: wGas })).wait();
       toast.success(<TxToast msg={`Step 1 done: ${fmt(borrow)} MUSD borrowed from your Trove.`} hash={t1?.hash} />);
     }
     try {
