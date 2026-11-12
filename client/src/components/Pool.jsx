@@ -5,6 +5,7 @@ import { useStore, ADDRESSES } from '../store';
 import { useShallow } from 'zustand/react/shallow';
 import { explorerTx } from '../network.mjs';
 import { parseTxError } from '../txUtils';
+import { ensureAllowance } from '../allowance.mjs';
 import { useNow } from '../useNow';
 import Modal from './Modal';
 import { lpPosition, poolExposure } from '../portfolio.mjs';
@@ -176,7 +177,7 @@ export default function Pool() {
   const deposit = () => act(async () => {
     const poolAddr = ADDRESSES[chainId].pool;
     const amt = ethers.parseEther(amount);
-    await (await musdContract.approve(poolAddr, amt)).wait();
+    await ensureAllowance(musdContract, poolAddr, amt);
     return (await poolContract.deposit(amt)).wait();
   }, 'Deposited!');
 

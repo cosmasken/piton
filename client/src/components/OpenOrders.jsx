@@ -6,6 +6,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { explorerTx } from '../network.mjs';
 import { useCountdown } from '../useCountdown';
 import { parseTxError } from '../txUtils';
+import { ensureAllowance } from '../allowance.mjs';
 import Modal from './Modal';
 // the depth chart uses Recharts: load it only when the Depth view is opened
 const DepthView = lazy(() => import('./DepthView'));
@@ -111,10 +112,10 @@ export default function OpenOrders() {
         // Selling into a bid: lock collateral. Calls get a 2% buffer because the contract recomputes
         // collateral from spot at fill time; it only pulls the exact amount.
         const need = sellCollateral(modal, btcPrice) * (modal.optionType === TYPE.CALL ? 1.02 : 1);
-        await (await musdContract.approve(poolAddr, ethers.parseEther(need.toFixed(6)))).wait();
+        await ensureAllowance(musdContract, poolAddr, ethers.parseEther(need.toFixed(6)));
         tx = await (await poolContract.fillShort(modal.id)).wait();
       } else {
-        await (await musdContract.approve(poolAddr, modal.premium)).wait();
+        await ensureAllowance(musdContract, poolAddr, modal.premium);
         tx = await (await poolContract.fillLong(modal.id)).wait();
       }
       refresh();

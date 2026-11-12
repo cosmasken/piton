@@ -8,6 +8,7 @@ import { useStore, ADDRESSES } from '../store';
 import { useShallow } from 'zustand/react/shallow';
 import { explorerTx } from '../network.mjs';
 import { parseTxError } from '../txUtils';
+import { ensureAllowance } from '../allowance.mjs';
 import { useNow } from '../useNow';
 import { poolWontFill, poolMaxSize } from '../poolRules.mjs';
 import { instrumentName, bookFor, expirySlots } from '../instruments.mjs';
@@ -217,7 +218,7 @@ export default function TradePanel() {
     let msg = 'Order placed.';
     return run(async () => {
       if (side === 'buy') {
-        await (await musdContract.approve(poolAddr, premiumWei)).wait();
+        await ensureAllowance(musdContract, poolAddr, premiumWei);
         const tx = await (await poolContract.createLongOrder(typeId, strikeWei, qtyWei, inst.expiry, premiumWei)).wait();
         const placed = await poolContract.getOption((await poolContract.nextId()) - 1n);
         if (placed.filledByPool && autoEx) {
@@ -236,11 +237,11 @@ export default function TradePanel() {
         const nonce = await new ethers.Contract(sigs, BORROWER_OPS_SIGS_ABI, signer).getNonce(account);
         const deadline = Math.floor(Date.now() / 1000) + 600;
         const sig = await signTroveWithdraw(signer, sigs, account, marginWei, account, nonce, deadline, chainId);
-        await (await musdContract.approve(poolAddr, marginWei)).wait();
+        await ensureAllowance(musdContract, poolAddr, marginWei);
         msg = 'Sell order posted with Trove margin. It rests on the book until a buyer takes it.';
         return (await poolContract.createShortOrderTrove(typeId, strikeWei, qtyWei, inst.expiry, premiumWei, marginWei, sig, deadline)).wait();
       }
-      await (await musdContract.approve(poolAddr, E18(collateral))).wait();
+      await ensureAllowance(musdContract, poolAddr, E18(collateral));
       msg = 'Sell order posted. It rests on the book until a buyer takes it; cancel it any time in Open orders.';
       return (await poolContract.createShortOrder(typeId, strikeWei, qtyWei, inst.expiry, premiumWei)).wait();
     }, () => msg);
@@ -248,12 +249,12 @@ export default function TradePanel() {
 
   // take a specific resting order from the book
   const hitAsk = o => run(async () => {
-    await (await musdContract.approve(ADDRESSES[chainId].pool, o.premiumWei)).wait();
+    await ensureAllowance(musdContract, ADDRESSES[chainId].pool, o.premiumWei);
     return (await poolContract.fillLong(o.id)).wait();
   }, () => 'Bought.');
   const hitBid = o => run(async () => {
     const need = collateralFor(inst.isCall, spot, inst.strike, o.qty) * (inst.isCall ? 1.02 : 1); // contract recomputes call collateral at fill time
-    await (await musdContract.approve(ADDRESSES[chainId].pool, E18(need))).wait();
+    await ensureAllowance(musdContract, ADDRESSES[chainId].pool, E18(need));
     return (await poolContract.fillShort(o.id)).wait();
   }, () => 'Sold into the bid.');
 
@@ -462,7 +463,7 @@ export default function TradePanel() {
               <Row label="Outcome" value={poolWillFill ? 'Fills now from the pool' : buy ? 'Rests as a bid' : 'Rests as an ask'} />
             </>}
           </div>
-          <p className="text-xs text-dim">Your wallet will ask for an approval and then the trade.</p>
+          <p className="text-xs text-dim">Your wallet asks for the trade, plus an MUSD approval first if your current approval is too low.</p>
           <div className="flex gap-3">
             <button onClick={() => setConfirm(null)} className="btn-ghost flex-1">Cancel</button>
             <button disabled={busy} onClick={() => confirm.ask ? hitAsk(confirm.ask) : confirm.bid ? hitBid(confirm.bid) : submit()}
