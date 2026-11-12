@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "./MockERC20v2.sol";
 
 contract MockOracle {
     int256  private _answer;
@@ -59,5 +60,44 @@ contract MockBorrowerOps {
         if (address(musd) != address(0) && _amount > 0) {
             require(musd.transfer(_recipient, _amount * deliverBps / 10000), "mock transfer failed");
         }
+    }
+}
+
+/// @dev Stand-in for Mezo's MUSDSavingsRate (sMUSD), following its verified interface and the behaviour seen on
+///      testnet: deposit is 1:1, withdraw(amount) returns the principal and pays any accrued yield in the same
+///      call, claimYield pays accrued yield only. Test knobs: accrue yield, break the vault, short-pay withdrawals.
+contract MockSavings {
+    MockERC20v2 public musd;
+    mapping(address => uint256) public balanceOf;
+    mapping(address => uint256) public claimableYield;
+    bool public broken;      // every call reverts
+    bool public shortPay;    // withdraw returns 1 wei less than asked
+
+    constructor(MockERC20v2 _musd) { musd = _musd; }
+
+    function setBroken(bool b) external { broken = b; }
+    function setShortPay(bool b) external { shortPay = b; }
+    /// Give `user` `amount` of claimable yield (minted, as Mezo funds yield from protocol fees).
+    function accrue(address user, uint256 amount) external { musd.mint(address(this), amount); claimableYield[user] += amount; }
+
+    function deposit(uint256 amount) external {
+        require(!broken, "savings broken");
+        musd.transferFrom(msg.sender, address(this), amount);
+        balanceOf[msg.sender] += amount;
+    }
+
+    function withdraw(uint256 amount) external {
+        require(!broken, "savings broken");
+        balanceOf[msg.sender] -= amount;
+        uint256 y = claimableYield[msg.sender];
+        claimableYield[msg.sender] = 0;
+        musd.transfer(msg.sender, amount + y - (shortPay ? 1 : 0));
+    }
+
+    function claimYield() external {
+        require(!broken, "savings broken");
+        uint256 y = claimableYield[msg.sender];
+        claimableYield[msg.sender] = 0;
+        musd.transfer(msg.sender, y);
     }
 }

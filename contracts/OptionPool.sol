@@ -8,6 +8,14 @@ import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./yMUSD.sol";
 
+/// @dev Mezo's MUSD Savings Rate vault (sMUSD). Deposits are 1:1 MUSD; withdraw returns the principal and pays
+///      any accrued yield in the same call; claimYield pays accrued yield only.
+interface ISavings {
+    function deposit(uint256 amount) external;
+    function withdraw(uint256 amount) external;
+    function claimYield() external;
+}
+
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 
 interface ISkipOracle {
@@ -57,10 +65,10 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     /// @notice Oldest price accepted to exercise. Looser, so a short oracle hiccup near expiry does not stop a
     ///         holder from exercising a winning option (an option that expires unexercised loses its value).
     uint256 internal constant EXERCISE_PRICE_STALENESS = 120;
-    uint256 public constant MIN_EXPIRY        = 15 minutes;
+    uint256 internal constant MIN_EXPIRY        = 15 minutes;
     uint256 public constant MAX_EXPIRY        = 14 days;
-    uint256 public constant PRECISION         = 1e18;
-    uint256 public constant MIN_ICR           = 15e17; // 150%
+    uint256 internal constant PRECISION         = 1e18;
+    uint256 internal constant MIN_ICR           = 15e17; // 150%
 
     // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -113,7 +121,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     ///         Bounded so the pricing loop always fits in a block.
     ///         Owner-adjustable up to a hard ceiling whose worst-case gas is checked in the test suite.
     uint256 public maxOpenPoolOptions = 50;
-    uint256 public constant MAX_OPEN_POOL_OPTIONS_CEILING = 150; // ~4.3M gas to price the book; Mezo's block gas limit is 10M
+    uint256 internal constant MAX_OPEN_POOL_OPTIONS_CEILING = 150; // ~4.3M gas to price the book; Mezo's block gas limit is 10M
     uint256[] internal openPoolOptions;
     mapping(uint256 => uint256) internal openPoolSlot; // option id => index + 1
 
@@ -135,10 +143,10 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     uint256 public lastIvUpdate;
     uint256 public constant MIN_IV = 25e16;  // 25%
     uint256 public constant MAX_IV = 15e17;  // 150%
-    uint256 public constant MAX_IV_SPREAD_BPS = 5000;
+    uint256 internal constant MAX_IV_SPREAD_BPS = 5000;
 
     event IVUpdated(uint256 iv, address indexed by);
-    uint256 public constant R = 5e16; // 5% risk-free rate, 18 dec
+    uint256 internal constant R = 5e16; // 5% risk-free rate, 18 dec
 
     // Limits
     uint256 public tvlCap             = 50_000e18;
@@ -149,10 +157,10 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     // Exit protections (see suggestion #2)
     /// @notice Fee on withdrawals made while pool options are open. It stays in the pool for remaining LPs.
     uint256 public withdrawalFeeBps = 25;
-    uint256 public constant MAX_WITHDRAWAL_FEE_BPS = 100;
+    uint256 internal constant MAX_WITHDRAWAL_FEE_BPS = 100;
     /// @notice After depositing, an LP can neither withdraw nor transfer yMUSD for this long.
     uint256 public depositLockSeconds = 1 hours;
-    uint256 public constant MAX_DEPOSIT_LOCK = 7 days;
+    uint256 internal constant MAX_DEPOSIT_LOCK = 7 days;
     mapping(address => uint256) public depositLockExpiry;
 
     // Pool-fill risk limits (suggestion #3)
@@ -166,7 +174,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     /// @notice Minimum price for locking collateral, as annual % of the collateral (bps). Stops the pool
     ///         selling nearly-free long-dated options that tie up LP capital for nothing.
     uint256 public minRentBps = 500;
-    uint256 public constant MAX_MIN_RENT_BPS = 5000;
+    uint256 internal constant MAX_MIN_RENT_BPS = 5000;
 
     /// @notice The pool only sells options with a strike within this distance of spot (bps). Far-away
     ///         strikes are where the model is least reliable and a wrong price costs the most.
@@ -178,7 +186,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
 
     /// @notice Extra IV spread (bps) charged at 100% utilisation; scales with utilisation squared.
     uint256 public utilSpreadBps = 2000;
-    uint256 public constant MAX_UTIL_SPREAD_BPS = 10000;
+    uint256 internal constant MAX_UTIL_SPREAD_BPS = 10000;
 
     // Circuit breaker (suggestion #8): a fast price move pauses new risk (pool fills, deposits) for a
     // while. Exits, settlement, refunds and cancellations are never blocked.
@@ -279,6 +287,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
         require(totalAssets + amount <= tvlCap, "tvl cap");
         // A stale price makes NAV assume the worst case (shares look cheap): never let new money in at that price
         require(!_breaker(_spot()), "circuit breaker");
+        _harvest(); // yield earned so far belongs to the LPs already in
 
         uint256 shares;
         uint256 supply = ymusd.totalSupply();
@@ -309,6 +318,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
         uint256 supply = ymusd.totalSupply();
         require(supply > 0, "no supply");
         require(block.timestamp >= depositLockExpiry[msg.sender], "deposit locked");
+        _harvest();
 
         // Priced on net asset value so a leaving LP takes their share of open losses with them.
         uint256 musdOut = shares * _netAssets() / supply;
@@ -316,6 +326,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
         if (openPoolOptions.length > 0) musdOut -= musdOut * withdrawalFeeBps / 10000;
         uint256 available = totalAssets - lockedCollateral;
         require(musdOut <= available, "insufficient liquidity");
+        _ensureCash(musdOut); // recall from savings if needed; option payouts never depend on this
 
         totalAssets -= musdOut; // effects before interactions
         ymusd.burn(msg.sender, shares);
@@ -464,7 +475,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     function _takePerformanceFee() internal {
         // Only premium from options that have ended counts as yield, so the fee is never charged on
         // premium that a still-open option may yet pay back out.
-        uint256 recognised = totalPremiumsEarned - unrecognizedPremium;
+        uint256 recognised = totalPremiumsEarned + totalSavingsYield - unrecognizedPremium;
         if (recognised <= totalSettlementsPaid) return;
         uint256 netYield = recognised - totalSettlementsPaid;
         if (netYield <= perfFeeHighWater) return; // below the high-water mark: losses not yet recovered
@@ -473,7 +484,9 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
         uint256 fee = newYield * performanceFeeBps / 10000;
         // never dip into collateral locked for open options; the uncharged part stays above the
         // high-water mark and is collected later at the rate in force when it was earned
-        uint256 free = totalAssets > lockedCollateral ? totalAssets - lockedCollateral : 0;
+        // only from MUSD held here (not from savings), so a payout path never calls the savings vault
+        uint256 cash = totalAssets - invested;
+        uint256 free = cash > lockedCollateral ? cash - lockedCollateral : 0;
         uint256 charged = newYield;
         if (fee > free) { fee = free; charged = fee * 10000 / performanceFeeBps; }
         perfFeeHighWater += charged;
@@ -540,6 +553,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
 
         // Check pool has enough free capital
         if (totalAssets < lockedCollateral + collateral) return;
+        _ensureCash(collateral); // locked collateral is always held as MUSD, never in savings
         if (totalAssets >= tvlCap) return;
         if ((lockedCollateral + collateral) * 10000 > totalAssets * maxUtilisationBps) return;
         if (collateral * 10000 > totalAssets * maxOptionExposureBps) return;
@@ -721,7 +735,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     ///         `AUTO_EXERCISE_WINDOW` before expiry; the caller earns `keeperFeeBps` of the payout.
     uint256 public constant AUTO_EXERCISE_WINDOW = 5 minutes;
     uint256 public keeperFeeBps = 50;
-    uint256 public constant MAX_KEEPER_FEE_BPS = 200;
+    uint256 internal constant MAX_KEEPER_FEE_BPS = 200;
     mapping(uint256 => bool) public autoExercise;
     event AutoExerciseSet(uint256 indexed id, bool on);
     event KeeperFeeSet(uint256 bps);
@@ -782,7 +796,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     /// @notice The pool buys back options it sold, at the mid-IV Black-Scholes value less a fixed 10% spread on
     ///         the volatility. It sells at mid x (1 + 15% + utilisation markup), so every
     ///         round trip leaves the pool a margin, and it never pays above mid value.
-    uint256 public constant BID_SPREAD_BPS = 1000;
+    uint256 internal constant BID_SPREAD_BPS = 1000;
     event SoldBack(uint256 indexed id, address indexed long, uint256 payout);
 
     /// @notice What the pool would pay now to take back option `id` (0 if it cannot be sold back).
@@ -858,6 +872,71 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
             revert("not your order");
         }
         emit Cancelled(id, msg.sender);
+    }
+
+    // ─── Savings: idle pool MUSD earns Mezo's MUSD Savings Rate ───────────────
+    //  Only capital that is not backing a live option is invested, capped at `investCapBps` of it, so
+    //  exercises, refunds and sell-backs are always paid from MUSD held here. LP withdrawals and new pool
+    //  sales recall MUSD from savings when the pool's own cash is short.
+
+    ISavings public savings;              // Mezo sMUSD vault; zero = off
+    uint256 public invested;              // MUSD principal in savings (still counted in totalAssets)
+    uint256 public investCapBps = 5000;   // max share of free capital (totalAssets - lockedCollateral) invested
+    uint256 public totalSavingsYield;     // savings yield brought into the pool (counts as LP yield)
+    event Savings(uint256 invested, uint256 yield);
+
+    /// @notice Set the savings vault and cap. Changing the vault requires everything divested first.
+    function setSavings(address s, uint256 capBps) external onlyOwner {
+        require(capBps <= 8000 && (s == address(savings) || invested == 0), "bad savings");
+        savings = ISavings(s);
+        investCapBps = capBps;
+        if (s != address(0)) musd.approve(s, type(uint256).max); // trusted Mezo vault; MUSD returns true
+    }
+
+    /// @notice Move `amount` of free pool MUSD into savings (owner or keeper), within the cap.
+    function invest(uint256 amount) external nonReentrant {
+        require(msg.sender == owner() || msg.sender == ivKeeper, "not keeper");
+        require((invested + amount) * 10000 <= (totalAssets - lockedCollateral) * investCapBps, "over cap");
+        invested += amount;
+        savings.deposit(amount);
+        emit Savings(invested, 0);
+    }
+
+    /// @notice Bring `amount` back from savings (owner, keeper or guardian; more than invested = all).
+    function divest(uint256 amount) external nonReentrant {
+        require(msg.sender == owner() || msg.sender == ivKeeper || msg.sender == guardian, "not keeper");
+        _divest(amount > invested ? invested : amount);
+    }
+
+    function _divest(uint256 amount) internal {
+        if (amount == 0) return;
+        uint256 before = musd.balanceOf(address(this));
+        invested -= amount;
+        savings.withdraw(amount);
+        uint256 got = musd.balanceOf(address(this)) - before;
+        require(got >= amount, "savings short"); // principal must come back in full
+        _bookYield(got - amount);
+    }
+
+    /// @dev Collect accrued yield. A failing vault never blocks deposits or withdrawals (the call result is ignored).
+    function _harvest() internal {
+        if (invested == 0) return;
+        uint256 before = musd.balanceOf(address(this));
+        (bool ok,) = address(savings).call(abi.encodeCall(ISavings.claimYield, ()));
+        if (ok) _bookYield(musd.balanceOf(address(this)) - before);
+    }
+
+    function _bookYield(uint256 y) internal {
+        totalAssets += y;
+        totalSavingsYield += y;
+        emit Savings(invested, y);
+    }
+
+    /// @dev Make sure the MUSD held here covers locked collateral plus `extra`; recall the gap from savings.
+    function _ensureCash(uint256 extra) internal {
+        uint256 cash = totalAssets - invested;
+        uint256 need = lockedCollateral + extra;
+        if (cash < need) _divest(need - cash);
     }
 
     // ─── Views ────────────────────────────────────────────────────────────────

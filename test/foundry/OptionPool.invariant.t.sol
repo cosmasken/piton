@@ -6,7 +6,7 @@ import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {OptionPool} from "../../contracts/OptionPool.sol";
 import {yMUSD} from "../../contracts/yMUSD.sol";
 import {MockERC20v2} from "../../contracts/test/MockERC20v2.sol";
-import {MockOracle, MockTrove, MockBorrowerOps} from "../../contracts/test/MocksV2.sol";
+import {MockOracle, MockTrove, MockBorrowerOps, MockSavings} from "../../contracts/test/MocksV2.sol";
 
 /// @notice Drives OptionPool through random sequences of every user action plus price moves,
 ///         time jumps and IV changes. Records "ghost" facts the invariants check after each call.
@@ -17,6 +17,7 @@ contract Handler is Test {
     MockOracle public oracle;
     MockTrove public trove;
     MockBorrowerOps public bo;
+    MockSavings public savings;
 
     address[] public actors;
     uint256 public price = 100_000; // whole USD per BTC (MockOracle scales by 1e8)
@@ -49,6 +50,8 @@ contract Handler is Test {
         pool.setMinPoolExpiry(900);
         pool.setBreaker(600, 50000, 0);
         pool.setMaxOptionCollateral(1e26);
+        savings = new MockSavings(musd);
+        pool.setSavings(address(savings), 8000); // idle MUSD can go to savings (handler is owner)
 
         for (uint256 i = 0; i < 5; i++) {
             address a = makeAddr(string(abi.encodePacked("actor", vm.toString(i))));
@@ -176,7 +179,9 @@ contract Handler is Test {
         address a = _actor(actorSeed);
         uint256 shares = y.balanceOf(a) * bound(pct, 1, 100) / 100;
         if (shares == 0) return;
-        uint256 expected = shares * pool.totalAssets() / y.totalSupply();
+        // the withdrawal first collects yield already earned in savings; it belongs pro rata to every LP
+        uint256 pending = savings.broken() || pool.invested() == 0 ? 0 : savings.claimableYield(address(pool));
+        uint256 expected = shares * (pool.totalAssets() + pending) / y.totalSupply();
         uint256 before = musd.balanceOf(a);
         vm.prank(a);
         try pool.withdraw(shares) {
@@ -315,6 +320,26 @@ contract Handler is Test {
         calls["warp"]++;
     }
 
+    // ── savings (Mezo sMUSD) ─────────────────────────────────────────────────
+    function invest(uint256 frac) external {
+        uint256 free = pool.totalAssets() - pool.lockedCollateral();
+        uint256 room = free * 8000 / 10000;
+        if (room <= pool.invested()) return;
+        try pool.invest(bound(frac, 1, room - pool.invested())) { calls["invest"]++; } catch {}
+    }
+    function divest(uint256 amt) external {
+        try pool.divest(bound(amt, 0, pool.invested() + 1)) { calls["divest"]++; } catch {}
+    }
+    function accrueYield(uint256 amt) external {
+        if (pool.invested() == 0) return;
+        savings.accrue(address(pool), bound(amt, 1, 1e22));
+        calls["yield"]++;
+    }
+    function toggleSavingsBroken(uint256 seed) external {
+        savings.setBroken(seed % 4 == 0); // broken a quarter of the time
+        calls["savingsToggle"]++;
+    }
+
     function setIV(uint256 ivSeed) external {
         pool.setIV(bound(ivSeed, 25e16, 15e17));
         calls["setIV"]++;
@@ -349,7 +374,14 @@ contract OptionPoolInvariants is StdInvariant, Test {
     /// Every MUSD the contract holds is either pool assets or owed to a specific user — exactly.
     function invariant_balanceEqualsAssetsPlusUserFunds() public view {
         (uint256 owed,) = _owedToUsers();
-        assertEq(h.musd().balanceOf(address(pool)), pool.totalAssets() + owed, "MUSD balance != totalAssets + user funds");
+        // pool MUSD here + principal in savings == pool assets + money owed to users (nothing created or lost)
+        assertEq(h.musd().balanceOf(address(pool)) + pool.invested(), pool.totalAssets() + owed, "MUSD balance + savings != totalAssets + user funds");
+        assertEq(h.savings().balanceOf(address(pool)), pool.invested(), "savings position != invested");
+    }
+
+    /// Collateral backing live pool options is always held as MUSD in the pool, never in savings.
+    function invariant_lockedCollateralHeldAsCash() public view {
+        assertGe(pool.totalAssets() - pool.invested(), pool.lockedCollateral(), "locked collateral sits in savings");
     }
 
     /// lockedCollateral is exactly the collateral of open pool-filled options.
@@ -427,7 +459,7 @@ contract HandlerCoverage is Test {
             r = uint256(keccak256(abi.encode(r)));
             uint256 a = r >> 8; uint256 b = r >> 40; uint256 c = r >> 72; uint256 d = r >> 104; uint256 e = r >> 136;
             bytes memory call;
-            uint256 pick = r % 17;
+            uint256 pick = r % 21;
             if (pick == 0) call = abi.encodeCall(h.deposit, (a, b));
             else if (pick == 1) call = abi.encodeCall(h.withdraw, (a, b));
             else if (pick == 2) call = abi.encodeCall(h.createLong, (a, b % 2 == 0, c, d, e, b));
@@ -444,12 +476,17 @@ contract HandlerCoverage is Test {
             else if (pick == 13) call = abi.encodeCall(h.buyAndExerciseNow, (a, b % 2 == 0, c, d));
             else if (pick == 14) call = abi.encodeCall(h.becomeThePool, (a, b, c));
             else if (pick == 15) call = abi.encodeCall(h.sellBack, (b));
-            else call = abi.encodeCall(h.buyAndSellBackNow, (a, b % 2 == 0, c, d));
+            else if (pick == 16) call = abi.encodeCall(h.buyAndSellBackNow, (a, b % 2 == 0, c, d));
+            else if (pick == 17) call = abi.encodeCall(h.invest, (b));
+            else if (pick == 18) call = abi.encodeCall(h.divest, (b));
+            else if (pick == 19) call = abi.encodeCall(h.accrueYield, (b));
+            else call = abi.encodeCall(h.toggleSavingsBroken, (b));
             (bool ok,) = address(h).call(call);
             ok; // reverts are expected for some random inputs
         }
-        string[13] memory k = ["deposit", "withdraw", "createLong", "createShort", "createShortTrove",
-            "fillLong", "fillShort", "settle", "refund", "buyExercise", "becomePool", "sellBack", "roundTrip"];
+        string[16] memory k = ["deposit", "withdraw", "createLong", "createShort", "createShortTrove",
+            "fillLong", "fillShort", "settle", "refund", "buyExercise", "becomePool", "sellBack", "roundTrip",
+            "invest", "divest", "yield"];
         for (uint256 i = 0; i < k.length; i++) {
             uint256 n = h.calls(bytes32(bytes(k[i])));
             emit log_named_uint(k[i], n);
