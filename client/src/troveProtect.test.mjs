@@ -49,3 +49,20 @@ test('returns null for an empty trove or missing price', () => {
   assert.equal(suggestProtection({ coll: 0, debt: 0, spot: 100000 }), null);
   assert.equal(suggestProtection({ coll: 1, debt: 50000, spot: 0 }), null);
 });
+
+test('a loan far from liquidation gets the nearest strike the pool sells, flagged', () => {
+  // 0.1713 BTC, 6,441 MUSD debt: liquidation ~$41,360, so 15% above is ~$47,560 (35% below a $73,300 spot)
+  const s = suggestProtection({ coll: 0.1713, debt: 6441, spot: 73300, strikeBandBps: 3000 });
+  assert.equal(s.farFromLiq, true);
+  assert.equal(s.strike, 52000);                       // 73,300 x 0.7 = 51,310, rounded up to a $1,000 strike
+  assert.ok(s.payoutAtLiq > 0);
+  const near = suggestProtection({ coll: 1, debt: 50000, spot: 74000, strikeBandBps: 3000 }); // liq $55k -> $63,250
+  assert.equal(near.farFromLiq, false);
+  assert.equal(near.strike, 63250);
+});
+
+test('size is capped to what the pool can sell now', () => {
+  const s = suggestProtection({ coll: 0.1713, debt: 6441, spot: 73300, strikeBandBps: 3000, maxQty: 0.033 });
+  assert.equal(s.qty, 0.033);
+  assert.equal(s.capped, true);
+});

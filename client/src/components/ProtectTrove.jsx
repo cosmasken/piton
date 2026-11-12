@@ -3,6 +3,7 @@ import { ethers } from 'ethers';
 import { useStore, ADDRESSES } from '../store';
 import { useShallow } from 'zustand/react/shallow';
 import { suggestProtection, MCR } from '../troveProtect.mjs';
+import { poolMaxSize } from '../poolRules.mjs';
 
 const TROVE_MANAGER_ABI = [
   'function getTroveStatus(address) view returns (uint256)',
@@ -17,7 +18,7 @@ const usd = n => `$${Number(n).toLocaleString('en-US', { maximumFractionDigits: 
  * liquidation price. `onApply({ strike, qty })` prefills the order form (long put).
  */
 export default function ProtectTrove({ onApply }) {
-  const { provider, account, chainId, poolContract, btcPrice } = useStore(useShallow(s => ({ provider: s.provider, account: s.account, chainId: s.chainId, poolContract: s.poolContract, btcPrice: s.btcPrice })));
+  const { provider, account, chainId, poolContract, btcPrice, poolParams } = useStore(useShallow(s => ({ provider: s.provider, account: s.account, chainId: s.chainId, poolContract: s.poolContract, btcPrice: s.btcPrice, poolParams: s.poolParams })));
   const [state, setState] = useState({ loading: false, error: null, trove: null, sug: null });
   const [coverage, setCoverage] = useState(100);
 
@@ -35,8 +36,13 @@ export default function ProtectTrove({ onApply }) {
       ]);
       const coll = parseFloat(ethers.formatEther(collWei));
       const debt = parseFloat(ethers.formatEther(debtWei));
+      const band = poolParams?.strikeDistanceBps;
+      // what the pool can sell of a put at the strike it would suggest (put collateral = strike per BTC)
+      const first = suggestProtection({ coll, debt, spot: btcPrice, coverage: cov / 100, strikeBandBps: band,
+        maxCollateral: parseFloat(ethers.formatEther(maxCollWei)) });
+      const maxQty = first ? poolMaxSize(first.strike, poolParams || {}) : null;
       const sug  = suggestProtection({
-        coll, debt, spot: btcPrice, coverage: cov / 100,
+        coll, debt, spot: btcPrice, coverage: cov / 100, strikeBandBps: band, maxQty,
         maxCollateral: parseFloat(ethers.formatEther(maxCollWei)),
       });
       setState({ loading: false, error: sug ? null : 'Could not size a hedge (empty Trove or no price).', trove: { coll, debt }, sug });
@@ -73,7 +79,8 @@ export default function ProtectTrove({ onApply }) {
           <div className="flex justify-between text-xs"><span className="text-dim">Payout if BTC hits liquidation</span>
             <span className="font-mono text-accent">{usd(sug.payoutAtLiq)} ({(sug.payoutPctOfDebt * 100).toFixed(0)}% of debt)</span></div>
           {!sug.otm && <p className="text-xs text-yellow-500">Spot is already below this strike — the put is in the money and will cost more.</p>}
-          {sug.capped && <p className="text-xs text-yellow-500">Size reduced to fit the pool's per-option limit.</p>}
+          {sug.farFromLiq && <p className="text-xs text-accent">Your loan is far from liquidation. This is the nearest strike the pool sells ({(poolParams?.strikeDistanceBps ?? 3000) / 100}% below today's price): cheap, and it pays out well before your liquidation price.</p>}
+          {sug.capped && <p className="text-xs text-yellow-500">Size reduced to what the pool can sell in one option right now.</p>}
           <div className="flex items-center gap-2 text-xs">
             <span className="text-dim">Coverage</span>
             <input type="range" min="10" max="100" step="10" value={coverage}
