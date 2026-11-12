@@ -1,23 +1,70 @@
-# Checkpoint (end of 10 Nov 2026)
+# Checkpoint (end of 12 Nov 2026, 22:00 UTC)
 
 Where the project stands, and what to pick up next. Read this first when resuming.
 
-## State
-- **Branch / last commit:** `main` @ `6e8b32b` ("Record new matsnet deployment"). Working tree clean.
-- **Live deployment (Mezo testnet, chain 31611), redeployed 12 Nov 2026 (21:30 UTC) with custom errors, resale on the
-  book and grouped (per-series) liability:**
+## Resume here
+- **Deadline:** AKINDO Mezo Buildathon Wave 2, **15 Nov 2026 15:00 UTC** (18:00 the user's time, UTC+3).
+- **Git:** on `main` @ `6e8e777`, working tree clean. Local `main` includes all Passport work (fast-forwarded from
+  `feature/mezo-passport`, which still exists). **Not pushed:** `origin/main` is still the old `7cdb47c`; push only when
+  the user says so (`git push origin main`). Judges see GitHub, so this matters before submission.
+- **Live (Mezo testnet 31611), redeployed 12 Nov 21:30 UTC** with custom errors, resale on the book and grouped
+  (per-series) liability:
   - OptionPool `0x016c05F75C9fF2141d06259A9e49DD9B949e18AA` (deploy block 16741716), linked to PitonMath
-    `0xd628F2FA2142E757c447F9274Fd5E6BE5dcC332B`.
-  - yMUSD `0x61e29a7d0B87599244dAF46142C37B1738F7BE4b`.
-  - Seeded with 10,000 MUSD by the deployer `0x09aB…6D06`; IV 39% (DVOL); `minPoolExpiry` 900 s; max 50 open series;
-    keeper `0xdE33…7948`.
-  - Savings on: sMUSD `0x6f46…8e16`, cap 50% of free capital (the keeper job invests once the VPS points here).
-  - Previous pools (`0x6D7F…8180` and `0x8544…5c2d` paused and emptied, `0xb2a0…c5fe`, `0x21F8…8221` and older) are empty.
-    V1 CALL-A/PUT-A still hold ~393 MUSD backing bot-sold options that expire by 25 Nov; sweep with `scripts/recover.js`.
-- **Site:** https://piton.surge.sh, pointing at the deployment above.
-- **Older pools:** emptied. Balances under 20 MUSD are ignored by agreement.
-- **Tests:** Hardhat 180, Foundry 17 (invariants and fuzz), client 83, all passing.
-- **Contract size:** OptionPool 23,921 of 24,576 bytes (custom errors freed 2.6 KB; resale and series use most of it).
+    `0xd628F2FA2142E757c447F9274Fd5E6BE5dcC332B`; yMUSD `0x61e29a7d0B87599244dAF46142C37B1738F7BE4b`.
+  - Seeded 10,000 MUSD by the master `0x09aB…6D06`; IV 39%; `minPoolExpiry` 900 s; max 50 open series; keeper
+    `0xdE33…7948`; sMUSD savings `0x6f46…8e16` at a 50% cap.
+  - Deployed code matches the build (checked byte for byte; only the 33 immutable slots differ).
+  - Previous pools are paused and emptied (`0x6D7F…8180`, `0x8544…5c2d`, and older).
+- **Site:** https://piton.surge.sh (built from `main`). Subgraph `piton-testnet/1.20261112.2128`, tag `prod` points at it;
+  it is the only version (Goldsky's limit is 3, delete old versions after each redeploy).
+- **Tests:** Hardhat 180, Foundry 17, client 83, all passing. OptionPool 23,921 of 24,576 bytes (655 left).
+- **Demo:** `scripts/demo.js` (git-ignored) passes all 13 scenes on the live site (2:08 at PACE=0.25 headless). Wallet
+  reset with `SETUP=1` and ready (`PREFLIGHT=1` says ready): master 577 MUSD, Trove 225%, 0.0038 BTC gas.
+  The user has already recorded the video (on the previous contract; the UI is the same apart from the new yield card).
+
+## Waiting on the user (before submission)
+1. **Re-push the VPS keeper** to the new pool: `./scripts/push-ops-vps.sh` (asks for the VPS password once). It also
+   removes the old V1 bot (`pm2 delete piton-bot`). Until then: no IV updates, no auto-exercise, no sMUSD investing.
+2. **Verify the 3 contracts** on the Mezo explorer from `docs/verify/` (git-ignored): `contracts.json` has addresses,
+   compiler `v0.8.28+commit.7893614a`, optimizer 200 runs, viaIR, EVM london, constructor args (plain and encoded);
+   one `*.standard-input.json` per contract ("Standard JSON input"). Order: PitonMath, yMUSD, OptionPool (OptionPool's
+   input already links PitonMath).
+3. **OK to push `main` to GitHub.**
+4. **Submit the video** and the BUIDL text.
+5. **Manual Bitcoin-wallet test** (Unisat, OKX, Xverse): connect, fund the Mezo account with BTC for gas, buy, sell back,
+   exercise, LP deposit/withdraw, bid/cancel, Protect my Trove, 2-step Trove margin, resale list/buy, mainnet switch.
+   WalletConnect: QR shows on the live site (Reown allowlist has piton.surge.sh); not yet scanned with a phone.
+
+## Next for the agent (when the user resumes)
+1. Update `docs/BUIDL.md` (git-ignored) for the new contract: addresses, Mezo Passport and Bitcoin wallets, resale on
+   the book, per-series liability, APY card. Note that the first Trove-margin tx (`0x9a74…7e10df`) was on an earlier pool.
+2. Just before submission: re-check Surge delivery (it served zero-filled gzip files on 12 Nov; a clean
+   `rm -rf client/dist`, rebuild and redeploy fixed it). Fallback: Netlify (`netlify login` needed by the user), with
+   piton.surge.sh forwarding there.
+3. After 25 Nov: `node scripts/v1status.js`, then `node scripts/recover.js` (~393 MUSD locked in V1 CALL-A/PUT-A).
+4. Roadmap (not started): governance handover to a real 2-of-3 Safe + timelock (`scripts/setupGovernance.js`, today's
+   "multisig" in `docs/governance-wallets.json` is a single key); oracle cross-check (blocked: stale Pyth on Mezo);
+   MEZO options (same blocker); mobile layout (deferred); audit before mainnet.
+
+## Done 12 Nov (this session, newest last)
+- Mezo Passport: wagmi 2.19.5, Passport 0.17.2, RainbowKit 2.2.11; Bitcoin wallets (Unisat/OKX/Xverse) via
+  `PassportSigner` (`client/src/walletSigner.mjs`); wallet layer loads only on /dashboard and /stats; polyfills load
+  first; Account panel shows Bitcoin address/balance, Mezo account (copy) and a low-gas warning; a note before each
+  Bitcoin-wallet signature; Trove margin for Bitcoin wallets in two steps (borrow with `withdrawMUSD`, then a normal
+  sale) because Mezo's WithdrawMUSD signature check is ECDSA only. WalletConnect ID in `client/.env` (git-ignored).
+- `qr` pinned to 0.5.5 for RainbowKit's QR (`cuer` passes border 0, which qr 0.6+ rejects).
+- Demo script: 5 s lead-in and 5 s tail, preflight check, MUSD top-up from pool shares in SETUP, failure screenshot at
+  `/tmp/demo-failed.png`.
+- Funds: borrowed 2,000 MUSD from the master Trove after adding 0.1 BTC collateral (Trove now 0.271 BTC, ~8,360 debt).
+- Pool yield card (7d/30d annualised after 7 days of history, breakdown) and subgraph totals per hour/day (`f2380cc`).
+- Custom errors in OptionPool (`009c45d`): `client/src/poolErrors.mjs` maps selectors to the old reason text; a test fails
+  if a new error has no entry. Tests use `revertedWithCustomError(POOL_ERRORS, 'Name')` (`test/helpers/poolErrors.js`).
+- Resale on the book (`95f03b0`): `listLong(id, price)` (0 delists), `buyListed(id, maxPrice)`; 2% fee on the price;
+  auto-exercise resets for the new holder; subgraph `Resale` entity and `holderCost` for P&L.
+- Grouped liability (`7071910`): `Series` totals per (type, strike, expiry), liability = min(collateral, max(size x
+  intrinsic, min(premium, sqrt(time left) x weight))); `maxOpenSeries` (50, max 150) replaces `maxOpenPoolOptions`;
+  25% exposure limit per series; views `openSeriesCount()`, `seriesCollateral(type, strike, expiry)`.
+- Trove margin gas margin +30% (`9808bb1`): a live Trove sale reverted short of gas inside Mezo's call.
 
 ## Deployed 11 Nov 2026 (oracle-age change)
 - Oracle price age: at most **30 s** (~7 Mezo blocks) to open or price risk (pool sales, orders, sell-back, deposits,
@@ -76,12 +123,12 @@ Where the project stands, and what to pick up next. Read this first when resumin
 - Checked headless in Africa/Nairobi, America/Anchorage and UTC. Not checked in a browser: the UTC setting itself.
 
 ## Indexer
-- Goldsky subgraph `piton-testnet`, versions 1.0.0 and 1.0.1; tag `prod` -> 1.0.1. Code in `subgraph/`.
-- Verified on 11 Nov: pool totals, all 3 options, both trades, the sell-back payout and account totals match the chain.
-- The dapp's trade history (Recent trades tab, 24h volume, last trade) uses it, with a chain-log fallback.
-- After any redeploy run `npm run subgraph:deploy` (reads `deployments/matsnet.json`, which now stores `deployBlock`).
-- Not yet used for: pool share-price/yield charts and per-user history (the data is indexed; UI not built). Delete the
-  unused 1.0.0 version with `goldsky subgraph delete piton-testnet/1.0.0` when convenient.
+- Goldsky subgraph `piton-testnet`; the dapp queries the `prod` tag (…/piton-testnet/prod/gn). Code in `subgraph/`.
+- After any redeploy: `npm run subgraph:deploy` (reads `deployments/matsnet.json`, moves `prod` once synced), then
+  delete the old version (`goldsky subgraph list`, `goldsky subgraph delete piton-testnet/<version> --force`).
+- After any contract change, sync both ABIs: `client/src/contracts/OptionPool.json` (full artifact) and
+  `subgraph/abis/OptionPool.json` (ABI array only).
+- Used for: trade history, 24h volume, History tab, realised P&L (incl. resales), APY (hourly share price), /stats.
 
 ## UI round (11 Nov, after live data)
 - Done: account summary (replaces Market + Wallet), History tab from the subgraph with realised/unrealised P&L and
@@ -99,79 +146,32 @@ Where the project stands, and what to pick up next. Read this first when resumin
 - Visuals: flash on change, tick arrows, rolling totals, new trades slide in, "Chain #block · Ns ago" indicator.
 - Store subscriptions use selectors (useShallow), so per-second ticks don't re-render the whole dashboard.
 
-## URGENT: retired V1 bot still running on the VPS
-- pm2 process `piton-bot` (the V1 bot.js) is still trading against the dead V1 CallOption/PutOption contracts
-  (0xaDaf…09CD, 0x233f…5033) and has spent nearly all of the 150 MUSD given to bot wallets 1-3 on 10 Nov.
-- V1 funds (11 Nov): ~765 MUSD in the four V1 contracts, all bot-to-bot. ~231 recoverable at once (76 open orders to
-  close, 22 expired to refund); ~496 locked in 44 live options expiring by 25 Nov.
-- Fix, in one guided run (user, VPS password once): `./scripts/vps-switch-bots.sh`. It stops `piton-bot`, checks on-chain
-  that bot wallets stopped, runs `scripts/recover.js` (dry run, then real), funds V2 bots 1-3 (BOT_MUSD, default 40),
-  and deploys keeper + `v1refund` (hourly refunds of expired V1 options, so the locked ~496 returns automatically) + bot.
-- After that, check `node scripts/v1status.js` occasionally until "Totals still locked" is 0 (after 25 Nov), then run
-  `node scripts/recover.js` once more to sweep the bot wallets to master.
-  The V2 bot now uses standard expiry slots and round strikes, and places ~1/3 resting bids (every 6 min by default).
-
-## Waiting on the user
-- **Manual testing:** run [WALKTHROUGH.md](WALKTHROUGH.md) and report back step by step.
-- **Keeper is running on the VPS** (11 Nov 2026) under pm2 as `piton-ops`, jobs `iv,exercise,refund,poke` (no demo bot).
-  - Verified on-chain: it refunded the expired test option #1 and poked the circuit breaker.
-  - Login is `septem@173.249.33.115` with a password (no local SSH key is authorised); `scripts/push-ops-vps.sh` asks once.
-  - Logs: `ssh septem@173.249.33.115 'pm2 logs piton-ops'`. Keeper gas: about 0.005 BTC; check it weekly.
-  - Step 11 of the walkthrough (auto-exercise) can now be run.
-
-## Next tasks, in suggested order
-1. **Fix whatever the walkthrough finds.** (The per-option size pre-check is now done.)
-2. **Chart rebuilt (11 Nov):** Lightweight Charts 5.3.0 (Apache-2.0; TradingView logo kept for attribution), live Binance
-   candle, option overlays, expected-move cone, positions, OI, Trove and breaker lines, Volatility/Pool/Payoff tabs, UTC
-   switch, full screen, shortcuts. Not verified with a wallet: position lines, click-to-select, Trove line.
-3. **UI plan, remaining items** (done on 11 Nov: market header bar, size pre-check, chain columns, units, range,
-   calls/puts view, open-interest bars, implied volatility, auto-scroll to the money; instrument detail strip with live
-   countdown; order form with size in BTC or MUSD, price in MUSD or % of spot, 25/50/100% quick-fill, fills-now/rests banner):
-   3. portfolio greeks totals and trade history from events (fill, exercise, sell-back, refund) with CSV export;
-   4. pool page (utilisation gauge, exposure by strike/expiry, your share and P&L, APY only with enough history);
-   5. mobile layout, keyboard shortcuts, loading states; fix the Pyth price box (Hermes returned "unauthorized").
-   Later: MEZO options need a fresh MEZO oracle (on-chain Pyth on Mezo was ~117 days stale on mainnet and testnet);
-   perps are a separate product, not planned.
-4. **Demo bot on the VPS** (deferred by the user until the UI is settled).
-   - `scripts/ops.js` exists: IV, exercise, refund, poke, demo bot.
-   - Before using the demo bot, change it to use the standard expiry slots from `client/src/instruments.mjs`, so its orders
-     do not create odd expiry tabs.
-5. **Make room in the contract** before adding any more contract features: move `_bs`, `_cdf`, `_ln`, `_expNeg` and `_sqrt`
-   into a linked library. This requires updating the deploy script and the test deployments (library linking).
-6. **Oracle cross-check.**
-   - First, an off-chain watchdog in `ops.js`: compare Skip with Deribit and an exchange; ask the guardian to pause if they
-     differ by more than 2%.
-   - Then on-chain Skip vs Pyth (`0x2880aB155794e7179c9eE2e38200202908C17B43`, BTC/USD feed
-     `0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43`).
-   - Blocker: the testnet Pyth BTC/USD feed was about 106 days stale. Ask the Mezo team to refresh it, and confirm how often
-     it updates on mainnet.
-7. **Open-option cap.** It is currently 50 by default, at most 150. To go higher:
-   - pack storage (cheap), then
-   - add a keeper-refreshed liability cache (needs step 3 first).
-8. **Governance handover**, done last:
-   - `DELAY_HOURS=0.1 npx hardhat run scripts/setupGovernance.js --network matsnet`, then execute `acceptOwnership` through
-     the timelock.
-   - After that, admin changes (keeper, `minPoolExpiry`) go through the timelock.
-9. **Later:**
-   - mobile layout
-   - selling back options bought from another trader (needs transferable positions)
-   - pool yield history charts (data now in the subgraph)
-   - ask Block Scholes about a volatility feed on Mezo
-   - external audit before any mainnet launch
+## VPS keeper
+- pm2 `piton-ops` on `septem@173.249.33.115` (password login; `scripts/push-ops-vps.sh` asks once). Default jobs
+  `iv,exercise,refund,poke,v1refund,oracle,savings`; it reads `deployments/matsnet.json`, so re-push after every redeploy.
+- The retired V1 bot (`piton-bot`) is removed by the same push script. Bot wallets are empty.
+- Logs: `ssh septem@173.249.33.115 'pm2 logs piton-ops'`. Keeper gas ~0.005 BTC; check weekly.
 
 ## Useful commands
 ```bash
-npx hardhat test                    # 158 tests
-rm -rf cache-forge/invariant cache/invariant && forge test   # 16 tests
-npm run test:client                 # 33 tests
-npm run build --prefix client && surge client/dist piton.surge.sh
-npm run health:testnet              # pool status
+npx hardhat test                                              # 180 tests
+rm -rf cache-forge/invariant cache/invariant && forge test   # 17 tests
+npm run test:client                                           # 83 tests
+rm -rf client/dist && npm run build --prefix client && surge client/dist piton.surge.sh
+npm run subgraph:deploy
+SETUP=1 node scripts/demo.js && node scripts/demo.js          # demo take (PREFLIGHT=1 to check only)
 cp artifacts/contracts/OptionPool.sol/OptionPool.json client/src/contracts/OptionPool.json   # after any contract change
 ```
+Redeploy recipe (ask the user first): withdraw all pool shares and pause the old pool;
+`KEEPER=0xdE33f1bC671f30686888C66bc077AD98dC3D7948 npx hardhat run scripts/deployV2.js --network matsnet`; owner
+`setIV(0.39e18)` and `setMinPoolExpiry(900)`; `SEED=10000 npx hardhat run scripts/seedV2.js --network matsnet`; replace
+addresses in client/src/network.mjs, README, WALKTHROUGH, CHECKPOINT, docs/OPERATIONS.md, scripts/lib/deployments.js,
+scripts/demo.js; subgraph deploy; rebuild + surge; regenerate `docs/verify/`; the user re-pushes the keeper.
 
 ## Conventions agreed with the user
-- One commit per change; never amend. Ask before redeploying.
+- One commit per change; never amend. Ask before redeploying. Merge to main locally; never push without permission.
 - Never redeploy without recovering the pool funds first.
-- Operational scripts, keys and VPS details stay out of git.
+- Operational scripts, keys and VPS details stay out of git (`docs/`, `scripts/` are git-ignored). The deck is not in git.
+- Ignore balances under 20 MUSD.
 - Answers short and in plain language. Give explicit manual test steps with amounts. Be honest about what was and was not
   verified.
