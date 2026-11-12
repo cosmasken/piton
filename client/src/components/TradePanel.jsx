@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { ethers } from 'ethers';
 import { toast } from 'react-toastify';
-import { useAccount, useConnect } from 'wagmi';
-import { injected } from 'wagmi/connectors';
+import { useAccount } from 'wagmi';
+import { useConnectModal } from '@rainbow-me/rainbowkit';
 import { getNetwork } from '../network.mjs';
 import { useStore, ADDRESSES } from '../store';
 import { useShallow } from 'zustand/react/shallow';
@@ -112,7 +112,7 @@ export default function TradePanel() {
   const now = useNow(5000);
   const blockNo = useStore(s => s.block?.number); // re-quote on every new block
   const { isConnected } = useAccount();
-  const { connect } = useConnect();
+  const { openConnectModal } = useConnectModal(); // Mezo Passport / RainbowKit wallet picker
 
   const [side, setSide] = useState('buy');
   const [orderType, setOrderType] = useState('market');
@@ -185,7 +185,7 @@ export default function TradePanel() {
   // Enter in the option chain: open the review dialog if the order is ready (connect the wallet otherwise)
   useEffect(() => {
     if (!reviewTick) return;
-    if (!poolContract && !isConnected) { connect({ connector: injected() }); return; }
+    if (!poolContract && !isConnected) { openConnectModal?.(); return; }
     if (!busy && !blockedMsgRef.current) setConfirm(true);
   }, [reviewTick]); // eslint-disable-line
   const overCap = poolParams && collateral > poolParams.maxOptionCollateral;
@@ -405,7 +405,7 @@ export default function TradePanel() {
           <button type="button" onClick={() => { setSizeUnit('btc'); setQty(String(maxSize)); }}
             className="w-full py-1.5 rounded-md border border-accent/40 text-accent text-xs font-display font-semibold hover:bg-accent/10">Use max size: {maxSize.toFixed(4)} BTC</button>
         )}
-        <button type="button" disabled={busy || (!!blockedMsg && !(needWallet && !isConnected))} onClick={() => (needWallet && !isConnected) ? connect({ connector: injected() }) : setConfirm(true)}
+        <button type="button" disabled={busy || (!!blockedMsg && !(needWallet && !isConnected))} onClick={() => (needWallet && !isConnected) ? openConnectModal?.() : setConfirm(true)}
           className={`w-full py-2.5 rounded-md font-display font-bold text-sm transition-opacity disabled:opacity-40 flex items-center justify-center gap-2 ${buy ? 'bg-accent/20 text-accent border border-accent/30' : 'bg-red/20 text-red border border-red/30'}`}>
           {busy && <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />}{cta}
         </button>

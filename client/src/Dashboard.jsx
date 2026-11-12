@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useAccount, useConnect, useDisconnect, useSwitchChain, useWalletClient } from 'wagmi';
-import { injected } from 'wagmi/connectors';
+import { useAccount, useDisconnect, useSwitchChain, useWalletClient } from 'wagmi';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from './store';
 import { parseInstrumentId } from './instruments.mjs';
@@ -91,7 +90,6 @@ function MobileBanner({ onDismiss }) {
 
 export default function Dashboard() {
   const { address, chainId, isConnected } = useAccount();
-  const { connect }     = useConnect();
   const { disconnect }  = useDisconnect();
   const { switchChain } = useSwitchChain();
   const { data: walletClient } = useWalletClient();

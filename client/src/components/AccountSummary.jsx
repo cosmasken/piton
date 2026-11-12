@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
-import { useAccount, useConnect } from 'wagmi';
-import { injected } from 'wagmi/connectors';
+import { useAccount } from 'wagmi';
+import { useConnectModal } from '@rainbow-me/rainbowkit';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../store';
 import { useNow } from '../useNow';
@@ -22,7 +22,7 @@ function Line({ label, children, title, tone = 'text-text' }) {
 /** One place for the wallet's money: balances, pool share, open positions and P&L (open and realised). */
 export default function AccountSummary() {
   const { isConnected } = useAccount();
-  const { connect } = useConnect();
+  const { openConnectModal } = useConnectModal();
   const { account, btcBalance, musdRaw, ymusdRaw, poolShareValue, options, btcPrice, poolParams, history, oracleStale, priceSource } = useStore(useShallow(s => ({
     account: s.account, btcBalance: s.btcBalance, musdRaw: s.musdRaw, ymusdRaw: s.ymusdRaw, poolShareValue: s.poolShareValue,
     options: s.options, btcPrice: s.btcPrice, poolParams: s.poolParams, history: s.history, oracleStale: s.oracleStale, priceSource: s.priceSource,
@@ -48,7 +48,7 @@ export default function AccountSummary() {
       {!account ? (
         <div className="px-4 py-4 space-y-2 text-center">
           <p className="text-xs text-dim">Connect a wallet to see balances, positions and P&L.</p>
-          {!isConnected && <button className="btn-primary text-xs w-full" onClick={() => connect({ connector: injected() })}>Connect wallet</button>}
+          {!isConnected && <button className="btn-primary text-xs w-full" onClick={() => openConnectModal?.()}>Connect wallet</button>}
         </div>
       ) : (
         <div className="px-4 py-3 space-y-1.5">

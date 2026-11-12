@@ -24,6 +24,8 @@ const spaFallback = () => {
 
 export default defineConfig({
   plugins: [react(), spaFallback()],
+  // Mezo Passport's Bitcoin-wallet libraries expect Node's `global`; in the browser that is globalThis
+  define: { global: 'globalThis' },
   server: { port: 3000 },
   build: {
     // Split third-party code into stable chunks: they change rarely, so browsers cache them across releases,
@@ -35,7 +37,8 @@ export default defineConfig({
           if (/lightweight-charts|fancy-canvas/.test(id)) return 'charts-lw';
           // Recharts is left to the bundler: it is only reached through lazy imports (payoff and depth charts)
           if (/[\\/](ethers|@adraffy)[\\/]/.test(id)) return 'ethers';
-          if (/wagmi|viem|@tanstack|@wagmi|abitype|ox[\\/]/.test(id)) return 'wallet';
+          // wallet libraries (wagmi, viem, RainbowKit, Mezo Passport) are only reached through the lazy wallet pages:
+          // left to the bundler so they stay out of the landing page
           if (/react-dom|react-router|scheduler|[\\/]react[\\/]/.test(id)) return 'react';
           return undefined; // everything else: let the bundler decide (keeps lazy-only code like Recharts out of the first load)
         },

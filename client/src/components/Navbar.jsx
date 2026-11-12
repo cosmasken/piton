@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { useAccount, useConnect, useSwitchChain, useDisconnect } from 'wagmi';
-import { injected } from 'wagmi/connectors';
+import { useAccount, useSwitchChain, useDisconnect } from 'wagmi';
+import { useConnectModal } from '@rainbow-me/rainbowkit';
 import { startTour } from '../tour';
 import { useStore } from '../store';
 import { getNetwork, isLive } from '../network.mjs';
@@ -11,7 +11,7 @@ export default function Navbar({ onDisconnect }) {
   const { disconnect } = useDisconnect();
   const onDash = typeof window !== 'undefined' && window.location.pathname.startsWith('/dashboard');
   const { address, isConnected, chainId } = useAccount();
-  const { connect } = useConnect();
+  const { openConnectModal } = useConnectModal();
   const { switchChain } = useSwitchChain();
   const net = getNetwork(useStore(s => s.network));
   const short = address ? `${address.slice(0, 6)}…${address.slice(-4)}` : '';
@@ -30,7 +30,7 @@ export default function Navbar({ onDisconnect }) {
         <a href="/stats" className="btn-ghost text-xs">Stats</a>
         {onDash && <button onClick={startTour} className="btn-ghost text-xs">Tour</button>}
         <button onClick={() => setSettings(true)} className="btn-ghost text-xs" aria-label="Settings" title="Settings">⚙</button>
-        {isLive(net) && !isConnected && <button className="btn-primary text-xs" onClick={() => connect({ connector: injected() })}>Connect wallet</button>}
+        {isLive(net) && !isConnected && <button className="btn-primary text-xs" onClick={() => openConnectModal?.()}>Connect wallet</button>}
         {wrongChain && <button className="btn-primary text-xs" onClick={() => switchChain({ chainId: net.chain.id })}>Switch to {net.chain.name}</button>}
         {isConnected && <span className="font-mono text-xs text-dim">{short}</span>}
         {isConnected && <button onClick={onDisconnect || (() => disconnect())} className="btn-ghost text-xs">Disconnect</button>}

@@ -7,6 +7,7 @@ import { instrumentId, parseInstrumentId } from './instruments.mjs';
 import { multicall, MULTICALL3, MC_IFACE } from './multicall';
 import { toast } from 'react-toastify';
 import { NETWORKS, DEFAULT_NETWORK, NETWORK_STORAGE_KEY, getNetwork, isLive, networkByChainId, resolveInitialNetwork } from './network.mjs';
+import { PassportSigner, isBitcoinWalletClient } from './walletSigner.mjs';
 
 // Contract addresses by chain id, from the single network config (network.mjs).
 export const ADDRESSES = Object.fromEntries(Object.values(NETWORKS).map(n => [n.chain.id, n.addresses]));
@@ -150,20 +151,24 @@ export const useStore = create((set, get) => ({
     const net = networkByChainId(chainId);
     if (!net || net.key !== get().network || !isLive(net)) return;
     const addrs = net.addresses;
-    const provider = new ethers.BrowserProvider(walletClient.transport);
-    provider.getSigner().then(signer => {
+    // Mezo Passport Bitcoin wallets (Unisat, OKX, Xverse) send through their Mezo smart account; their transport
+    // has no accounts, so they get the PassportSigner and a read-only provider. EVM wallets work as before.
+    const bitcoinWallet = isBitcoinWalletClient(walletClient);
+    const provider = bitcoinWallet ? roProvider(net.key) : new ethers.BrowserProvider(walletClient.transport);
+    const signerP = bitcoinWallet ? Promise.resolve(new PassportSigner(walletClient, provider)) : provider.getSigner();
+    signerP.then(signer => {
       if (get().network !== net.key) return; // user switched network while the wallet was connecting
       const poolContract  = new ethers.Contract(addrs.pool,  OptionPoolABI.abi, signer);
       const ymusdContract = new ethers.Contract(addrs.ymusd, yMUSD_ABI.abi,    signer);
       const musdContract  = new ethers.Contract(addrs.musd,  MUSDABI.abi,      signer);
-      set({ provider, signer, account: walletClient.account.address, chainId,
+      set({ provider, signer, account: walletClient.account.address, chainId, bitcoinWallet,
             poolContract, ymusdContract, musdContract });
       get().fetchAll();
     });
   },
 
   reset: () => set({
-    provider: null, signer: null, account: watchAddress, chainId: null,
+    provider: null, signer: null, account: watchAddress, chainId: null, bitcoinWallet: false,
     poolContract: null, ymusdContract: null, musdContract: null,
     options: [], btcBalance: '—', musdBalance: '—', ymusdBalance: '—', musdRaw: '0', ymusdRaw: '0', lockExpiry: 0, history: null, autoEx: {},
     ...EMPTY_POOL_STATS,
