@@ -4,14 +4,14 @@ Where the project stands, and what to pick up next. Read this first when resumin
 
 ## State
 - **Branch / last commit:** `main` @ `6e8b32b` ("Record new matsnet deployment"). Working tree clean.
-- **Live deployment (Mezo testnet, chain 31611), redeployed 12 Nov 2026 with sMUSD savings:**
-  - OptionPool `0x854448a0e601A7127B9Bf39D6D05fF4dEf055c2d` (deploy block 16728137), linked to PitonMath
-    `0x5357f2d20E0B423284915b149D1ABD23E1c4C849`.
-  - yMUSD `0x511d839a198e02C1CD63295709e13d83C608c612`.
-  - Seeded with 7,000 MUSD by the deployer `0x09aB…6D06`; IV 39% (DVOL); `minPoolExpiry` 900 s; keeper `0xdE33…7948`.
-  - Savings on: sMUSD `0x6f46…8e16`, cap 50% of free capital; 3,150 MUSD invested by the keeper job. Tested live:
-    invest 100 / 1-wei divest / divest all, then a 0.005 BTC put bought and sold back with half the pool in sMUSD.
-  - Previous pools (`0xb2a0…c5fe`, `0x21F8…8221` and older) are empty.
+- **Live deployment (Mezo testnet, chain 31611), final redeploy 12 Nov 2026 (same code as the 12 Nov sMUSD deploy):**
+  - OptionPool `0x6D7F5C84B815b0252557eeae3c16313f2E608180` (deploy block 16739941), linked to PitonMath
+    `0x78bFc09a47cc71AacE04606B4b51542d18B53835`.
+  - yMUSD `0xE539ce00D687736E8bA1b9955A4a79121084Db7f`.
+  - Seeded with 10,000 MUSD by the deployer `0x09aB…6D06`; IV 39% (DVOL); `minPoolExpiry` 900 s; keeper `0xdE33…7948`.
+  - Savings on: sMUSD `0x6f46…8e16`, cap 50% of free capital (the keeper job invests once the VPS points here).
+  - Previous pools (`0x8544…5c2d` paused and emptied, `0xb2a0…c5fe`, `0x21F8…8221` and older) are empty.
+    V1 CALL-A/PUT-A still hold ~393 MUSD backing bot-sold options that expire by 25 Nov; sweep with `scripts/recover.js`.
 - **Site:** https://piton.surge.sh, pointing at the deployment above.
 - **Older pools:** emptied. Balances under 20 MUSD are ignored by agreement.
 - **Tests:** Hardhat 162, Foundry 16 (invariants and fuzz), client 58, all passing.
@@ -64,7 +64,7 @@ Where the project stands, and what to pick up next. Read this first when resumin
   locked collateral held as cash), with a vault that randomly breaks.
 - Keeper job `savings` in ops.js (every 30 min to 90% of cap; daily yield via a 1-wei divest). Pool panel shows the
   invested amount and yield.
-- Live on `0x8544…5c2d`. The VPS keeper needs re-pushing (`./scripts/push-ops-vps.sh`, JOBS include `savings`).
+- Live on `0x6D7F…8180`. The VPS keeper needs re-pushing (`./scripts/push-ops-vps.sh`, JOBS include `savings`).
 
 ## Times (11 Nov)
 - Expiries are one moment for everyone; the dapp shows them in the user's local time by default (zone shown at the start
