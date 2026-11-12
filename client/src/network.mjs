@@ -30,9 +30,9 @@ export const NETWORKS = {
     subgraph: 'https://api.goldsky.com/api/public/project_cm3n60bzt1tjh01u89zk3d2n9/subgraphs/piton-testnet/prod/gn',
     borrowUrl: 'https://testnet.mezo.org',
     addresses: {
-      pool:            '0x6D7F5C84B815b0252557eeae3c16313f2E608180',
-      deployBlock:     16739941, // first block to scan for trade history
-      ymusd:           '0xE539ce00D687736E8bA1b9955A4a79121084Db7f',
+      pool:            '0x016c05F75C9fF2141d06259A9e49DD9B949e18AA',
+      deployBlock:     16741716, // first block to scan for trade history
+      ymusd:           '0x61e29a7d0B87599244dAF46142C37B1738F7BE4b',
       musd:            '0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503',
       oracle:          '0x7b7c000000000000000000000000000000000015',
       troveManager:    '0xE47c80e8c23f6B4A1aE41c34837a0599D5D16bb0',
