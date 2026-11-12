@@ -34,7 +34,7 @@ function PoolDetails({ params: p, stats, onClose }) {
     <Modal title="How the pool works" onClose={onClose}>
       <div className="space-y-3 text-xs text-dim leading-relaxed max-h-[70vh] overflow-y-auto pr-1">
         <p><span className="text-text">You are the seller.</span> Depositors' MUSD backs the options the pool sells. You earn the premiums buyers pay. When an option finishes in the money, the pool pays the buyer, up to the collateral locked for that option.</p>
-        <p><span className="text-text">Where the yield comes from:</span> premium on options that expire worthless. <span className="text-text">Where the risk comes from:</span> a big BTC move against the options the pool has sold can cost more than the premiums collected, and you can lose part of your deposit.</p>
+        <p><span className="text-text">Where the yield comes from:</span> premium on options that expire worthless, plus Mezo's MUSD savings rate on spare MUSD that isn't backing any option (at most {p?.investCapBps != null ? p.investCapBps / 100 : 50}% of it; collateral for live options always stays in the pool). <span className="text-text">Where the risk comes from:</span> a big BTC move against the options the pool has sold can cost more than the premiums collected, and you can lose part of your deposit.</p>
         <p><span className="text-text">Share price.</span> yMUSD is priced on net asset value: pool assets minus what open options may owe. Premium for options still open counts as owed until they expire, so joining right before expiry doesn't capture it.</p>
         {p && (
           <div className="bg-surface rounded-md px-3 py-2 space-y-1 text-xs">
@@ -44,6 +44,10 @@ function PoolDetails({ params: p, stats, onClose }) {
             <div className="flex justify-between"><span>Still unearned (open options)</span><span className="font-mono text-text">{m(p.unearnedPremium)} MUSD</span></div>
             <div className="flex justify-between"><span>Net earned so far</span><span className={`font-mono ${yieldNet >= 0 ? 'text-accent' : 'text-red'}`}>{m(yieldNet)} MUSD</span></div>
             <div className="flex justify-between"><span>Performance fees paid</span><span className="font-mono text-text">{m(p.performanceFeesPaid)} MUSD</span></div>
+            {p.invested != null && <>
+              <div className="flex justify-between"><span>Spare MUSD in Mezo savings (sMUSD)</span><span className="font-mono text-text">{m(p.invested)} MUSD</span></div>
+              <div className="flex justify-between"><span>Savings yield earned (all time)</span><span className="font-mono text-accent">{m(p.savingsYield)} MUSD</span></div>
+            </>}
           </div>
         )}
         {p && (
@@ -82,6 +86,12 @@ function UtilGauge({ p, locked, onExposure }) {
         <div className="absolute inset-y-0 border-l border-dashed border-text/60" style={{ left: `${max}%` }} title={`The pool stops selling at ${max}%`} />
       </div>
       <p className="text-[10px] text-dim">The pool stops selling at {max}% · one option may use at most {p.maxOptionExposureBps / 100}% of the pool</p>
+      {p.invested > 0 && (
+        <p className="text-[10px] text-dim" title="Spare pool MUSD (not backing any option) is held in Mezo's MUSD Savings Rate and comes back automatically when the pool needs it. Collateral for live options always stays in the pool.">
+          Earning Mezo savings rate: <span className="font-mono text-accent">{nf(p.invested)}</span> MUSD in sMUSD
+          {p.savingsYield > 0 && <> · yield so far <span className="font-mono text-accent">+{nf(p.savingsYield)}</span></>}
+        </p>
+      )}
     </div>
   );
 }

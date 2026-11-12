@@ -151,6 +151,11 @@ Anyone can deposit MUSD and receive **yMUSD** LP tokens.
   - Opt-in auto-exercise: owners can allow a keeper to exercise in-the-money options in the last 5 minutes for 0.5% of the payout.
   - Two-step ownership, and an optional timelock owner (`PitonTimelock`).
 - **After a total loss**, deposits are blocked until worthless yMUSD is cleared, so new depositors are never diluted by old shares.
+- **Spare MUSD earns Mezo's savings rate** (in the code, not yet on the live testnet pool). MUSD that isn't backing any option can be put into Mezo's MUSD Savings Rate vault (sMUSD), at most 50% of it by default (owner-set, up to 80%). LPs then earn premium plus the savings yield.
+  - Collateral for live options always stays as MUSD in the pool, so exercising, refunds and sell-back never depend on the vault.
+  - LP withdrawals and new pool sales bring MUSD back from sMUSD automatically when the pool's own cash is short. If the vault ever failed, only those would wait.
+  - Yield is collected into the pool before every deposit and withdrawal, so a new LP pays a share price that already includes it.
+  - Why sMUSD and not the Stability Pool: Stability Pool withdrawals are blocked while any loan is under its minimum collateral ratio (in a crash, exactly when puts pay out), and its deposits absorb liquidations.
 
 ### Fees
 

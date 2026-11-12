@@ -53,6 +53,19 @@ Where the project stands, and what to pick up next. Read this first when resumin
    - read-only browsing without a wallet, shareable `?i=` links
 5. Operational scripts are untracked (git-ignored `scripts/`). Private notes are in `docs/OPERATIONS.md` (also git-ignored).
 
+## Savings module (12 Nov, committed, NOT deployed)
+- Black-Scholes maths moved into a linked library, `PitonMath` (OptionPool 24,203 -> 22,639 bytes; prices unchanged,
+  Derive differential test passes). Deploys now need the library first (`scripts/deployV2.js` does it).
+- Spare pool MUSD can go into Mezo's sMUSD (`0x6f46…8e16` on testnet): `setSavings`, `invest`/`divest` (owner or
+  keeper; guardian may divest), cap ≤ 80% of free capital (default 50%). Locked collateral always stays as MUSD;
+  payouts never call the vault; withdrawals and pool sales recall cash; yield collected before deposits/withdrawals;
+  the performance fee includes savings yield but is only paid from cash. OptionPool 24,352 bytes.
+- Tests: Hardhat 171 (9 new), Foundry 17 incl. two new invariants (MUSD here + savings == assets + user funds;
+  locked collateral held as cash), with a vault that randomly breaks.
+- Keeper job `savings` in ops.js (every 30 min to 90% of cap; daily yield via a 1-wei divest). Pool panel shows the
+  invested amount and yield.
+- Needs a redeploy to go live: recover the current pool's ~7,005 MUSD first. Ask the user before redeploying.
+
 ## Times (11 Nov)
 - Expiries are one moment for everyone; the dapp shows them in the user's local time by default (zone shown at the start
   of the expiry row, e.g. "UTC+3", and in tooltips with the UTC time). Settings → Times switches everything (expiry tabs,

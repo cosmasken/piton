@@ -27,7 +27,8 @@ const YMUSD_IFACE  = new ethers.Interface(yMUSD_ABI.abi); // ERC20 reads (also u
 const POOL_FIELDS = ['totalAssets', 'lockedCollateral', 'utilisation', 'netAssetValue', 'withdrawalFeeBps', 'depositLockSeconds',
   'minPoolExpiry', 'maxStrikeDistanceBps', 'maxUtilisationBps', 'maxOptionExposureBps', 'cbUntil', 'openPoolOptionCount', 'iv', 'askIv',
   'totalPremiumsEarned', 'totalSettlementsPaid', 'totalPerformanceFeePaid', 'unrecognizedPremium', 'maxOptionCollateral',
-  'cbRefPrice', 'cbRefTime', 'cbWindow', 'cbMaxMoveBps'];
+  'cbRefPrice', 'cbRefTime', 'cbWindow', 'cbMaxMoveBps',
+  'invested', 'investCapBps', 'totalSavingsYield']; // savings fields read as null on pools without the module
 
 // Must match OptionPool.PRICE_STALENESS: the contract rejects oracle prices older than this for trades and deposits.
 export const PRICE_STALENESS_S = 30;
@@ -241,6 +242,8 @@ export const useStore = create((set, get) => ({
           premiumsEarned: E(r.totalPremiumsEarned), settlementsPaid: E(r.totalSettlementsPaid),
           performanceFeesPaid: E(r.totalPerformanceFeePaid), unearnedPremium: E(r.unrecognizedPremium),
           utilisationBps: Math.round(E(r.utilisation) * 10000),
+          // idle MUSD in Mezo's MUSD Savings Rate (null when the pool has no savings module)
+          invested: E(r.invested), investCapBps: r.investCapBps != null ? Number(r.investCapBps) : null, savingsYield: E(r.totalSavingsYield),
         },
       });
     } else if (!live) Object.assign(patch, EMPTY_POOL_STATS);
