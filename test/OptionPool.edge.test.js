@@ -2,6 +2,7 @@ const { expect } = require('chai');
 const { poolFactory } = require('./helpers/poolFactory');
 const { ethers } = require('hardhat');
 const { time }   = require('@nomicfoundation/hardhat-network-helpers');
+const { POOL_ERRORS } = require('./helpers/poolErrors');
 
 const E18 = ethers.parseEther;
 const BTC_PRICE = 100_000;
@@ -58,7 +59,7 @@ describe('Audit guards', () => {
   it('rejects a dust first deposit (inflation attack guard)', async () => {
     const { pool, lp } = await deploy();
     await expect(pool.connect(lp).deposit(1n))
-      .to.be.revertedWith('min deposit 0.001 MUSD');
+      .to.be.revertedWithCustomError(POOL_ERRORS, 'MinDeposit0001MUSD');
   });
 
   it('rejects a manual short above max option collateral', async () => {
@@ -67,7 +68,7 @@ describe('Audit guards', () => {
     // put collateral = strike * qty = 100k MUSD > 10k cap
     await expect(
       pool.connect(seller).createShortOrder(1, E18('100000'), E18('1'), exp, E18('100'))
-    ).to.be.revertedWith('collateral exceeds max');
+    ).to.be.revertedWithCustomError(POOL_ERRORS, 'CollateralExceedsMax');
   });
 });
 
@@ -191,10 +192,10 @@ describe('Oracle & pricing bounds', () => {
     const { pool, oracle, buyer } = await deploy();
     await oracle.setStale();
 
-    await expect(pool.spotPrice()).to.be.revertedWith('stale price');
+    await expect(pool.spotPrice()).to.be.revertedWithCustomError(POOL_ERRORS, 'StalePrice');
     await expect(
       pool.connect(buyer).createLongOrder(0, E18('100000'), E18('0.01'), await expiry(3600), E18('100'))
-    ).to.be.revertedWith('stale price');
+    ).to.be.revertedWithCustomError(POOL_ERRORS, 'StalePrice');
   });
 
   it('returns zero premium for degenerate inputs', async () => {
@@ -292,7 +293,7 @@ describe('Trove margin (draw at creation)', () => {
 
   it('rejects margin below the required collateral', async () => {
     const ctx = await deploy();
-    await expect(trovePut(ctx, { margin: E18('999') })).to.be.revertedWith('margin below required');
+    await expect(trovePut(ctx, { margin: E18('999') })).to.be.revertedWithCustomError(POOL_ERRORS, 'MarginBelowRequired');
   });
 
   it('rejects a draw that would push the Trove below 150% ICR', async () => {
@@ -303,13 +304,13 @@ describe('Trove margin (draw at creation)', () => {
     const exp = await expiry(3600);
     await expect(
       pool.connect(seller).createShortOrderTrove(1, strike, qty, exp, E18('50'), E18('1000'), SIG, exp)
-    ).to.be.revertedWith('trove ICR too low after draw');
+    ).to.be.revertedWithCustomError(POOL_ERRORS, 'TroveICRTooLowAfterDraw');
   });
 
   it('rejects when Mezo delivers less than the signed amount', async () => {
     const ctx = await deploy();
     await ctx.borrowerOps.setDeliverBps(5000);
-    await expect(trovePut(ctx)).to.be.revertedWith('trove draw short');
+    await expect(trovePut(ctx)).to.be.revertedWithCustomError(POOL_ERRORS, 'TroveDrawShort');
   });
 
   it('rejects a missing Trove, an empty signature and an expired deadline', async () => {
@@ -317,13 +318,13 @@ describe('Trove margin (draw at creation)', () => {
     const exp = await expiry(3600);
     await expect(
       pool.connect(seller).createShortOrderTrove(1, strike, qty, exp, E18('50'), E18('1000'), SIG, exp)
-    ).to.be.revertedWith('no active trove');
+    ).to.be.revertedWithCustomError(POOL_ERRORS, 'NoActiveTrove');
     await expect(
       pool.connect(seller).createShortOrderTrove(1, strike, qty, exp, E18('50'), E18('1000'), '0x', exp)
-    ).to.be.revertedWith('invalid trove sig');
+    ).to.be.revertedWithCustomError(POOL_ERRORS, 'InvalidTroveSig');
     await expect(
       pool.connect(seller).createShortOrderTrove(1, strike, qty, exp, E18('50'), E18('1000'), SIG, 1)
-    ).to.be.revertedWith('invalid trove sig');
+    ).to.be.revertedWithCustomError(POOL_ERRORS, 'InvalidTroveSig');
   });
 });
 
@@ -343,7 +344,7 @@ describe('Cancel', () => {
     const { pool, seller, other } = await deploy();
     await pool.connect(seller).createShortOrder(1, E18('100000'), E18('0.01'), await expiry(3600), E18('50'));
     const id = (await pool.nextId()) - 1n;
-    await expect(pool.connect(other).cancelOrder(id)).to.be.revertedWith('not your order');
+    await expect(pool.connect(other).cancelOrder(id)).to.be.revertedWithCustomError(POOL_ERRORS, 'NotYourOrder');
   });
 });
 
@@ -373,7 +374,7 @@ describe('Total loss: deposits blocked until worthless shares are cleared', () =
   it('reverts a deposit while worthless yMUSD is outstanding', async () => {
     const { pool, other } = await harness();
     await expect(pool.connect(other).deposit(E18('100')))
-      .to.be.revertedWith('pool insolvent: clear old shares first');
+      .to.be.revertedWithCustomError(POOL_ERRORS, 'PoolInsolventClearOldSharesFirst');
   });
 
   it('owner clears all worthless shares, then a new deposit mints 1:1', async () => {
@@ -388,7 +389,7 @@ describe('Total loss: deposits blocked until worthless shares are cleared', () =
   it('rejects an incomplete holder list', async () => {
     const { pool, owner, lp } = await harness();
     await expect(pool.connect(owner).clearWorthlessShares([lp.address]))
-      .to.be.revertedWith('holders list incomplete');
+      .to.be.revertedWithCustomError(POOL_ERRORS, 'HoldersListIncomplete');
   });
 
   it('cannot clear shares while the pool has assets, and only the owner can call it', async () => {
@@ -397,7 +398,7 @@ describe('Total loss: deposits blocked until worthless shares are cleared', () =
       return ctx;
     });
     await expect(pool.connect(owner).clearWorthlessShares([lp.address]))
-      .to.be.revertedWith('pool has assets');
+      .to.be.revertedWithCustomError(POOL_ERRORS, 'PoolHasAssets');
     await expect(pool.connect(buyer).clearWorthlessShares([lp.address]))
       .to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
   });
@@ -424,7 +425,7 @@ describe('Static-analysis hardening', () => {
                await trove.getAddress(), await borrowerOps.getAddress()];
     for (let i = 0; i < a.length; i++) {
       const args = [...a]; args[i] = ethers.ZeroAddress;
-      await expect(Pool.deploy(...args)).to.be.revertedWith('zero address');
+      await expect(Pool.deploy(...args)).to.be.revertedWithCustomError(POOL_ERRORS, 'ZeroAddress');
     }
   });
 
@@ -438,8 +439,8 @@ describe('Static-analysis hardening', () => {
     await pool.connect(seller).createShortOrder(1, E18('100000'), E18('0.01'), exp, E18('50'));     // id 3, open
 
     await expect(pool.pausePool()).to.emit(pool, 'PausedSet').withArgs(true);
-    await expect(pool.connect(lp).deposit(E18('1'))).to.be.revertedWith('paused');
-    await expect(pool.connect(buyer).fillLong(3)).to.be.revertedWith('paused');
+    await expect(pool.connect(lp).deposit(E18('1'))).to.be.revertedWithCustomError(POOL_ERRORS, 'Paused');
+    await expect(pool.connect(buyer).fillLong(3)).to.be.revertedWithCustomError(POOL_ERRORS, 'Paused');
 
     await expect(pool.connect(seller).cancelOrder(3)).to.emit(pool, 'Cancelled').withArgs(3n, seller.address);
     await oracle.setPrice(90000);

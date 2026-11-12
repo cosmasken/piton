@@ -10,6 +10,7 @@ const path = require('path');
 const { expect } = require('chai');
 const { ethers } = require('hardhat');
 const { time, loadFixture } = require('@nomicfoundation/hardhat-network-helpers');
+const { POOL_ERRORS } = require('./helpers/poolErrors');
 
 const HAS_MEZO = fs.existsSync(path.join(__dirname, '../contracts/mezo/BorrowerOperations.sol'));
 const E18 = ethers.parseEther;
@@ -252,7 +253,7 @@ async function now() { return (await ethers.provider.getBlock('latest')).timesta
     // seller: ~$100k coll vs ~$50.2k debt. A $16k draw -> ~66.2k debt -> ~151%; $20k -> ~142%
     const big = E18('20000');
     await ctx.pool.setMaxOptionCollateral(E18('50000'));
-    await expect((await createTroveShort(ctx, { margin: big })).tx).to.be.revertedWith('trove ICR too low after draw');
+    await expect((await createTroveShort(ctx, { margin: big })).tx).to.be.revertedWithCustomError(POOL_ERRORS, 'TroveICRTooLowAfterDraw');
   });
 
   it('rejects a signature for a different amount than the margin', async () => {

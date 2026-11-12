@@ -3,6 +3,7 @@ const { expect } = require('chai');
 const { poolFactory } = require('./helpers/poolFactory');
 const { ethers } = require('hardhat');
 const { time } = require('@nomicfoundation/hardhat-network-helpers');
+const { POOL_ERRORS } = require('./helpers/poolErrors');
 const E18 = ethers.parseEther;
 
 async function deploy() {
@@ -27,8 +28,8 @@ describe('IV keeper limits', () => {
 
   it('keeper cannot jump IV: a 25% floor grab is refused', async () => {
     const { pool, keeper } = await deploy();           // iv = 80%
-    await expect(pool.connect(keeper).setIV(E18('0.25'))).to.be.revertedWith('iv step too large');
-    await expect(pool.connect(keeper).setIV(E18('0.67'))).to.be.revertedWith('iv step too large'); // -16.25%
+    await expect(pool.connect(keeper).setIV(E18('0.25'))).to.be.revertedWithCustomError(POOL_ERRORS, 'IvStepTooLarge');
+    await expect(pool.connect(keeper).setIV(E18('0.67'))).to.be.revertedWithCustomError(POOL_ERRORS, 'IvStepTooLarge'); // -16.25%
     await pool.connect(keeper).setIV(E18('0.68'));                                                  // -15% exactly
     expect(await pool.iv()).to.equal(E18('0.68'));
   });
@@ -36,7 +37,7 @@ describe('IV keeper limits', () => {
   it('keeper cannot update twice in a row; can again after the interval', async () => {
     const { pool, keeper } = await deploy();
     await pool.connect(keeper).setIV(E18('0.7'));
-    await expect(pool.connect(keeper).setIV(E18('0.65'))).to.be.revertedWith('iv updated too recently');
+    await expect(pool.connect(keeper).setIV(E18('0.65'))).to.be.revertedWithCustomError(POOL_ERRORS, 'IvUpdatedTooRecently');
     await time.increase(3001);
     await pool.connect(keeper).setIV(E18('0.65'));
   });
@@ -63,14 +64,14 @@ describe('IV keeper limits', () => {
   it('a keeper update after an owner change still respects the interval', async () => {
     const { pool, owner, keeper } = await deploy();
     await pool.connect(owner).setIV(E18('0.5'));
-    await expect(pool.connect(keeper).setIV(E18('0.52'))).to.be.revertedWith('iv updated too recently');
+    await expect(pool.connect(keeper).setIV(E18('0.52'))).to.be.revertedWithCustomError(POOL_ERRORS, 'IvUpdatedTooRecently');
   });
 
   it('limits are bounded, owner-only and emit an event', async () => {
     const { pool, keeper } = await deploy();
-    await expect(pool.setIvLimits(86401, 1500)).to.be.revertedWith('interval too long');
-    await expect(pool.setIvLimits(3000, 99)).to.be.revertedWith('step out of range');
-    await expect(pool.setIvLimits(3000, 5001)).to.be.revertedWith('step out of range');
+    await expect(pool.setIvLimits(86401, 1500)).to.be.revertedWithCustomError(POOL_ERRORS, 'IntervalTooLong');
+    await expect(pool.setIvLimits(3000, 99)).to.be.revertedWithCustomError(POOL_ERRORS, 'StepOutOfRange');
+    await expect(pool.setIvLimits(3000, 5001)).to.be.revertedWithCustomError(POOL_ERRORS, 'StepOutOfRange');
     await expect(pool.setIvLimits(600, 3000)).to.emit(pool, 'IvLimitsSet').withArgs(600n, 3000n);
     await expect(pool.connect(keeper).setIvLimits(0, 5000)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
   });

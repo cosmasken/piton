@@ -2,6 +2,7 @@ const { expect }      = require('chai');
 const { poolFactory } = require('./helpers/poolFactory');
 const { ethers }      = require('hardhat');
 const { time }        = require('@nomicfoundation/hardhat-network-helpers');
+const { POOL_ERRORS } = require('./helpers/poolErrors');
 
 const E18  = ethers.parseEther;
 const BTC_PRICE = 100_000; // $100k
@@ -81,7 +82,7 @@ describe('Pool: deposit & withdraw', () => {
     await pool.connect(buyer).createLongOrder(1, strike, qty, exp, premium + E18('1'));
     // pool should have locked collateral — withdraw all should fail
     await expect(pool.connect(lp).withdraw(await ymusd.balanceOf(lp.address)))
-      .to.be.revertedWith('insufficient liquidity');
+      .to.be.revertedWithCustomError(POOL_ERRORS, 'InsufficientLiquidity');
   });
 });
 
@@ -219,7 +220,7 @@ describe('Settlement', () => {
     await pool.connect(buyer).createLongOrder(1, strike, qty, exp, premium + E18('1'));
     const id = (await pool.nextId()) - 1n;
     // BTC stays at $100k — put is OTM
-    await expect(pool.connect(buyer).settle(id)).to.be.revertedWith('not in the money');
+    await expect(pool.connect(buyer).settle(id)).to.be.revertedWithCustomError(POOL_ERRORS, 'NotInTheMoney');
   });
 });
 
@@ -293,19 +294,19 @@ describe('Cancel', () => {
 describe('Owner controls', () => {
   it('setIV rejects out-of-range values', async () => {
     const { pool } = await deploy();
-    await expect(pool.setIV(E18('2'))).to.be.revertedWith('iv out of range');
-    await expect(pool.setIV(E18('0.2'))).to.be.revertedWith('iv out of range');
+    await expect(pool.setIV(E18('2'))).to.be.revertedWithCustomError(POOL_ERRORS, 'IvOutOfRange');
+    await expect(pool.setIV(E18('0.2'))).to.be.revertedWithCustomError(POOL_ERRORS, 'IvOutOfRange');
   });
 
   it('paused pool rejects deposits', async () => {
     const { pool, lp } = await deploy();
     await pool.pausePool();
-    await expect(pool.connect(lp).deposit(E18('100'))).to.be.revertedWith('paused');
+    await expect(pool.connect(lp).deposit(E18('100'))).to.be.revertedWithCustomError(POOL_ERRORS, 'Paused');
   });
 
   it('setProtocolFeeBps rejects > 5%', async () => {
     const { pool } = await deploy();
-    await expect(pool.setProtocolFeeBps(600)).to.be.revertedWith('max 5%');
+    await expect(pool.setProtocolFeeBps(600)).to.be.revertedWithCustomError(POOL_ERRORS, 'Max5Pct');
   });
 });
 
@@ -349,7 +350,7 @@ describe('BS accuracy', () => {
   it('quotePremium reverts for a past expiry', async () => {
     const { pool } = await deploy();
     const past = await expiry(-10);
-    await expect(pool.quotePremium(true, E18('100000'), E18('1'), past)).to.be.revertedWith('expired');
+    await expect(pool.quotePremium(true, E18('100000'), E18('1'), past)).to.be.revertedWithCustomError(POOL_ERRORS, 'Expired');
   });
 });
 
@@ -394,12 +395,12 @@ describe('fillShort (manual seller takes an open long order)', () => {
     const ctx = await deploy();
     const { pool, buyer, seller } = ctx;
     const id = await openLong(ctx);
-    await expect(pool.connect(buyer).fillShort(id)).to.be.revertedWith('cannot self-fill');
+    await expect(pool.connect(buyer).fillShort(id)).to.be.revertedWithCustomError(POOL_ERRORS, 'CannotSelfFill');
     await pool.connect(seller).fillShort(id);
-    await expect(pool.connect(seller).fillShort(id)).to.be.revertedWith('not open');
+    await expect(pool.connect(seller).fillShort(id)).to.be.revertedWithCustomError(POOL_ERRORS, 'NotOpen');
     const id2 = await openLong(ctx);
     await time.increase(3601);
-    await expect(pool.connect(seller).fillShort(id2)).to.be.revertedWith('expired');
+    await expect(pool.connect(seller).fillShort(id2)).to.be.revertedWithCustomError(POOL_ERRORS, 'Expired');
   });
 
   it('rejects filling a short order via fillShort', async () => {
@@ -407,7 +408,7 @@ describe('fillShort (manual seller takes an open long order)', () => {
     const exp = await expiry(3600);
     await pool.connect(seller).createShortOrder(1, E18('100000'), E18('0.01'), exp, E18('50'));
     const id = (await pool.nextId()) - 1n;
-    await expect(pool.connect(buyer).fillShort(id)).to.be.revertedWith('not a long order');
+    await expect(pool.connect(buyer).fillShort(id)).to.be.revertedWithCustomError(POOL_ERRORS, 'NotALongOrder');
   });
 });
 
@@ -417,7 +418,7 @@ describe('Zero-collateral calls', () => {
     const exp = await expiry(3600);
     await expect(
       pool.connect(seller).createShortOrder(0, E18('300000'), E18('0.01'), exp, E18('1'))
-    ).to.be.revertedWith('zero collateral: strike too far OTM');
+    ).to.be.revertedWithCustomError(POOL_ERRORS, 'ZeroCollateralStrikeTooFarOTM');
   });
 
   it('pool does not fill a zero-collateral call; order stays open', async () => {
@@ -522,8 +523,8 @@ describe('IV spread and keeper', () => {
     await pool.connect(owner).setIvKeeper(keeper.address);
     await expect(pool.connect(keeper).setIV(E18('0.7'))).to.emit(pool, 'IVUpdated').withArgs(E18('0.7'), keeper.address);
     expect(await pool.iv()).to.equal(E18('0.7'));
-    await expect(pool.connect(keeper).setIV(E18('0.2'))).to.be.revertedWith('iv out of range');
-    await expect(pool.connect(buyer).setIV(E18('0.5'))).to.be.revertedWith('not owner or keeper');
+    await expect(pool.connect(keeper).setIV(E18('0.2'))).to.be.revertedWithCustomError(POOL_ERRORS, 'IvOutOfRange');
+    await expect(pool.connect(buyer).setIV(E18('0.5'))).to.be.revertedWithCustomError(POOL_ERRORS, 'NotOwnerOrKeeper');
     await expect(pool.connect(keeper).setIvSpreadBps(0)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
     await expect(pool.connect(keeper).setTVLCap(0)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
   });
@@ -532,6 +533,6 @@ describe('IV spread and keeper', () => {
     const { pool } = await deploy();
     await pool.setIvSpreadBps(2500);
     expect(await pool.askIv()).to.equal(E18('1'));
-    await expect(pool.setIvSpreadBps(5001)).to.be.revertedWith('spread too high');
+    await expect(pool.setIvSpreadBps(5001)).to.be.revertedWithCustomError(POOL_ERRORS, 'SpreadTooHigh');
   });
 });

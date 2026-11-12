@@ -1,5 +1,8 @@
 import { explorerTx } from './network.mjs';
 import { useStore } from './store';
+import { poolRevertReason } from './poolErrors.mjs';
+
+export { poolRevertReason };
 
 // Map known revert reasons to plain English
 const REVERT_MAP = {
@@ -33,7 +36,8 @@ const REVERT_MAP = {
 };
 
 export function parseTxError(err) {
-  const raw = [err?.reason, err?.shortMessage, err?.message, err?.data, err?.info?.error?.data, err?.error?.data]
+  const pool = poolRevertReason(err);
+  const raw = [pool, err?.reason, err?.shortMessage, err?.message, err?.data, err?.info?.error?.data, err?.error?.data]
     .filter(Boolean).map(String).join(' ') || String(err);
   // OpenZeppelin ERC20 custom errors (selectors), e.g. trying to deposit more MUSD than the wallet holds
   if (/e450d38c|ERC20InsufficientBalance/i.test(raw)) return 'Not enough MUSD in your wallet for this amount.';
@@ -41,6 +45,8 @@ export function parseTxError(err) {
   for (const [key, msg] of Object.entries(REVERT_MAP)) {
     if (raw.includes(key)) return msg;
   }
+  // a pool rule without a plain-English entry: show the contract's own reason rather than a generic failure
+  if (pool) return `The pool refused: ${pool}.`;
   // ethers CALL_EXCEPTION — extract revert string if present
   if (raw.includes('CALL_EXCEPTION')) return 'Transaction reverted on-chain. The action may no longer be valid (expired, already settled, or wrong party).';
   if (raw.includes('insufficient funds')) return 'Insufficient BTC for gas.';

@@ -3,6 +3,7 @@ const { expect } = require('chai');
 const { poolFactory } = require('./helpers/poolFactory');
 const { ethers } = require('hardhat');
 const { time } = require('@nomicfoundation/hardhat-network-helpers');
+const { POOL_ERRORS } = require('./helpers/poolErrors');
 const E18 = ethers.parseEther;
 
 async function deploy() {
@@ -36,7 +37,7 @@ describe('Exit protections (deposit lock, withdrawal fee)', () => {
     const { pool, ymusd, lp } = await deploy();
     await pool.connect(lp).deposit(E18('1000'));
     const sh = (await ymusd.balanceOf(lp.address)) / 4n;
-    await expect(pool.connect(lp).withdraw(sh)).to.be.revertedWith('deposit locked');
+    await expect(pool.connect(lp).withdraw(sh)).to.be.revertedWithCustomError(POOL_ERRORS, 'DepositLocked');
     await time.increase(3601);
     await pool.connect(lp).withdraw(sh);
   });
@@ -54,7 +55,7 @@ describe('Exit protections (deposit lock, withdrawal fee)', () => {
     await pool.connect(lp).deposit(E18('1000'));
     await time.increase(3601);
     await pool.connect(lp).deposit(E18('1'));
-    await expect(pool.connect(lp).withdraw(1n)).to.be.revertedWith('deposit locked');
+    await expect(pool.connect(lp).withdraw(1n)).to.be.revertedWithCustomError(POOL_ERRORS, 'DepositLocked');
   });
 
   it('charges the fee only while pool options are open, and the fee stays in the pool', async () => {
@@ -89,9 +90,9 @@ describe('Exit protections (deposit lock, withdrawal fee)', () => {
   it('owner can tune within bounds and each change emits an event', async () => {
     const { pool, lp } = await deploy();
     await expect(pool.setWithdrawalFeeBps(100)).to.emit(pool, 'WithdrawalFeeSet').withArgs(100n);
-    await expect(pool.setWithdrawalFeeBps(101)).to.be.revertedWith('max 1%');
+    await expect(pool.setWithdrawalFeeBps(101)).to.be.revertedWithCustomError(POOL_ERRORS, 'Max1Pct');
     await expect(pool.setDepositLock(7 * 86400)).to.emit(pool, 'DepositLockSet');
-    await expect(pool.setDepositLock(7 * 86400 + 1)).to.be.revertedWith('max 7 days');
+    await expect(pool.setDepositLock(7 * 86400 + 1)).to.be.revertedWithCustomError(POOL_ERRORS, 'Max7Days');
     await expect(pool.connect(lp).setDepositLock(0)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
   });
 });

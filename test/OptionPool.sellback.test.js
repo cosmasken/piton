@@ -3,6 +3,7 @@ const { expect } = require('chai');
 const { poolFactory } = require('./helpers/poolFactory');
 const { ethers } = require('hardhat');
 const { time } = require('@nomicfoundation/hardhat-network-helpers');
+const { POOL_ERRORS } = require('./helpers/poolErrors');
 const E18 = ethers.parseEther, f = v => Number(ethers.formatEther(v));
 
 async function deploy() {
@@ -79,27 +80,27 @@ describe('Sell back to the pool', () => {
     const c = await deploy();
     const { id } = await buyAtm(c);
     const bid = await c.pool.quoteBuyback(id);
-    await expect(c.pool.connect(c.buyer).sellBack(id, bid * 2n)).to.be.revertedWith('no bid');
+    await expect(c.pool.connect(c.buyer).sellBack(id, bid * 2n)).to.be.revertedWithCustomError(POOL_ERRORS, 'NoBid');
     await c.pool.connect(c.buyer).sellBack(id, bid * 99n / 100n);
   });
 
   it('only the owner of a pool-sold, live, open position can sell it back, once', async () => {
     const c = await deploy();
     const { id, exp } = await buyAtm(c);
-    await expect(c.pool.connect(c.other).sellBack(id, 0n)).to.be.revertedWith('only long can sell back');
+    await expect(c.pool.connect(c.other).sellBack(id, 0n)).to.be.revertedWithCustomError(POOL_ERRORS, 'OnlyLongCanSellBack');
     await c.pool.connect(c.buyer).sellBack(id, 0n);
-    await expect(c.pool.connect(c.buyer).sellBack(id, 0n)).to.be.revertedWith('no bid');   // already closed
+    await expect(c.pool.connect(c.buyer).sellBack(id, 0n)).to.be.revertedWithCustomError(POOL_ERRORS, 'NoBid');   // already closed
     expect(await c.pool.quoteBuyback(id)).to.equal(0n);
     // expired
     const b = await buyAtm(c);
     await time.increaseTo(b.exp + 1); await c.oracle.setPrice(100000);
     expect(await c.pool.quoteBuyback(b.id)).to.equal(0n);
-    await expect(c.pool.connect(c.buyer).sellBack(b.id, 0n)).to.be.revertedWith('no bid');
+    await expect(c.pool.connect(c.buyer).sellBack(b.id, 0n)).to.be.revertedWithCustomError(POOL_ERRORS, 'NoBid');
     // an open peer-to-peer order is not the pool's to buy back
     const e = (await now()) + 86400;
     await c.pool.connect(c.other).createShortOrder(1, K, Q, e, E18('50'));
     const p2p = (await c.pool.nextId()) - 1n;
-    await expect(c.pool.connect(c.other).sellBack(p2p, 0n)).to.be.revertedWith('only long can sell back');
+    await expect(c.pool.connect(c.other).sellBack(p2p, 0n)).to.be.revertedWithCustomError(POOL_ERRORS, 'OnlyLongCanSellBack');
     expect(await c.pool.quoteBuyback(p2p)).to.equal(0n);
   });
 
@@ -109,12 +110,12 @@ describe('Sell back to the pool', () => {
     const { id } = await buyAtm(c);
     await c.pool.pokeCircuitBreaker();
     await c.oracle.setPrice(88000);                                     // -12% in the window: put is in the money
-    await expect(c.pool.connect(c.buyer).sellBack(id, 0n)).to.be.revertedWith('circuit breaker');
+    await expect(c.pool.connect(c.buyer).sellBack(id, 0n)).to.be.revertedWithCustomError(POOL_ERRORS, 'CircuitBreaker');
     await c.pool.connect(c.buyer).settle(id);                           // exit via exercise is never blocked
     const d = await deploy();
     const e = await buyAtm(d);
     await d.pool.pausePool();
-    await expect(d.pool.connect(d.buyer).sellBack(e.id, 0n)).to.be.revertedWith('paused');
+    await expect(d.pool.connect(d.buyer).sellBack(e.id, 0n)).to.be.revertedWithCustomError(POOL_ERRORS, 'Paused');
   });
 
   it('charges the performance fee on yield recognised by the close, and accounting stays exact', async () => {

@@ -3,6 +3,7 @@ const { expect } = require('chai');
 const { poolFactory } = require('./helpers/poolFactory');
 const { ethers } = require('hardhat');
 const { time } = require('@nomicfoundation/hardhat-network-helpers');
+const { POOL_ERRORS } = require('./helpers/poolErrors');
 const E18 = ethers.parseEther;
 
 async function deploy() {
@@ -28,11 +29,11 @@ describe('#10 governance', () => {
   });
   it('renouncing ownership is disabled', async () => {
     const { pool } = await deploy();
-    await expect(pool.renounceOwnership()).to.be.revertedWith('renounce disabled');
+    await expect(pool.renounceOwnership()).to.be.revertedWithCustomError(POOL_ERRORS, 'RenounceDisabled');
   });
   it('a guardian can pause but nothing else', async () => {
     const { pool, guardian, other } = await deploy();
-    await expect(pool.connect(guardian).pausePool()).to.be.revertedWith('not owner or guardian');
+    await expect(pool.connect(guardian).pausePool()).to.be.revertedWithCustomError(POOL_ERRORS, 'NotOwnerOrGuardian');
     await expect(pool.connect(other).setGuardian(other.address)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
     await expect(pool.setGuardian(guardian.address)).to.emit(pool, 'GuardianSet').withArgs(guardian.address);
     await expect(pool.connect(guardian).pausePool()).to.emit(pool, 'PausedSet').withArgs(true);

@@ -3,6 +3,7 @@ const { expect } = require('chai');
 const { poolFactory } = require('./helpers/poolFactory');
 const { ethers } = require('hardhat');
 const { time } = require('@nomicfoundation/hardhat-network-helpers');
+const { POOL_ERRORS } = require('./helpers/poolErrors');
 const E18 = ethers.parseEther;
 
 async function deploy() {
@@ -61,9 +62,9 @@ describe('#3 utilisation and single-option exposure limits', () => {
   });
   it('limits are validated and owner-only', async () => {
     const { pool, lp } = await deploy();
-    await expect(pool.setRiskLimits(0, 0)).to.be.revertedWith('bad limits');
-    await expect(pool.setRiskLimits(10001, 2500)).to.be.revertedWith('bad limits');
-    await expect(pool.setRiskLimits(2000, 3000)).to.be.revertedWith('bad limits');
+    await expect(pool.setRiskLimits(0, 0)).to.be.revertedWithCustomError(POOL_ERRORS, 'BadLimits');
+    await expect(pool.setRiskLimits(10001, 2500)).to.be.revertedWithCustomError(POOL_ERRORS, 'BadLimits');
+    await expect(pool.setRiskLimits(2000, 3000)).to.be.revertedWithCustomError(POOL_ERRORS, 'BadLimits');
     await expect(pool.setRiskLimits(9000, 3000)).to.emit(pool, 'RiskLimitsSet').withArgs(9000n, 3000n);
     await expect(pool.connect(lp).setRiskLimits(9000, 3000)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
   });
@@ -91,7 +92,7 @@ describe('#4 minimum rent on locked collateral', () => {
   it('owner can set it to zero (floor off) and it is capped at 50%', async () => {
     const { pool, lp } = await deploy();
     await expect(pool.setMinRentBps(0)).to.emit(pool, 'MinRentSet').withArgs(0n);
-    await expect(pool.setMinRentBps(5001)).to.be.revertedWith('max 50%');
+    await expect(pool.setMinRentBps(5001)).to.be.revertedWithCustomError(POOL_ERRORS, 'Max50Pct');
     await expect(pool.connect(lp).setMinRentBps(1)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
   });
 });
@@ -113,7 +114,7 @@ describe('#5 strike distance band', () => {
     await pool.connect(lp).deposit(E18('1000000'));
     await expect(pool.setMaxStrikeDistanceBps(5000)).to.emit(pool, 'MaxStrikeDistanceSet').withArgs(5000n);
     expect(await buyPut(pool, buyer, E18('60000'), E18('0.1'))).to.equal(true);
-    await expect(pool.setMaxStrikeDistanceBps(999)).to.be.revertedWith('between 10% and 100%');
+    await expect(pool.setMaxStrikeDistanceBps(999)).to.be.revertedWithCustomError(POOL_ERRORS, 'Between10PctAnd100Pct');
     await expect(pool.connect(lp).setMaxStrikeDistanceBps(5000)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
   });
 });
@@ -129,8 +130,8 @@ describe('#7 minimum time left for pool-sold options', () => {
   it('fresh deployment defaults to 1 hour; owner range is 15 min .. 7 days', async () => {
     const [o] = await ethers.getSigners();
     const { pool, lp } = await deploy();
-    await expect(pool.setMinPoolExpiry(899)).to.be.revertedWith('out of range');
-    await expect(pool.setMinPoolExpiry(7 * 86400 + 1)).to.be.revertedWith('out of range');
+    await expect(pool.setMinPoolExpiry(899)).to.be.revertedWithCustomError(POOL_ERRORS, 'OutOfRange');
+    await expect(pool.setMinPoolExpiry(7 * 86400 + 1)).to.be.revertedWithCustomError(POOL_ERRORS, 'OutOfRange');
     await expect(pool.setMinPoolExpiry(1800)).to.emit(pool, 'MinPoolExpirySet').withArgs(1800n);
     await expect(pool.connect(lp).setMinPoolExpiry(1800)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
     const fresh = await (await poolFactory()).deploy(
@@ -169,7 +170,7 @@ describe('#6 utilisation-based price markup', () => {
   it('is capped at 100% spread and owner-only', async () => {
     const { pool, lp } = await deploy();
     expect(await pool.utilSpreadBps()).to.equal(2000n);
-    await expect(pool.setUtilSpreadBps(10001)).to.be.revertedWith('spread too high');
+    await expect(pool.setUtilSpreadBps(10001)).to.be.revertedWithCustomError(POOL_ERRORS, 'SpreadTooHigh');
     await expect(pool.setUtilSpreadBps(500)).to.emit(pool, 'UtilSpreadSet').withArgs(500n);
     await expect(pool.connect(lp).setUtilSpreadBps(1)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
   });
@@ -188,7 +189,7 @@ describe('#8 circuit breaker', () => {
     await oracle.setPrice(93000); // -7% inside the window
     expect(await buyPut(pool, buyer, E18('90000'), E18('0.1'))).to.equal(false);
     expect(await pool.cbUntil()).to.be.gt(0n);
-    await expect(pool.connect(other).deposit(E18('10'))).to.be.revertedWith('circuit breaker');
+    await expect(pool.connect(other).deposit(E18('10'))).to.be.revertedWithCustomError(POOL_ERRORS, 'CircuitBreaker');
     await pool.connect(lp).withdraw((await ymusd.balanceOf(lp.address)) / 10n); // LPs can always leave
   });
   it('pool fills and deposits resume after the cooldown', async () => {
@@ -214,9 +215,9 @@ describe('#8 circuit breaker', () => {
   });
   it('settings are bounded and owner-only', async () => {
     const { pool, lp } = await deploy();
-    await expect(pool.setBreaker(30, 500, 1800)).to.be.revertedWith('bad window');
-    await expect(pool.setBreaker(600, 50, 1800)).to.be.revertedWith('bad move');
-    await expect(pool.setBreaker(600, 500, 86401)).to.be.revertedWith('bad cooldown');
+    await expect(pool.setBreaker(30, 500, 1800)).to.be.revertedWithCustomError(POOL_ERRORS, 'BadWindow');
+    await expect(pool.setBreaker(600, 50, 1800)).to.be.revertedWithCustomError(POOL_ERRORS, 'BadMove');
+    await expect(pool.setBreaker(600, 500, 86401)).to.be.revertedWithCustomError(POOL_ERRORS, 'BadCooldown');
     await expect(pool.setBreaker(600, 500, 1800)).to.emit(pool, 'BreakerSet').withArgs(600n, 500n, 1800n);
     await expect(pool.connect(lp).setBreaker(600, 500, 1800)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
     expect(await pool.cbMaxMoveBps()).to.equal(500n);
@@ -235,7 +236,7 @@ describe('#9 auto-exercise', () => {
     const { pool, oracle, musd, buyer, other, id, exp } = await itmPut();
     await pool.connect(buyer).setAutoExercise(id, true);
     await oracle.setPrice(90000); // put is 10,000 ITM per BTC -> 1,000 payout
-    await expect(pool.connect(other).settleFor(id)).to.be.revertedWith('not in exercise window');
+    await expect(pool.connect(other).settleFor(id)).to.be.revertedWithCustomError(POOL_ERRORS, 'NotInExerciseWindow');
     await time.increaseTo(exp - 200); await oracle.setPrice(90000);
     const b = await musd.balanceOf(buyer.address), k = await musd.balanceOf(other.address);
     await pool.connect(other).settleFor(id);
@@ -246,20 +247,20 @@ describe('#9 auto-exercise', () => {
   it('does nothing unless the owner opted in; only the owner can opt in', async () => {
     const { pool, oracle, buyer, other, id, exp } = await itmPut();
     await time.increaseTo(exp - 200); await oracle.setPrice(90000);
-    await expect(pool.connect(other).settleFor(id)).to.be.revertedWith('auto-exercise not enabled');
-    await expect(pool.connect(other).setAutoExercise(id, true)).to.be.revertedWith('not your open option');
+    await expect(pool.connect(other).settleFor(id)).to.be.revertedWithCustomError(POOL_ERRORS, 'AutoExerciseNotEnabled');
+    await expect(pool.connect(other).setAutoExercise(id, true)).to.be.revertedWithCustomError(POOL_ERRORS, 'NotYourOpenOption');
     await pool.connect(buyer).setAutoExercise(id, true);
     await pool.connect(buyer).setAutoExercise(id, false);
-    await expect(pool.connect(other).settleFor(id)).to.be.revertedWith('auto-exercise not enabled');
+    await expect(pool.connect(other).settleFor(id)).to.be.revertedWithCustomError(POOL_ERRORS, 'AutoExerciseNotEnabled');
   });
   it('refuses out-of-the-money options and options already past expiry', async () => {
     const { pool, oracle, buyer, other, id, exp } = await itmPut();
     await pool.connect(buyer).setAutoExercise(id, true);
     await time.increaseTo(exp - 200);
     await oracle.setPrice(110000);
-    await expect(pool.connect(other).settleFor(id)).to.be.revertedWith('not in the money');
+    await expect(pool.connect(other).settleFor(id)).to.be.revertedWithCustomError(POOL_ERRORS, 'NotInTheMoney');
     await time.increaseTo(exp + 1); await oracle.setPrice(90000);
-    await expect(pool.connect(other).settleFor(id)).to.be.revertedWith('not in exercise window');
+    await expect(pool.connect(other).settleFor(id)).to.be.revertedWithCustomError(POOL_ERRORS, 'NotInExerciseWindow');
   });
   it('manual settle still works as before and the fee is capped', async () => {
     const { pool, oracle, musd, buyer, id } = await itmPut();
@@ -267,7 +268,7 @@ describe('#9 auto-exercise', () => {
     const b = await musd.balanceOf(buyer.address);
     await pool.connect(buyer).settle(id);
     expect((await musd.balanceOf(buyer.address)) - b).to.equal(E18('1000'));
-    await expect(pool.setKeeperFeeBps(201)).to.be.revertedWith('max 2%');
+    await expect(pool.setKeeperFeeBps(201)).to.be.revertedWithCustomError(POOL_ERRORS, 'Max2Pct');
     await expect(pool.setKeeperFeeBps(100)).to.emit(pool, 'KeeperFeeSet').withArgs(100n);
   });
 });
@@ -276,8 +277,8 @@ describe('#12 open-option cap and worst-case gas', () => {
   it('cap is adjustable within 1..150 by the owner', async () => {
     const { pool, lp } = await deploy();
     expect(await pool.maxOpenPoolOptions()).to.equal(50n);
-    await expect(pool.setMaxOpenPoolOptions(0)).to.be.revertedWith('out of range');
-    await expect(pool.setMaxOpenPoolOptions(151)).to.be.revertedWith('out of range');
+    await expect(pool.setMaxOpenPoolOptions(0)).to.be.revertedWithCustomError(POOL_ERRORS, 'OutOfRange');
+    await expect(pool.setMaxOpenPoolOptions(151)).to.be.revertedWithCustomError(POOL_ERRORS, 'OutOfRange');
     await expect(pool.setMaxOpenPoolOptions(150)).to.emit(pool, 'MaxOpenPoolOptionsSet').withArgs(150n);
     await expect(pool.connect(lp).setMaxOpenPoolOptions(10)).to.be.revertedWithCustomError(pool, 'OwnableUnauthorizedAccount');
   });

@@ -3,6 +3,7 @@
 const { expect } = require('chai');
 const { ethers } = require('hardhat');
 const { poolFactory } = require('./helpers/poolFactory');
+const { POOL_ERRORS } = require('./helpers/poolErrors');
 const E18 = ethers.parseEther;
 
 async function deploy() {
@@ -40,10 +41,10 @@ describe('Savings: idle pool MUSD in sMUSD', () => {
   it('only the owner configures it; cap at most 80%; the vault cannot change while money is in it', async () => {
     const { pool, savings, lp, keeper } = await deploy();
     await expect(pool.connect(lp).setSavings(await savings.getAddress(), 5000)).to.be.reverted;
-    await expect(pool.setSavings(await savings.getAddress(), 8001)).to.be.revertedWith('bad savings');
+    await expect(pool.setSavings(await savings.getAddress(), 8001)).to.be.revertedWithCustomError(POOL_ERRORS, 'BadSavings');
     await pool.setSavings(await savings.getAddress(), 5000);
     await pool.connect(keeper).invest(E18('1000'));
-    await expect(pool.setSavings(ethers.ZeroAddress, 5000)).to.be.revertedWith('bad savings');
+    await expect(pool.setSavings(ethers.ZeroAddress, 5000)).to.be.revertedWithCustomError(POOL_ERRORS, 'BadSavings');
     await pool.setSavings(await savings.getAddress(), 2000);   // same vault, new cap: allowed
     expect(await pool.investCapBps()).to.equal(2000n);
   });
@@ -56,8 +57,8 @@ describe('Savings: idle pool MUSD in sMUSD', () => {
     const free = (await pool.totalAssets()) - locked;
     const assetsBefore = await pool.totalAssets();
     const navBefore = await pool.netAssetValue();
-    await expect(pool.connect(lp).invest(E18('1'))).to.be.revertedWith('not keeper');
-    await expect(pool.connect(keeper).invest(free / 2n + 1n)).to.be.revertedWith('over cap');
+    await expect(pool.connect(lp).invest(E18('1'))).to.be.revertedWithCustomError(POOL_ERRORS, 'NotKeeper');
+    await expect(pool.connect(keeper).invest(free / 2n + 1n)).to.be.revertedWithCustomError(POOL_ERRORS, 'OverCap');
     await pool.connect(keeper).invest(free / 2n);
     expect(await pool.invested()).to.equal(free / 2n);
     expect(await savings.balanceOf(await poolAddr(pool))).to.equal(free / 2n);
@@ -108,7 +109,7 @@ describe('Savings: idle pool MUSD in sMUSD', () => {
     await pool.setSavings(await savings.getAddress(), 5000);
     await pool.connect(keeper).invest(E18('4000'));
     await savings.accrue(await poolAddr(pool), E18('40'));
-    await expect(pool.connect(lp).divest(1)).to.be.revertedWith('not keeper');
+    await expect(pool.connect(lp).divest(1)).to.be.revertedWithCustomError(POOL_ERRORS, 'NotKeeper');
     await pool.connect(guardian).divest(ethers.MaxUint256);     // more than invested = all
     expect(await pool.invested()).to.equal(0n);
     expect(await pool.totalSavingsYield()).to.equal(E18('40'));
@@ -120,7 +121,7 @@ describe('Savings: idle pool MUSD in sMUSD', () => {
     await pool.setSavings(await savings.getAddress(), 5000);
     await pool.connect(keeper).invest(E18('1000'));
     await savings.setShortPay(true);
-    await expect(pool.connect(keeper).divest(E18('1000'))).to.be.revertedWith('savings short');
+    await expect(pool.connect(keeper).divest(E18('1000'))).to.be.revertedWithCustomError(POOL_ERRORS, 'SavingsShort');
   });
 
   it('a broken vault never blocks exercise, sell-back, refunds or deposits; only withdrawals beyond cash wait', async () => {

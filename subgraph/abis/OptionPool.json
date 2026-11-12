@@ -31,6 +31,256 @@
     "type": "constructor"
   },
   {
+    "inputs": [],
+    "name": "AutoExerciseNotEnabled",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "BadCooldown",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "BadLimits",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "BadMove",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "BadSavings",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "BadWindow",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "Between10PctAnd100Pct",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "CannotSelfFill",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "CircuitBreaker",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "CollateralExceedsMax",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "DepositLocked",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "Expired",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ExpiryTooFar",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ExpiryTooSoon",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "HoldersListIncomplete",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InsufficientLiquidity",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "IntervalTooLong",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidParams",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidPrice",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidTroveSig",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "IvOutOfRange",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "IvStepTooLarge",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "IvUpdatedTooRecently",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "MarginBelowRequired",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "Max1Pct",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "Max2Pct",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "Max30Pct",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "Max50Pct",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "Max5Pct",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "Max7Days",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "MinDeposit0001MUSD",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NoActiveTrove",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NoBid",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NoSupply",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotALongOrder",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotAShortOrder",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotExpired",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotFilled",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotInExerciseWindow",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotInTheMoney",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotKeeper",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotOpen",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotOwnerOrGuardian",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotOwnerOrKeeper",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotYourOpenOption",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotYourOrder",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "OnlyLongCanSellBack",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "OnlyLongCanSettle",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "OutOfRange",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "OverCap",
+    "type": "error"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -54,7 +304,27 @@
   },
   {
     "inputs": [],
+    "name": "Paused",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "PoolHasAssets",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "PoolInsolventClearOldSharesFirst",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "ReentrancyGuardReentrantCall",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "RenounceDisabled",
     "type": "error"
   },
   {
@@ -66,6 +336,61 @@
       }
     ],
     "name": "SafeERC20FailedOperation",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "SavingsShort",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "SpreadTooHigh",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "StalePrice",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "StepOutOfRange",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "TroveDrawShort",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "TroveICRTooLowAfterDraw",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "TvlCap",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ZeroAddress",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ZeroAmount",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ZeroCollateralStrikeTooFarOTM",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ZeroShares",
     "type": "error"
   },
   {

@@ -2,6 +2,7 @@
 const { expect } = require('chai');
 const { poolFactory } = require('./helpers/poolFactory');
 const { ethers } = require('hardhat');
+const { POOL_ERRORS } = require('./helpers/poolErrors');
 const E18 = ethers.parseEther;
 
 async function deploy() {
@@ -33,9 +34,9 @@ describe('Oracle price age', () => {
     await oracle.setAge(29);
     await pool.quotePremium(false, E18('100000'), E18('0.01'), exp);       // still fresh
     await oracle.setAge(31);
-    await expect(pool.quotePremium(false, E18('100000'), E18('0.01'), exp)).to.be.revertedWith('stale price');
-    await expect(pool.connect(buyer).createLongOrder(1, E18('100000'), E18('0.01'), exp, E18('10'))).to.be.revertedWith('stale price');
-    await expect(pool.connect(lp).deposit(E18('1'))).to.be.revertedWith('stale price');
+    await expect(pool.quotePremium(false, E18('100000'), E18('0.01'), exp)).to.be.revertedWithCustomError(POOL_ERRORS, 'StalePrice');
+    await expect(pool.connect(buyer).createLongOrder(1, E18('100000'), E18('0.01'), exp, E18('10'))).to.be.revertedWithCustomError(POOL_ERRORS, 'StalePrice');
+    await expect(pool.connect(lp).deposit(E18('1'))).to.be.revertedWithCustomError(POOL_ERRORS, 'StalePrice');
   });
 
   it('exercise still works with a price up to 120 s old, and stops after that', async () => {
@@ -46,7 +47,7 @@ describe('Oracle price age', () => {
     const id = (await pool.nextId()) - 1n;
     await oracle.setPrice(90000);
     await oracle.setAge(119);
-    await expect(pool.connect(buyer).sellBack(id, 0)).to.be.revertedWith('stale price'); // opening-side limit
+    await expect(pool.connect(buyer).sellBack(id, 0)).to.be.revertedWithCustomError(POOL_ERRORS, 'StalePrice'); // opening-side limit
     await pool.connect(buyer).settle(id.valueOf());                                     // exercise allowed
     expect((await pool.getOption(id)).status).to.equal(2n);
     // a second option: past 120 s even exercising stops
@@ -55,7 +56,7 @@ describe('Oracle price age', () => {
     await pool.connect(buyer).createLongOrder(1, E18('100000'), E18('0.01'), exp, q2);
     const id2 = (await pool.nextId()) - 1n;
     await oracle.setAge(121);
-    await expect(pool.connect(buyer).settle(id2)).to.be.revertedWith('stale price');
+    await expect(pool.connect(buyer).settle(id2)).to.be.revertedWithCustomError(POOL_ERRORS, 'StalePrice');
   });
 
   it('withdrawals keep working on a stale price (priced conservatively)', async () => {

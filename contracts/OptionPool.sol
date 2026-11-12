@@ -49,6 +49,73 @@ interface IBorrowerOperationsSignatures {
 
 /// @title OptionPool — Piton V2 unified options engine + liquidity pool
 contract OptionPool is Ownable2Step, ReentrancyGuard {
+
+    // ─── Errors (custom errors keep the contract under the 24 KB limit; the dapp maps them to plain English) ───
+    error ZeroAddress(); // "zero address"
+    error Paused(); // "paused"
+    error InvalidPrice(); // "invalid price"
+    error StalePrice(); // "stale price"
+    error ZeroAmount(); // "zero amount"
+    error TvlCap(); // "tvl cap"
+    error CircuitBreaker(); // "circuit breaker"
+    error PoolInsolventClearOldSharesFirst(); // "pool insolvent: clear old shares first"
+    error MinDeposit0001MUSD(); // "min deposit 0.001 MUSD"
+    error ZeroShares(); // "zero shares"
+    error NoSupply(); // "no supply"
+    error DepositLocked(); // "deposit locked"
+    error InsufficientLiquidity(); // "insufficient liquidity"
+    error PoolHasAssets(); // "pool has assets"
+    error HoldersListIncomplete(); // "holders list incomplete"
+    error InvalidParams(); // "invalid params"
+    error ExpiryTooSoon(); // "expiry too soon"
+    error ExpiryTooFar(); // "expiry too far"
+    error ZeroCollateralStrikeTooFarOTM(); // "zero collateral: strike too far OTM"
+    error CollateralExceedsMax(); // "collateral exceeds max"
+    error InvalidTroveSig(); // "invalid trove sig"
+    error MarginBelowRequired(); // "margin below required"
+    error NoActiveTrove(); // "no active trove"
+    error TroveICRTooLowAfterDraw(); // "trove ICR too low after draw"
+    error TroveDrawShort(); // "trove draw short"
+    error NotOpen(); // "not open"
+    error NotAShortOrder(); // "not a short order"
+    error Expired(); // "expired"
+    error CannotSelfFill(); // "cannot self-fill"
+    error NotALongOrder(); // "not a long order"
+    error OnlyLongCanSettle(); // "only long can settle"
+    error NotYourOpenOption(); // "not your open option"
+    error AutoExerciseNotEnabled(); // "auto-exercise not enabled"
+    error NotInExerciseWindow(); // "not in exercise window"
+    error Max2Pct(); // "max 2%"
+    error NotFilled(); // "not filled"
+    error NotInTheMoney(); // "not in the money"
+    error OnlyLongCanSellBack(); // "only long can sell back"
+    error NoBid(); // "no bid"
+    error NotExpired(); // "not expired"
+    error NotYourOrder(); // "not your order"
+    error BadSavings(); // "bad savings"
+    error NotKeeper(); // "not keeper"
+    error OverCap(); // "over cap"
+    error SavingsShort(); // "savings short"
+    error NotOwnerOrKeeper(); // "not owner or keeper"
+    error IvOutOfRange(); // "iv out of range"
+    error IvUpdatedTooRecently(); // "iv updated too recently"
+    error IvStepTooLarge(); // "iv step too large"
+    error IntervalTooLong(); // "interval too long"
+    error StepOutOfRange(); // "step out of range"
+    error SpreadTooHigh(); // "spread too high"
+    error Max5Pct(); // "max 5%"
+    error Max30Pct(); // "max 30%"
+    error Max1Pct(); // "max 1%"
+    error BadLimits(); // "bad limits"
+    error Max50Pct(); // "max 50%"
+    error Between10PctAnd100Pct(); // "between 10% and 100%"
+    error OutOfRange(); // "out of range"
+    error BadWindow(); // "bad window"
+    error BadMove(); // "bad move"
+    error BadCooldown(); // "bad cooldown"
+    error Max7Days(); // "max 7 days"
+    error NotOwnerOrGuardian(); // "not owner or guardian"
+    error RenounceDisabled(); // "renounce disabled"
     using SafeERC20 for IERC20;
 
     // ─── Constants ───────────────────────────────────────────────────────────
@@ -233,7 +300,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
 
     constructor(address _musd, address _ymusd, address _oracle, address _troveManager, address _borrowerOps) Ownable(msg.sender) {
         require(_musd != address(0) && _ymusd != address(0) && _oracle != address(0)
-            && _troveManager != address(0) && _borrowerOps != address(0), "zero address");
+            && _troveManager != address(0) && _borrowerOps != address(0), ZeroAddress());
         musd              = IERC20(_musd);
         ymusd             = yMUSD(_ymusd);
         feeRecipient      = msg.sender;
@@ -244,7 +311,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
 
     // ─── Modifiers ───────────────────────────────────────────────────────────
 
-    modifier notPaused() { require(!paused, "paused"); _; }
+    modifier notPaused() { require(!paused, Paused()); _; }
 
     // ─── Oracle ──────────────────────────────────────────────────────────────
 
@@ -252,8 +319,8 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
 
     function _spotMaxAge(uint256 maxAge) internal view returns (uint256) {
         (, int256 answer,, uint256 updatedAt,) = ISkipOracle(SKIP_ORACLE).latestRoundData();
-        require(answer > 0, "invalid price");
-        require(block.timestamp - updatedAt <= maxAge, "stale price");
+        require(answer > 0, InvalidPrice());
+        require(block.timestamp - updatedAt <= maxAge, StalePrice());
         uint8 dec = ISkipOracle(SKIP_ORACLE).decimals();
         return uint256(answer) * PRECISION / (10 ** uint256(dec));
     }
@@ -283,10 +350,10 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     // ─── Pool: Deposit / Withdraw ─────────────────────────────────────────────
 
     function deposit(uint256 amount) external nonReentrant notPaused {
-        require(amount > 0, "zero amount");
-        require(totalAssets + amount <= tvlCap, "tvl cap");
+        require(amount > 0, ZeroAmount());
+        require(totalAssets + amount <= tvlCap, TvlCap());
         // A stale price makes NAV assume the worst case (shares look cheap): never let new money in at that price
-        require(!_breaker(_spot()), "circuit breaker");
+        require(!_breaker(_spot()), CircuitBreaker());
         _harvest(); // yield earned so far belongs to the LPs already in
 
         uint256 shares;
@@ -297,10 +364,10 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
         // After a total loss, outstanding yMUSD is worth nothing. Minting 1:1 here would hand those
         // holders a share of the new depositor's money, so block deposits until the old shares are
         // cleared (holders can withdraw 0, or the owner calls clearWorthlessShares).
-        require(!(supply > 0 && nav == 0), "pool insolvent: clear old shares first");
+        require(!(supply > 0 && nav == 0), PoolInsolventClearOldSharesFirst());
         if (supply == 0) {
             shares = amount;
-            require(amount >= 1e15, "min deposit 0.001 MUSD"); // inflation attack guard
+            require(amount >= 1e15, MinDeposit0001MUSD()); // inflation attack guard
         } else {
             shares = amount * supply / nav;
         }
@@ -314,10 +381,10 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     }
 
     function withdraw(uint256 shares) external nonReentrant {
-        require(shares > 0, "zero shares");
+        require(shares > 0, ZeroShares());
         uint256 supply = ymusd.totalSupply();
-        require(supply > 0, "no supply");
-        require(block.timestamp >= depositLockExpiry[msg.sender], "deposit locked");
+        require(supply > 0, NoSupply());
+        require(block.timestamp >= depositLockExpiry[msg.sender], DepositLocked());
         _harvest();
 
         // Priced on net asset value so a leaving LP takes their share of open losses with them.
@@ -325,7 +392,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
         // Leaving while options are open costs a small fee, which stays in the pool for the LPs who remain.
         if (openPoolOptions.length > 0) musdOut -= musdOut * withdrawalFeeBps / 10000;
         uint256 available = totalAssets - lockedCollateral;
-        require(musdOut <= available, "insufficient liquidity");
+        require(musdOut <= available, InsufficientLiquidity());
         _ensureCash(musdOut); // recall from savings if needed; option payouts never depend on this
 
         totalAssets -= musdOut; // effects before interactions
@@ -341,13 +408,13 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     ///         take deposits again. Callable only when totalAssets == 0, so it can never touch value.
     ///         `holders` is built off-chain from yMUSD Transfer events; reverts unless it clears all supply.
     function clearWorthlessShares(address[] calldata holders) external onlyOwner {
-        require(totalAssets == 0 && lockedCollateral == 0, "pool has assets");
+        require(totalAssets == 0 && lockedCollateral == 0, PoolHasAssets());
         uint256 burned = 0;
         for (uint256 i = 0; i < holders.length; i++) {
             uint256 bal = ymusd.balanceOf(holders[i]);
             if (bal > 0) { ymusd.burn(holders[i], bal); burned += bal; }
         }
-        require(ymusd.totalSupply() == 0, "holders list incomplete");
+        require(ymusd.totalSupply() == 0, HoldersListIncomplete());
         emit SharesCleared(holders.length, burned);
     }
 
@@ -508,9 +575,9 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
         uint256    expiry,
         uint256    premium
     ) external nonReentrant notPaused returns (uint256 id) {
-        require(strike > 0 && quantity > 0 && premium > 0, "invalid params");
-        require(expiry > block.timestamp + MIN_EXPIRY, "expiry too soon");
-        require(expiry <= block.timestamp + MAX_EXPIRY, "expiry too far");
+        require(strike > 0 && quantity > 0 && premium > 0, InvalidParams());
+        require(expiry > block.timestamp + MIN_EXPIRY, ExpiryTooSoon());
+        require(expiry <= block.timestamp + MAX_EXPIRY, ExpiryTooFar());
 
         musd.safeTransferFrom(msg.sender, address(this), premium);
 
@@ -585,14 +652,14 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
         uint256    expiry,
         uint256    premium
     ) external nonReentrant notPaused returns (uint256 id) {
-        require(strike > 0 && quantity > 0 && premium > 0, "invalid params");
-        require(expiry > block.timestamp + MIN_EXPIRY, "expiry too soon");
-        require(expiry <= block.timestamp + MAX_EXPIRY, "expiry too far");
+        require(strike > 0 && quantity > 0 && premium > 0, InvalidParams());
+        require(expiry > block.timestamp + MIN_EXPIRY, ExpiryTooSoon());
+        require(expiry <= block.timestamp + MAX_EXPIRY, ExpiryTooFar());
 
         uint256 spot       = _spot();
         uint256 collateral = _requiredCollateral(optionType, spot, strike, quantity);
-        require(collateral > 0, "zero collateral: strike too far OTM");
-        require(collateral <= maxOptionCollateral, "collateral exceeds max");
+        require(collateral > 0, ZeroCollateralStrikeTooFarOTM());
+        require(collateral <= maxOptionCollateral, CollateralExceedsMax());
 
         musd.safeTransferFrom(msg.sender, address(this), collateral);
 
@@ -630,24 +697,24 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
         bytes calldata troveSig,
         uint256    troveDeadline
     ) external nonReentrant notPaused returns (uint256 id) {
-        require(strike > 0 && quantity > 0 && premium > 0, "invalid params");
-        require(expiry > block.timestamp + MIN_EXPIRY, "expiry too soon");
-        require(expiry <= block.timestamp + MAX_EXPIRY, "expiry too far");
-        require(troveSig.length > 0 && troveDeadline > block.timestamp, "invalid trove sig");
+        require(strike > 0 && quantity > 0 && premium > 0, InvalidParams());
+        require(expiry > block.timestamp + MIN_EXPIRY, ExpiryTooSoon());
+        require(expiry <= block.timestamp + MAX_EXPIRY, ExpiryTooFar());
+        require(troveSig.length > 0 && troveDeadline > block.timestamp, InvalidTroveSig());
 
         uint256 spot     = _spot();
         uint256 required = _requiredCollateral(optionType, spot, strike, quantity);
-        require(required > 0, "zero collateral: strike too far OTM");
-        require(marginAmount >= required, "margin below required");
-        require(marginAmount <= maxOptionCollateral, "collateral exceeds max");
+        require(required > 0, ZeroCollateralStrikeTooFarOTM());
+        require(marginAmount >= required, MarginBelowRequired());
+        require(marginAmount <= maxOptionCollateral, CollateralExceedsMax());
 
         // Trove must stay healthy AFTER the draw (stricter than Mezo's own minimum ratio).
         ITroveManager tm = ITroveManager(TROVE_MANAGER);
-        require(tm.getTroveStatus(msg.sender) == 1, "no active trove");
+        require(tm.getTroveStatus(msg.sender) == 1, NoActiveTrove());
         // coll[1e18 BTC] * spot[1e18 USD/BTC] vs debt[1e18] * MIN_ICR[1e18]: both sides 1e36-scaled,
         // so no intermediate division / rounding.
         uint256 newDebt = tm.getTroveDebt(msg.sender) + marginAmount;
-        require(tm.getTroveColl(msg.sender) * spot >= newDebt * MIN_ICR, "trove ICR too low after draw");
+        require(tm.getTroveColl(msg.sender) * spot >= newDebt * MIN_ICR, TroveICRTooLowAfterDraw());
 
         // Effects first (the external calls below are to Mezo and MUSD; the whole function is also
         // nonReentrant). A revert in either call unwinds these writes.
@@ -669,7 +736,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
         IBorrowerOperationsSignatures(BORROWER_OPS_SIGS).withdrawMUSDWithSignature(
             marginAmount, address(0), address(0), msg.sender, msg.sender, troveSig, troveDeadline
         );
-        require(musd.balanceOf(msg.sender) - balBefore >= marginAmount, "trove draw short");
+        require(musd.balanceOf(msg.sender) - balBefore >= marginAmount, TroveDrawShort());
         musd.safeTransferFrom(msg.sender, address(this), marginAmount);
 
         emit OrderCreated(id, optionType, msg.sender, false);
@@ -679,10 +746,10 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
 
     function fillLong(uint256 id) external nonReentrant notPaused {
         Option storage o = options[id];
-        require(o.status == OrderStatus.OPEN, "not open");
-        require(o.short != address(0) && o.long == address(0), "not a short order");
-        require(o.expiry > block.timestamp, "expired");
-        require(msg.sender != o.short, "cannot self-fill");
+        require(o.status == OrderStatus.OPEN, NotOpen());
+        require(o.short != address(0) && o.long == address(0), NotAShortOrder());
+        require(o.expiry > block.timestamp, Expired());
+        require(msg.sender != o.short, CannotSelfFill());
 
         musd.safeTransferFrom(msg.sender, address(this), o.premium);
         uint256 netPremium = _takePremiumFee(o.premium);
@@ -701,14 +768,14 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     ///         Seller posts MUSD collateral and receives the premium (less protocol fee).
     function fillShort(uint256 id) external nonReentrant notPaused {
         Option storage o = options[id];
-        require(o.status == OrderStatus.OPEN, "not open");
-        require(o.long != address(0) && o.short == address(0), "not a long order");
-        require(o.expiry > block.timestamp, "expired");
-        require(msg.sender != o.long, "cannot self-fill");
+        require(o.status == OrderStatus.OPEN, NotOpen());
+        require(o.long != address(0) && o.short == address(0), NotALongOrder());
+        require(o.expiry > block.timestamp, Expired());
+        require(msg.sender != o.long, CannotSelfFill());
 
         uint256 collateral = _requiredCollateral(o.optionType, _spot(), o.strike, o.quantity);
-        require(collateral > 0, "zero collateral: strike too far OTM");
-        require(collateral <= maxOptionCollateral, "collateral exceeds max");
+        require(collateral > 0, ZeroCollateralStrikeTooFarOTM());
+        require(collateral <= maxOptionCollateral, CollateralExceedsMax());
 
         musd.safeTransferFrom(msg.sender, address(this), collateral);
         uint256 netPremium = _takePremiumFee(o.premium);
@@ -725,7 +792,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     // ─── Settlement ───────────────────────────────────────────────────────────
 
     function settle(uint256 id) external nonReentrant {
-        require(msg.sender == options[id].long, "only long can settle");
+        require(msg.sender == options[id].long, OnlyLongCanSettle());
         _settle(id, address(0));
     }
 
@@ -742,32 +809,32 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
 
     function setAutoExercise(uint256 id, bool on) external {
         Option storage o = options[id];
-        require(msg.sender == o.long && o.status == OrderStatus.FILLED, "not your open option");
+        require(msg.sender == o.long && o.status == OrderStatus.FILLED, NotYourOpenOption());
         autoExercise[id] = on;
         emit AutoExerciseSet(id, on);
     }
 
     function settleFor(uint256 id) external nonReentrant {
         Option storage o = options[id];
-        require(autoExercise[id], "auto-exercise not enabled");
-        require(o.expiry > block.timestamp && o.expiry - block.timestamp <= AUTO_EXERCISE_WINDOW, "not in exercise window");
+        require(autoExercise[id], AutoExerciseNotEnabled());
+        require(o.expiry > block.timestamp && o.expiry - block.timestamp <= AUTO_EXERCISE_WINDOW, NotInExerciseWindow());
         _settle(id, msg.sender);
     }
 
     function setKeeperFeeBps(uint256 _bps) external onlyOwner {
-        require(_bps <= MAX_KEEPER_FEE_BPS, "max 2%");
+        require(_bps <= MAX_KEEPER_FEE_BPS, Max2Pct());
         keeperFeeBps = _bps;
         emit KeeperFeeSet(_bps);
     }
 
     function _settle(uint256 id, address keeper) internal {
         Option storage o = options[id];
-        require(o.status == OrderStatus.FILLED, "not filled");
-        require(o.expiry > block.timestamp, "expired");
+        require(o.status == OrderStatus.FILLED, NotFilled());
+        require(o.expiry > block.timestamp, Expired());
 
         uint256 spot   = _spotMaxAge(EXERCISE_PRICE_STALENESS);
         uint256 profit = _profit(o, spot);
-        require(profit > 0, "not in the money");
+        require(profit > 0, NotInTheMoney());
 
         o.status = OrderStatus.SETTLED;
         uint256 paid = profit > o.collateral ? o.collateral : profit;
@@ -814,10 +881,10 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     ///         sold back; the premium the pool already booked stays with LPs, minus this payout.
     function sellBack(uint256 id, uint256 minPayout) external nonReentrant notPaused {
         Option storage o = options[id];
-        require(msg.sender == o.long, "only long can sell back");
-        require(!_breaker(_spot()), "circuit breaker");
+        require(msg.sender == o.long, OnlyLongCanSellBack());
+        require(!_breaker(_spot()), CircuitBreaker());
         uint256 payout = quoteBuyback(id);
-        require(payout > 0 && payout >= minPayout, "no bid");
+        require(payout > 0 && payout >= minPayout, NoBid());
 
         o.status = OrderStatus.CLOSED;
         _removeOpenPoolOption(id);
@@ -837,8 +904,8 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
 
     function refund(uint256 id) external nonReentrant {
         Option storage o = options[id];
-        require(o.status == OrderStatus.FILLED, "not filled");
-        require(block.timestamp >= o.expiry, "not expired");
+        require(o.status == OrderStatus.FILLED, NotFilled());
+        require(block.timestamp >= o.expiry, NotExpired());
 
         o.status = OrderStatus.REFUNDED;
 
@@ -858,7 +925,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
 
     function cancelOrder(uint256 id) external nonReentrant {
         Option storage o = options[id];
-        require(o.status == OrderStatus.OPEN, "not open");
+        require(o.status == OrderStatus.OPEN, NotOpen());
 
         if (o.long == msg.sender && o.short == address(0)) {
             // long order, unfilled — return premium
@@ -869,7 +936,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
             o.status = OrderStatus.REFUNDED;
             musd.safeTransfer(o.short, o.collateral);
         } else {
-            revert("not your order");
+            revert NotYourOrder();
         }
         emit Cancelled(id, msg.sender);
     }
@@ -887,7 +954,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
 
     /// @notice Set the savings vault and cap. Changing the vault requires everything divested first.
     function setSavings(address s, uint256 capBps) external onlyOwner {
-        require(capBps <= 8000 && (s == address(savings) || invested == 0), "bad savings");
+        require(capBps <= 8000 && (s == address(savings) || invested == 0), BadSavings());
         savings = ISavings(s);
         investCapBps = capBps;
         if (s != address(0)) musd.approve(s, type(uint256).max); // trusted Mezo vault; MUSD returns true
@@ -895,8 +962,8 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
 
     /// @notice Move `amount` of free pool MUSD into savings (owner or keeper), within the cap.
     function invest(uint256 amount) external nonReentrant {
-        require(msg.sender == owner() || msg.sender == ivKeeper, "not keeper");
-        require((invested + amount) * 10000 <= (totalAssets - lockedCollateral) * investCapBps, "over cap");
+        require(msg.sender == owner() || msg.sender == ivKeeper, NotKeeper());
+        require((invested + amount) * 10000 <= (totalAssets - lockedCollateral) * investCapBps, OverCap());
         invested += amount;
         savings.deposit(amount);
         emit Savings(invested, 0);
@@ -904,7 +971,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
 
     /// @notice Bring `amount` back from savings (owner, keeper or guardian; more than invested = all).
     function divest(uint256 amount) external nonReentrant {
-        require(msg.sender == owner() || msg.sender == ivKeeper || msg.sender == guardian, "not keeper");
+        require(msg.sender == owner() || msg.sender == ivKeeper || msg.sender == guardian, NotKeeper());
         _divest(amount > invested ? invested : amount);
     }
 
@@ -914,7 +981,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
         invested -= amount;
         savings.withdraw(amount);
         uint256 got = musd.balanceOf(address(this)) - before;
-        require(got >= amount, "savings short"); // principal must come back in full
+        require(got >= amount, SavingsShort()); // principal must come back in full
         _bookYield(got - amount);
     }
 
@@ -962,7 +1029,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     function quotePremium(
         bool isCall, uint256 strike, uint256 quantity, uint256 expiry
     ) external view returns (uint256) {
-        require(expiry > block.timestamp, "expired");
+        require(expiry > block.timestamp, Expired());
         (uint256 fair, uint256 hardFloor) = _poolPrice(
             isCall ? OptionType.CALL : OptionType.PUT, _spot(), strike, quantity, expiry);
         return fair > hardFloor ? fair : hardFloor;
@@ -991,13 +1058,13 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
 
     function setIV(uint256 _iv) external {
         bool isOwner = msg.sender == owner();
-        require(isOwner || msg.sender == ivKeeper, "not owner or keeper");
-        require(_iv >= MIN_IV && _iv <= MAX_IV, "iv out of range");
+        require(isOwner || msg.sender == ivKeeper, NotOwnerOrKeeper());
+        require(_iv >= MIN_IV && _iv <= MAX_IV, IvOutOfRange());
         if (!isOwner) {
             // A stolen keeper key can only walk the price slowly, giving the owner/guardian time to react
-            require(block.timestamp >= lastIvUpdate + ivMinInterval, "iv updated too recently");
+            require(block.timestamp >= lastIvUpdate + ivMinInterval, IvUpdatedTooRecently());
             uint256 d = _iv > iv ? _iv - iv : iv - _iv;
-            require(d * 10000 <= iv * maxIvStepBps, "iv step too large");
+            require(d * 10000 <= iv * maxIvStepBps, IvStepTooLarge());
         }
         lastIvUpdate = block.timestamp;
         iv = _iv;
@@ -1005,8 +1072,8 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     }
 
     function setIvLimits(uint256 minInterval, uint256 stepBps) external onlyOwner {
-        require(minInterval <= 1 days, "interval too long");
-        require(stepBps >= 100 && stepBps <= 5000, "step out of range");
+        require(minInterval <= 1 days, IntervalTooLong());
+        require(stepBps >= 100 && stepBps <= 5000, StepOutOfRange());
         ivMinInterval = minInterval;
         maxIvStepBps = stepBps;
         emit IvLimitsSet(minInterval, stepBps);
@@ -1016,7 +1083,7 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     function setIvKeeper(address _keeper) external onlyOwner { ivKeeper = _keeper; emit IvKeeperSet(_keeper); }
 
     function setIvSpreadBps(uint256 _bps) external onlyOwner {
-        require(_bps <= MAX_IV_SPREAD_BPS, "spread too high");
+        require(_bps <= MAX_IV_SPREAD_BPS, SpreadTooHigh());
         ivSpreadBps = _bps;
         emit IvSpreadSet(_bps);
     }
@@ -1026,65 +1093,65 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     function setMaxOptionCollateral(uint256 _max) external onlyOwner { maxOptionCollateral = _max; emit MaxOptionCollateralSet(_max); }
 
     function setFeeRecipient(address _r) external onlyOwner {
-        require(_r != address(0), "zero address");
+        require(_r != address(0), ZeroAddress());
         feeRecipient = _r;
         emit FeeRecipientSet(_r);
     }
 
     function setProtocolFeeBps(uint256 _bps) external onlyOwner {
-        require(_bps <= 500, "max 5%");
+        require(_bps <= 500, Max5Pct());
         protocolFeeBps = _bps;
         emit ProtocolFeeSet(_bps);
     }
 
     function setPerformanceFeeBps(uint256 _bps) external nonReentrant onlyOwner {
-        require(_bps <= 3000, "max 30%");
+        require(_bps <= 3000, Max30Pct());
         _takePerformanceFee(); // yield earned so far is charged at the old rate, never the new one
         performanceFeeBps = _bps;
         emit PerformanceFeeSet(_bps);
     }
 
     function setWithdrawalFeeBps(uint256 _bps) external onlyOwner {
-        require(_bps <= MAX_WITHDRAWAL_FEE_BPS, "max 1%");
+        require(_bps <= MAX_WITHDRAWAL_FEE_BPS, Max1Pct());
         withdrawalFeeBps = _bps;
         emit WithdrawalFeeSet(_bps);
     }
 
     function setRiskLimits(uint256 _maxUtilBps, uint256 _maxExposureBps) external onlyOwner {
-        require(_maxUtilBps > 0 && _maxUtilBps <= 10000 && _maxExposureBps > 0 && _maxExposureBps <= _maxUtilBps, "bad limits");
+        require(_maxUtilBps > 0 && _maxUtilBps <= 10000 && _maxExposureBps > 0 && _maxExposureBps <= _maxUtilBps, BadLimits());
         maxUtilisationBps = _maxUtilBps;
         maxOptionExposureBps = _maxExposureBps;
         emit RiskLimitsSet(_maxUtilBps, _maxExposureBps);
     }
 
     function setMinRentBps(uint256 _bps) external onlyOwner {
-        require(_bps <= MAX_MIN_RENT_BPS, "max 50%");
+        require(_bps <= MAX_MIN_RENT_BPS, Max50Pct());
         minRentBps = _bps;
         emit MinRentSet(_bps);
     }
 
     function setMaxStrikeDistanceBps(uint256 _bps) external onlyOwner {
-        require(_bps >= 1000 && _bps <= 10000, "between 10% and 100%");
+        require(_bps >= 1000 && _bps <= 10000, Between10PctAnd100Pct());
         maxStrikeDistanceBps = _bps;
         emit MaxStrikeDistanceSet(_bps);
     }
 
     function setMinPoolExpiry(uint256 _seconds) external onlyOwner {
-        require(_seconds >= MIN_EXPIRY && _seconds <= 7 days, "out of range");
+        require(_seconds >= MIN_EXPIRY && _seconds <= 7 days, OutOfRange());
         minPoolExpiry = _seconds;
         emit MinPoolExpirySet(_seconds);
     }
 
     function setUtilSpreadBps(uint256 _bps) external onlyOwner {
-        require(_bps <= MAX_UTIL_SPREAD_BPS, "spread too high");
+        require(_bps <= MAX_UTIL_SPREAD_BPS, SpreadTooHigh());
         utilSpreadBps = _bps;
         emit UtilSpreadSet(_bps);
     }
 
     function setBreaker(uint256 window, uint256 maxMoveBps, uint256 cooldown) external onlyOwner {
-        require(window >= 1 minutes && window <= 1 days, "bad window");
-        require(maxMoveBps >= 100 && maxMoveBps <= 50000, "bad move");
-        require(cooldown <= 1 days, "bad cooldown");
+        require(window >= 1 minutes && window <= 1 days, BadWindow());
+        require(maxMoveBps >= 100 && maxMoveBps <= 50000, BadMove());
+        require(cooldown <= 1 days, BadCooldown());
         cbWindow = window; cbMaxMoveBps = maxMoveBps; cbCooldown = cooldown;
         emit BreakerSet(window, maxMoveBps, cooldown);
     }
@@ -1109,13 +1176,13 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     function pokeCircuitBreaker() external returns (bool) { return _breaker(_spot()); }
 
     function setMaxOpenPoolOptions(uint256 n) external onlyOwner {
-        require(n >= 1 && n <= MAX_OPEN_POOL_OPTIONS_CEILING, "out of range");
+        require(n >= 1 && n <= MAX_OPEN_POOL_OPTIONS_CEILING, OutOfRange());
         maxOpenPoolOptions = n; // lowering never closes existing options; it only stops new pool fills
         emit MaxOpenPoolOptionsSet(n);
     }
 
     function setDepositLock(uint256 _seconds) external onlyOwner {
-        require(_seconds <= MAX_DEPOSIT_LOCK, "max 7 days");
+        require(_seconds <= MAX_DEPOSIT_LOCK, Max7Days());
         depositLockSeconds = _seconds; // applies to deposits made after this call
         emit DepositLockSet(_seconds);
     }
@@ -1130,11 +1197,11 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
     function setGuardian(address g) external onlyOwner { guardian = g; emit GuardianSet(g); }
 
     function pausePool() external {
-        require(msg.sender == owner() || msg.sender == guardian, "not owner or guardian");
+        require(msg.sender == owner() || msg.sender == guardian, NotOwnerOrGuardian());
         paused = true; emit PausedSet(true);
     }
     function unpausePool() external onlyOwner { paused = false; emit PausedSet(false); }
 
     /// @dev Renouncing would freeze every parameter forever, including the ability to pause.
-    function renounceOwnership() public view override onlyOwner { revert("renounce disabled"); }
+    function renounceOwnership() public view override onlyOwner { revert RenounceDisabled(); }
 }
