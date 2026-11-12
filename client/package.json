@@ -35,6 +35,9 @@
   "overrides": {
     "@mezo-org/passport": {
       "@rainbow-me/rainbowkit": "$@rainbow-me/rainbowkit"
+    },
+    "cuer": {
+      "qr": "0.5.5"
     }
   }
 }
