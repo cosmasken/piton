@@ -85,6 +85,13 @@ type Pool @entity(immutable: false) {
   volumeQuantity: BigDecimal!
   volumePremium: BigDecimal!
   payouts: BigDecimal!
+  "running totals from the contract (MUSD): premiums the pool earned, payouts to buyers, Mezo savings yield, performance fees"
+  premiumsEarned: BigDecimal!
+  settlementsPaid: BigDecimal!
+  savingsYield: BigDecimal!
+  performanceFees: BigDecimal!
+  "MUSD in Mezo savings (sMUSD)"
+  invested: BigDecimal!
   breakerTrips: Int!
   updatedAt: BigInt!
 }
@@ -104,6 +111,11 @@ type PoolHourSnapshot @entity(immutable: false) {
   payouts: BigDecimal!
   deposits: BigDecimal!
   withdrawals: BigDecimal!
+  "running totals at the end of the period (see Pool)"
+  premiumsEarned: BigDecimal!
+  settlementsPaid: BigDecimal!
+  savingsYield: BigDecimal!
+  performanceFees: BigDecimal!
 }
 
 type PoolDaySnapshot @entity(immutable: false) {
@@ -120,6 +132,11 @@ type PoolDaySnapshot @entity(immutable: false) {
   payouts: BigDecimal!
   deposits: BigDecimal!
   withdrawals: BigDecimal!
+  "running totals at the end of the period (see Pool)"
+  premiumsEarned: BigDecimal!
+  settlementsPaid: BigDecimal!
+  savingsYield: BigDecimal!
+  performanceFees: BigDecimal!
 }
 
 type IvUpdate @entity(immutable: true) {

@@ -55,4 +55,6 @@ dataSources:
           handler: handleIVUpdated
         - event: BreakerTripped(uint256,uint256,uint256)
           handler: handleBreakerTripped
+        - event: Savings(uint256,uint256)
+          handler: handleSavings
       file: ./src/mapping.ts

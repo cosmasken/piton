@@ -12,6 +12,7 @@ import {
   Withdrawn,
   IVUpdated,
   BreakerTripped,
+  Savings,
 } from "../generated/OptionPool/OptionPool";
 import { ERC20 } from "../generated/OptionPool/ERC20";
 import {
@@ -98,6 +99,11 @@ function refreshPool(e: ethereum.Event): Pool {
     p.sharePrice = BigDecimal.fromString("1");
     p.iv = ZERO;
     p.openPoolOptions = 0;
+    p.premiumsEarned = ZERO;
+    p.settlementsPaid = ZERO;
+    p.savingsYield = ZERO;
+    p.performanceFees = ZERO;
+    p.invested = ZERO;
   }
   let ta = c.try_totalAssets();
   if (!ta.reverted) p.totalAssets = dec(ta.value);
@@ -107,6 +113,16 @@ function refreshPool(e: ethereum.Event): Pool {
   if (!nav.reverted) p.netAssetValue = dec(nav.value);
   let iv = c.try_iv();
   if (!iv.reverted) p.iv = dec(iv.value);
+  let pe = c.try_totalPremiumsEarned();
+  if (!pe.reverted) p.premiumsEarned = dec(pe.value);
+  let sp = c.try_totalSettlementsPaid();
+  if (!sp.reverted) p.settlementsPaid = dec(sp.value);
+  let sy = c.try_totalSavingsYield();
+  if (!sy.reverted) p.savingsYield = dec(sy.value);
+  let pf = c.try_totalPerformanceFeePaid();
+  if (!pf.reverted) p.performanceFees = dec(pf.value);
+  let inv = c.try_invested();
+  if (!inv.reverted) p.invested = dec(inv.value);
   let open = c.try_openPoolOptionCount();
   if (!open.reverted) p.openPoolOptions = open.value.toI32();
   let y = c.try_ymusd();
@@ -141,6 +157,10 @@ function hourSnap(e: ethereum.Event, p: Pool): PoolHourSnapshot {
   s.netAssetValue = p.netAssetValue;
   s.sharePrice = p.sharePrice;
   s.iv = p.iv;
+  s.premiumsEarned = p.premiumsEarned;
+  s.settlementsPaid = p.settlementsPaid;
+  s.savingsYield = p.savingsYield;
+  s.performanceFees = p.performanceFees;
   return s;
 }
 
@@ -162,6 +182,10 @@ function daySnap(e: ethereum.Event, p: Pool): PoolDaySnapshot {
   s.netAssetValue = p.netAssetValue;
   s.sharePrice = p.sharePrice;
   s.iv = p.iv;
+  s.premiumsEarned = p.premiumsEarned;
+  s.settlementsPaid = p.settlementsPaid;
+  s.savingsYield = p.savingsYield;
+  s.performanceFees = p.performanceFees;
   return s;
 }
 
@@ -376,4 +400,9 @@ export function handleBreakerTripped(e: BreakerTripped): void {
   let p = refreshPool(e);
   p.breakerTrips = p.breakerTrips + 1;
   p.save();
+}
+
+/** Spare MUSD moved into or out of Mezo savings (and any yield brought in): refresh share price and totals. */
+export function handleSavings(e: Savings): void {
+  record(e, 0, ZERO, ZERO, ZERO, ZERO, ZERO);
 }

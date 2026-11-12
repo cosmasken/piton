@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
 import { toast } from 'react-toastify';
 import { useStore, ADDRESSES } from '../store';
@@ -12,7 +12,54 @@ import { lpPosition, poolExposure } from '../portfolio.mjs';
 import { useTimes } from '../useTimes';
 import { getNetwork } from '../network.mjs';
 import { fmtDuration, lockRemaining, breakerActive, withdrawEstimate } from '../poolRules.mjs';
+import { annualisedReturn, historyDays, yieldBreakdown } from '../poolYield.mjs';
 
+/**
+ * Depositors' yield: share-price growth over 7 and 30 days as an annual rate (from the subgraph's hourly snapshots;
+ * shown only once the pool has that much history), and where the yield came from (on-chain running totals).
+ */
+function YieldCard({ p, shareValue, network }) {
+  const [snaps, setSnaps] = useState(null);
+  const now = useNow(60_000);
+  useEffect(() => {
+    let off = false;
+    const load = async () => {
+      // newest 1,000 hours (~41 days) are enough for the 30-day rate
+      const d = await useStore.getState().querySubgraph('{ poolHourSnapshots(first: 1000, orderBy: periodStart, orderDirection: desc) { periodStart sharePrice } }');
+      if (!off) setSnaps(d ? [...d.poolHourSnapshots].reverse() : []);
+    };
+    load(); const id = setInterval(load, 300_000);
+    return () => { off = true; clearInterval(id); };
+  }, [network]);
+  const sv = parseFloat(shareValue);
+  const r7 = annualisedReturn(snaps, { nowSec: now, sharePrice: sv, days: 7 });
+  const r30 = annualisedReturn(snaps, { nowSec: now, sharePrice: sv, days: 30 });
+  const age = historyDays(snaps, now);
+  const b = yieldBreakdown(p);
+  const rate = r => r == null ? '—' : `${r >= 0 ? '+' : ''}${(r * 100).toFixed(1)}%`;
+  const signed = v => `${v >= 0 ? '+' : ''}${nf(v)}`;
+  return (
+    <div className="bg-surface rounded-md px-3 py-2 space-y-1 text-xs" aria-label="Pool yield">
+      <div className="flex justify-between items-baseline">
+        <span className="text-dim" title="Growth of the yMUSD share value, as a simple annual rate. Past returns, testnet.">Yield / yr (7d · 30d)</span>
+        <span className="font-mono whitespace-nowrap"><span className={r7 != null && r7 < 0 ? 'text-red' : 'text-accent'}>{rate(r7)}</span> <span className="text-dim">·</span> <span className={r30 != null && r30 < 0 ? 'text-red' : 'text-accent'}>{rate(r30)}</span></span>
+      </div>
+      {snaps && r7 == null && (
+        <p className="text-[10px] text-dim">Shows after 7 days of history{age > 0 ? ` (pool age ${age < 1 ? `${Math.max(1, Math.round(age * 24))} h` : `${age.toFixed(1)} days`})` : ''}.</p>
+      )}
+      {b && <>
+        <div className="flex justify-between" title="Premium the pool has earned (excluding premium on options still open) minus payouts to buyers">
+          <span className="text-dim">Options, net of payouts</span><span className={`font-mono ${b.options >= 0 ? 'text-text' : 'text-red'}`}>{signed(b.options)}</span></div>
+        <div className="flex justify-between" title="Mezo's MUSD savings rate on spare pool MUSD (sMUSD)">
+          <span className="text-dim">Mezo savings</span><span className="font-mono text-text">{signed(b.savings)}</span></div>
+        <div className="flex justify-between" title="Protocol performance fee, taken only from new net yield">
+          <span className="text-dim">Performance fee</span><span className="font-mono text-text">{b.fees > 0 ? `−${nf(b.fees)}` : nf(0)}</span></div>
+        <div className="flex justify-between border-t border-border pt-1">
+          <span className="text-dim" title="All time, in MUSD">Net to depositors</span><span className={`font-mono ${b.net >= 0 ? 'text-accent' : 'text-red'}`}>{signed(b.net)}</span></div>
+      </>}
+    </div>
+  );
+}
 
 function TxToast({ msg, hash }) {
   return <div>{msg}{hash && <><br/><a href={explorerTx(useStore.getState().network, hash)} target="_blank" rel="noreferrer" className="text-accent text-xs underline">View on explorer ↗</a></>}</div>;
@@ -213,6 +260,8 @@ export default function Pool() {
         </div>
 
         {poolParams && <UtilGauge p={poolParams} locked={poolLocked} onExposure={() => setExposure(true)} />}
+
+        {poolParams && <YieldCard p={poolParams} shareValue={poolShareValue} network={network} />}
 
         <YourPosition shares={parseFloat(ymusdRaw) || 0} shareValue={parseFloat(poolShareValue)} history={history} account={account} p={poolParams} musdBalance={musdBalance} />
 
