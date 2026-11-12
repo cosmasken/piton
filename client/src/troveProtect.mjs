@@ -61,3 +61,24 @@ export function suggestProtection({ coll, debt, spot, buffer = DEFAULT_BUFFER, c
     maxLoss: strike * qty, // not the buyer's loss; the pool's max payout (= pool collateral)
   };
 }
+
+/** Piton's own floor for drawing margin from a Trove (OptionPool MIN_ICR, stricter than Mezo's 110%). */
+export const TROVE_MARGIN_MIN_ICR = 1.5;
+
+/**
+ * Can this Trove fund `margin` MUSD of option margin and stay healthy? Used by the two-step Trove margin for
+ * Bitcoin-wallet users (borrow, then post the sale), which skips the contract's one-signature path and its check,
+ * so the app applies the same rule first. Returns { ok, ratioAfter, maxMargin, reason }.
+ */
+export function troveMarginCheck({ coll, debt, spot, margin, minIcr = TROVE_MARGIN_MIN_ICR }) {
+  if (!(coll > 0)) return { ok: false, ratioAfter: 0, maxMargin: 0, reason: 'No active Mezo Trove found for this wallet.' };
+  if (!(spot > 0) || !(margin > 0)) return { ok: false, ratioAfter: 0, maxMargin: 0, reason: 'No price or no size yet.' };
+  const value = coll * spot;
+  const ratioAfter = value / (debt + margin);
+  const maxMargin = Math.max(0, value / minIcr - debt);
+  if (ratioAfter < minIcr) {
+    return { ok: false, ratioAfter, maxMargin,
+      reason: `Borrowing ${margin.toFixed(2)} MUSD would take your Trove to ${(ratioAfter * 100).toFixed(0)}%; Piton needs at least ${minIcr * 100}%. The most you can draw now is about ${maxMargin.toFixed(2)} MUSD.` };
+  }
+  return { ok: true, ratioAfter, maxMargin, reason: null };
+}

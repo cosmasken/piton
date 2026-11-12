@@ -17,8 +17,15 @@ import { sizeFromNotional, sizeForBudget, priceFromPct, pctFromPrice, outcome as
 import InstrumentStrip from './InstrumentStrip';
 import Modal from './Modal';
 import ProtectTrove from './ProtectTrove';
+import { troveMarginCheck } from '../troveProtect.mjs';
 import PayoffChart from './PayoffChart';
 
+const TROVE_MANAGER_ABI = [
+  'function getTroveStatus(address) view returns (uint256)',
+  'function getTroveColl(address) view returns (uint256)',
+  'function getTroveDebt(address) view returns (uint256)',
+];
+const BORROWER_OPS_ABI = ['function withdrawMUSD(uint256 _amount, address _upperHint, address _lowerHint)'];
 const BORROWER_OPS_SIGS_ABI = [{ type: 'function', name: 'getNonce', stateMutability: 'view', inputs: [{ name: 'user', type: 'address' }], outputs: [{ type: 'uint256' }] }];
 
 // Mezo WithdrawMUSD typed data: commits to the exact amount and recipient and is consumed in the same
@@ -107,8 +114,8 @@ function UnitToggle({ value, options, onChange, label }) {
 export default function TradePanel() {
   const {
     signer, account, chainId, poolContract, musdContract, btcPrice: spot, options, poolParams,
-    selected, setSelected, refresh, oracleStale, roPool, musdBalance, musdRaw, setTradeLeg,
-  } = useStore(useShallow(s => ({ signer: s.signer, account: s.account, chainId: s.chainId, poolContract: s.poolContract, musdContract: s.musdContract, btcPrice: s.btcPrice, options: s.options, poolParams: s.poolParams, selected: s.selected, setSelected: s.setSelected, refresh: s.refresh, oracleStale: s.oracleStale, roPool: s.roPool, musdBalance: s.musdBalance, musdRaw: s.musdRaw, setTradeLeg: s.setTradeLeg })));
+    selected, setSelected, refresh, oracleStale, roPool, musdBalance, musdRaw, setTradeLeg, bitcoinWallet,
+  } = useStore(useShallow(s => ({ bitcoinWallet: s.bitcoinWallet, signer: s.signer, account: s.account, chainId: s.chainId, poolContract: s.poolContract, musdContract: s.musdContract, btcPrice: s.btcPrice, options: s.options, poolParams: s.poolParams, selected: s.selected, setSelected: s.setSelected, refresh: s.refresh, oracleStale: s.oracleStale, roPool: s.roPool, musdBalance: s.musdBalance, musdRaw: s.musdRaw, setTradeLeg: s.setTradeLeg })));
   const now = useNow(5000);
   const blockNo = useStore(s => s.block?.number); // re-quote on every new block
   const { isConnected } = useAccount();
@@ -230,6 +237,7 @@ export default function TradePanel() {
           : 'Not filled by the pool: your order is a resting bid and your premium is held. Cancel it any time in Open orders.';
         return tx;
       }
+      if (marginType === 'trove' && bitcoinWallet) return troveTwoStep(typeId, strikeWei, qtyWei, premiumWei, poolAddr, m => { msg = m; });
       if (marginType === 'trove') {
         const required = inst.isCall ? (spot * 3 - inst.strike) * q * 1.05 : inst.strike * q; // 5% buffer on calls; unused margin returns at expiry
         const marginWei = E18(required);
@@ -245,6 +253,38 @@ export default function TradePanel() {
       msg = 'Sell order posted. It rests on the book until a buyer takes it; cancel it any time in Open orders.';
       return (await poolContract.createShortOrder(typeId, strikeWei, qtyWei, inst.expiry, premiumWei)).wait();
     }, () => msg);
+  };
+
+  // Bitcoin wallets (Mezo Passport smart account) cannot sign Mezo's WithdrawMUSD typed data: Mezo checks it with
+  // ECDSA only, not smart-account signatures. So: borrow the margin from the Trove (step 1), then post an ordinary
+  // MUSD-margined sale (step 2). The app applies the contract's 150% rule before step 1.
+  const troveTwoStep = async (typeId, strikeWei, qtyWei, premiumWei, poolAddr, setMsg) => {
+    const a = ADDRESSES[chainId];
+    const tm = new ethers.Contract(a.troveManager, TROVE_MANAGER_ABI, signer.provider);
+    if ((await tm.getTroveStatus(account)) !== 1n) throw new Error('No active Mezo Trove found for this wallet.');
+    const [collWei, debtWei] = await Promise.all([tm.getTroveColl(account), tm.getTroveDebt(account)]);
+    const need = collateral * (inst.isCall ? 1.02 : 1); // the contract recomputes call collateral when the sale is mined
+    const have = parseFloat(musdRaw) || 0;
+    const borrow = Math.max(0, need - have);
+    if (borrow > 0) {
+      const chk = troveMarginCheck({ coll: parseFloat(ethers.formatEther(collWei)),
+        debt: parseFloat(ethers.formatEther(debtWei)) + borrow * 0.001, spot, margin: borrow }); // + Mezo's 0.1% borrowing fee
+      if (!chk.ok) throw new Error(chk.reason);
+      toast.info(`Step 1 of 2: borrowing ${fmt(borrow)} MUSD from your Trove. Your Bitcoin wallet asks you to sign.`);
+      const bo = new ethers.Contract(a.borrowerOps, BORROWER_OPS_ABI, signer);
+      const t1 = await (await bo.withdrawMUSD(E18(borrow), ethers.ZeroAddress, ethers.ZeroAddress)).wait();
+      toast.success(<TxToast msg={`Step 1 done: ${fmt(borrow)} MUSD borrowed from your Trove.`} hash={t1?.hash} />);
+    }
+    try {
+      toast.info('Step 2 of 2: posting the sell order. Your Bitcoin wallet asks you to sign.');
+      await ensureAllowance(musdContract, poolAddr, E18(need));
+      const tx = await (await poolContract.createShortOrder(typeId, strikeWei, qtyWei, inst.expiry, premiumWei)).wait();
+      setMsg('Sell order posted with margin borrowed from your Trove. It rests on the book until a buyer takes it; cancelling returns the margin as MUSD to your wallet.');
+      return tx;
+    } catch (e) {
+      if (borrow > 0) throw new Error(`The borrowed MUSD is in your wallet, but the sell order was not posted (${parseTxError(e)}). Try "Post sell order" again with MUSD margin, or repay the Trove in Mezo.`);
+      throw e;
+    }
   };
 
   // take a specific resting order from the book
@@ -390,8 +430,10 @@ export default function TradePanel() {
               <div className="space-y-1.5">
                 <button type="button" onClick={() => setMarginType(m => m === 'trove' ? 'musd' : 'trove')}
                   className={`w-full text-left px-3 py-2 rounded-md border transition-colors ${marginType === 'trove' ? 'border-accent/50 bg-accent/5' : 'border-border bg-surface hover:border-accent/30'}`}>
-                  <span className="text-xs font-display font-semibold text-accent">✦ Trove margin {marginType === 'trove' ? '(selected)' : ''}</span>
-                  <p className="text-xs text-dim mt-0.5">Borrow the margin from your Mezo Trove; your BTC stays in it. Unused margin returns as MUSD at expiry.</p>
+                  <span className="text-xs font-display font-semibold text-accent">✦ Trove margin{bitcoinWallet ? ' · 2 steps' : ''} {marginType === 'trove' ? '(selected)' : ''}</span>
+                  <p className="text-xs text-dim mt-0.5">{bitcoinWallet
+                    ? 'Borrow the margin from your Mezo Trove (step 1), then post the sale (step 2); your BTC stays in the Trove. Each step asks your Bitcoin wallet to sign.'
+                    : 'Borrow the margin from your Mezo Trove; your BTC stays in it. Unused margin returns as MUSD at expiry.'}</p>
                 </button>
               </div>
             )}

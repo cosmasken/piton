@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { liquidationPrice, collateralRatio, suggestProtection } from './troveProtect.mjs';
+import { liquidationPrice, collateralRatio, suggestProtection, troveMarginCheck } from './troveProtect.mjs';
 
 const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} !~ ${b}`);
 
@@ -65,4 +65,16 @@ test('size is capped to what the pool can sell now', () => {
   const s = suggestProtection({ coll: 0.1713, debt: 6441, spot: 73300, strikeBandBps: 3000, maxQty: 0.033 });
   assert.equal(s.qty, 0.033);
   assert.equal(s.capped, true);
+});
+
+test('Trove margin check: same 150% rule as the contract, with the most that can be drawn', () => {
+  // 0.1713 BTC at $72,000 = $12,333.6 of collateral; debt 6,000 -> 205%
+  const ok = troveMarginCheck({ coll: 0.1713, debt: 6000, spot: 72000, margin: 255 });
+  assert.equal(ok.ok, true);
+  assert.ok(ok.ratioAfter > 1.5);
+  const bad = troveMarginCheck({ coll: 0.1713, debt: 6000, spot: 72000, margin: 2500 });
+  assert.equal(bad.ok, false);
+  assert.match(bad.reason, /at least 150%/);
+  assert.ok(Math.abs(bad.maxMargin - (12333.6 / 1.5 - 6000)) < 1e-6);   // ~2,222.4 MUSD
+  assert.equal(troveMarginCheck({ coll: 0, debt: 0, spot: 72000, margin: 10 }).ok, false);
 });

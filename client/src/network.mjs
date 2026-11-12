@@ -37,6 +37,7 @@ export const NETWORKS = {
       oracle:          '0x7b7c000000000000000000000000000000000015',
       troveManager:    '0xE47c80e8c23f6B4A1aE41c34837a0599D5D16bb0',
       borrowerOpsSigs: '0xD757e3646AF370b15f32EB557F0F8380Df7D639e',
+      borrowerOps:     '0xCdF7028ceAB81fA0C6971208e83fa7872994beE5', // read from borrowerOpsSigs.borrowerOperations()
     },
   },
   mainnet: {
@@ -66,6 +67,7 @@ export const NETWORKS = {
       oracle:          '0x7b7c000000000000000000000000000000000015',
       troveManager:    '0x94AfB503dBca74aC3E4929BACEeDfCe19B93c193',
       borrowerOpsSigs: '0xB57ab578BF20b3e318f3EFAA587C51DBccE5df7a',
+      borrowerOps:     '0x44b1bac67dDA612a41a58AAf779143B181dEe031', // read from borrowerOpsSigs.borrowerOperations()
     },
   },
 };
