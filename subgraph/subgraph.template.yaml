@@ -27,6 +27,7 @@ dataSources:
         - PoolDaySnapshot
         - IvUpdate
         - BreakerTrip
+        - Resale
       abis:
         - name: OptionPool
           file: ./abis/OptionPool.json
@@ -57,4 +58,8 @@ dataSources:
           handler: handleBreakerTripped
         - event: Savings(uint256,uint256)
           handler: handleSavings
+        - event: Listed(indexed uint256,indexed address,uint256)
+          handler: handleListed
+        - event: Resold(indexed uint256,indexed address,indexed address,uint256)
+          handler: handleResold
       file: ./src/mapping.ts

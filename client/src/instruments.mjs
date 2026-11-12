@@ -103,14 +103,24 @@ const num = v => (typeof v === 'bigint' ? Number(v) / E18 : Number(v));
  * ask = a seller waiting (short order); bid = a buyer waiting (long order the pool did not fill).
  * Prices are premium per 1 BTC. Asks sorted cheapest first, bids highest first.
  */
-export function bookFor(options, { isCall, strike, expiry }, zero = '0x0000000000000000000000000000000000000000') {
+/** A live option its holder has listed for resale (OptionPool.listLong), shown in the book as an ask. */
+export function isListing(o, nowSec = Math.floor(Date.now() / 1000)) {
+  return Number(o.status) === 1 && o.listPrice != null && BigInt(o.listPrice) > 0n && Number(o.expiry) > nowSec;
+}
+
+export function bookFor(options, { isCall, strike, expiry }, zero = '0x0000000000000000000000000000000000000000', nowSec = Math.floor(Date.now() / 1000)) {
   const asks = [], bids = [];
   for (const o of options) {
-    if (Number(o.status) !== 0) continue;                                  // OPEN only
+    const listing = isListing(o, nowSec);
+    if (Number(o.status) !== 0 && !listing) continue;                     // OPEN orders, plus resale listings
     if ((Number(o.optionType) === 0) !== isCall) continue;
     if (Math.round(num(o.strike)) !== Math.round(strike) || Number(o.expiry) !== Number(expiry)) continue;
     const qty = num(o.quantity);
     if (!(qty > 0)) continue;
+    if (listing) {                                                         // the holder sells the option itself
+      asks.push({ id: o.id, price: num(o.listPrice) / qty, qty, total: num(o.listPrice), premiumWei: o.listPrice, owner: o.long, resale: true });
+      continue;
+    }
     const row = { id: o.id, price: num(o.premium) / qty, qty, total: num(o.premium), premiumWei: o.premium, owner: null };
     if (o.long === zero && o.short !== zero) asks.push({ ...row, owner: o.short });
     else if (o.short === zero && o.long !== zero) bids.push({ ...row, owner: o.long });
@@ -121,15 +131,17 @@ export function bookFor(options, { isCall, strike, expiry }, zero = '0x000000000
 }
 
 /** Best bid/ask per (strike, side) for one expiry; used for the option chain rows. */
-export function bestQuotes(options, expiry, zero = '0x0000000000000000000000000000000000000000') {
+export function bestQuotes(options, expiry, zero = '0x0000000000000000000000000000000000000000', nowSec = Math.floor(Date.now() / 1000)) {
   const map = {};
   for (const o of options) {
-    if (Number(o.status) !== 0 || Number(o.expiry) !== Number(expiry)) continue;
+    const listing = isListing(o, nowSec);
+    if ((Number(o.status) !== 0 && !listing) || Number(o.expiry) !== Number(expiry)) continue;
     const qty = num(o.quantity);
     if (!(qty > 0)) continue;
     const k = Math.round(num(o.strike));
     const side = Number(o.optionType) === 0 ? 'call' : 'put';
     const cell = ((map[k] ||= {})[side] ||= { bid: null, ask: null });
+    if (listing) { const lp = num(o.listPrice) / qty; cell.ask = cell.ask == null ? lp : Math.min(cell.ask, lp); continue; }
     const price = num(o.premium) / qty;
     if (o.long === zero && o.short !== zero) cell.ask = cell.ask == null ? price : Math.min(cell.ask, price);
     else if (o.short === zero && o.long !== zero) cell.bid = cell.bid == null ? price : Math.max(cell.bid, price);

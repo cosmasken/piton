@@ -290,8 +290,10 @@ export default function TradePanel() {
   // take a specific resting order from the book
   const hitAsk = o => run(async () => {
     await ensureAllowance(musdContract, ADDRESSES[chainId].pool, o.premiumWei);
+    // a resale listing: take over the holder's option at the listed price (never more, if they change it meanwhile)
+    if (o.resale) return (await poolContract.buyListed(o.id, o.premiumWei)).wait();
     return (await poolContract.fillLong(o.id)).wait();
-  }, () => 'Bought.');
+  }, () => o.resale ? 'Bought. The option is yours now: exercise it, sell it back if the pool sold it, or list it again.' : 'Bought.');
   const hitBid = o => run(async () => {
     const need = collateralFor(inst.isCall, spot, inst.strike, o.qty) * (inst.isCall ? 1.02 : 1); // contract recomputes call collateral at fill time
     await ensureAllowance(musdContract, ADDRESSES[chainId].pool, E18(need));
@@ -465,8 +467,8 @@ export default function TradePanel() {
             <div className="text-xs font-mono border border-border rounded-md overflow-hidden">
               {[...book.asks].reverse().map(o => (
                 <button key={`a${o.id}`} type="button" disabled={needWallet || busy || o.owner === account} onClick={() => setConfirm({ ask: o })}
-                  className="w-full flex justify-between px-3 py-1 hover:bg-white/5 text-red disabled:opacity-60" title={o.owner === account ? 'Your order' : 'Click to buy this order'}>
-                  <span>{fmt(o.price)}</span><span className="text-dim">{fmt(o.qty, 4)} BTC</span><span className="text-dim">{o.owner === account ? 'yours' : 'buy →'}</span>
+                  className="w-full flex justify-between px-3 py-1 hover:bg-white/5 text-red disabled:opacity-60" title={o.owner === account ? (o.resale ? 'Your listing' : 'Your order') : o.resale ? 'An option a holder is reselling: click to buy it' : 'Click to buy this order'}>
+                  <span>{fmt(o.price)}</span><span className="text-dim">{fmt(o.qty, 4)} BTC{o.resale ? ' · resale' : ''}</span><span className="text-dim">{o.owner === account ? 'yours' : 'buy →'}</span>
                 </button>
               ))}
               <div className={`flex justify-between px-3 py-1 bg-surface ${poolWillFill || reasons.length === 0 ? 'text-accent' : 'text-dim'}`}>
@@ -487,12 +489,13 @@ export default function TradePanel() {
       </div>
 
       {confirm && (
-        <Modal title={confirm.ask ? 'Buy resting order' : confirm.bid ? 'Sell into bid' : `Confirm ${buy ? 'buy' : 'sell'}`} onClose={() => setConfirm(null)}>
+        <Modal title={confirm.ask ? (confirm.ask.resale ? 'Buy listed option' : 'Buy resting order') : confirm.bid ? 'Sell into bid' : `Confirm ${buy ? 'buy' : 'sell'}`} onClose={() => setConfirm(null)}>
           <div className="space-y-1 bg-surface rounded-md px-3 py-3">
             <Row label="Option" value={instrumentName(inst)} />
             {confirm.ask ? <>
               <Row label="Size" value={`${fmt(confirm.ask.qty, 4)} BTC`} />
               <Row label="You pay" value={`${fmt(confirm.ask.total)} MUSD`} />
+              {confirm.ask.resale && <Row label="What you get" value="This live option (resale); its seller's collateral stays locked for you" />}
             </> : confirm.bid ? <>
               <Row label="Size" value={`${fmt(confirm.bid.qty, 4)} BTC`} />
               <Row label="You receive" value={`${fmt(confirm.bid.total * 0.98)} MUSD (after 2% fee)`} tone="text-accent" />

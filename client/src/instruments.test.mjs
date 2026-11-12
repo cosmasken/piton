@@ -87,6 +87,22 @@ test('chain quotes: best bid and ask per strike and side', () => {
   assert.equal(q[80000].call.ask, null);
 });
 
+test('resale listings show as asks (holder sells the option itself) until expiry; unlisted holdings do not', () => {
+  const ex = 1000, E = v => BigInt(Math.round(v * 1e6)) * 10n ** 12n;
+  const listed = { ...mk(9, 1, 75000, ex, A, B, 40, 0.1, 1n), listPrice: E(20) };   // filled, held by A, listed 200/BTC
+  const unlisted = { ...mk(10, 1, 75000, ex, B, A, 40, 0.1, 1n), listPrice: 0n };
+  const opts = [mk(2, 1, 75000, ex, Z, B, 30, 0.1), listed, unlisted];
+  const b = bookFor(opts, { isCall: false, strike: 75000, expiry: ex }, Z, 500);
+  assert.deepEqual(b.asks.map(x => x.id), [9n, 2n]);                 // cheapest first
+  assert.equal(b.bestAsk.resale, true);
+  assert.equal(b.bestAsk.owner, A);
+  assert.equal(b.bestAsk.premiumWei, E(20));
+  assert.equal(Math.round(b.bestAsk.price), 200);
+  assert.equal(Math.round(bestQuotes(opts, ex, Z, 500)[75000].put.ask), 200);
+  // after expiry the listing is gone
+  assert.deepEqual(bookFor(opts, { isCall: false, strike: 75000, expiry: ex }, Z, 1000).asks.map(x => x.id), [2n]);
+});
+
 test('extra expiries: live orders on non-standard expiries stay reachable', () => {
   const opts = [mk(1, 1, 75000, 5000, A, Z, 1, 1), mk(2, 1, 75000, 6000, A, Z, 1, 1, 2n), mk(3, 1, 75000, 100, A, Z, 1, 1)];
   assert.deepEqual(extraExpiries(opts, [7000], 200), [5000]);

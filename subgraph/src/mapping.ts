@@ -13,6 +13,8 @@ import {
   IVUpdated,
   BreakerTripped,
   Savings,
+  Listed,
+  Resold,
 } from "../generated/OptionPool/OptionPool";
 import { ERC20 } from "../generated/OptionPool/ERC20";
 import {
@@ -25,6 +27,7 @@ import {
   PoolDaySnapshot,
   IvUpdate,
   BreakerTrip,
+  Resale,
 } from "../generated/schema";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -219,8 +222,8 @@ function record(e: ethereum.Event, trades: i32, qty: BigDecimal, premium: BigDec
 }
 
 function activity(e: ethereum.Event, kind: string, who: Address, optionId: string,
-                  amount: BigDecimal, shares: BigDecimal): void {
-  let a = new Activity(eventId(e));
+                  amount: BigDecimal, shares: BigDecimal, idSuffix: string = ""): void {
+  let a = new Activity(eventId(e) + idSuffix);
   a.kind = kind;
   a.account = account(who).id;
   if (optionId.length > 0) a.option = optionId;
@@ -249,6 +252,8 @@ export function handleOrderCreated(e: OrderCreated): void {
   o.filledByPool = false;
   o.autoExercise = false;
   o.payout = ZERO;
+  o.holderCost = ZERO;
+  o.listPrice = ZERO;
   o.createdAt = e.block.timestamp;
   o.createdTx = e.transaction.hash;
   let pool = OptionPool.bind(e.address);
@@ -272,6 +277,7 @@ export function handleOrderFilled(e: OrderFilled): void {
   syncOption(o, pool, e.params.id);
   o.status = "FILLED";
   o.filledAt = e.block.timestamp;
+  o.holderCost = o.premium;
   o.save();
 
   let buyer = account(v.long);
@@ -405,4 +411,69 @@ export function handleBreakerTripped(e: BreakerTripped): void {
 /** Spare MUSD moved into or out of Mezo savings (and any yield brought in): refresh share price and totals. */
 export function handleSavings(e: Savings): void {
   record(e, 0, ZERO, ZERO, ZERO, ZERO, ZERO);
+}
+
+// ─── resale ───────────────────────────────────────────────────────────────────
+
+export function handleListed(e: Listed): void {
+  let o = Option.load(e.params.id.toString());
+  if (o == null) return;
+  o.listPrice = dec(e.params.price);
+  o.save();
+  activity(e, "LIST", e.params.long, o.id, o.listPrice, ZERO);
+}
+
+export function handleResold(e: Resold): void {
+  let o = Option.load(e.params.id.toString());
+  if (o == null) return;
+  let price = dec(e.params.price);
+  let pool = OptionPool.bind(e.address);
+  let fee = ZERO;
+  let bps = pool.try_protocolFeeBps();
+  if (!bps.reverted) fee = price.times(bps.value.toBigDecimal()).div(BigDecimal.fromString("10000"));
+
+  let r = new Resale(eventId(e));
+  r.option = o.id;
+  r.seller = account(e.params.from).id;
+  r.buyer = account(e.params.to).id;
+  r.price = price;
+  r.sellerCost = o.holderCost;
+  r.timestamp = e.block.timestamp;
+  r.tx = e.transaction.hash;
+  r.save();
+
+  o.long = account(e.params.to).id;
+  o.holderCost = price;
+  o.listPrice = ZERO;
+  o.autoExercise = false;
+  o.save();
+
+  let t = new Trade(eventId(e));
+  t.option = o.id;
+  t.optionType = o.optionType;
+  t.strike = o.strike;
+  t.expiry = o.expiry;
+  t.quantity = o.quantity;
+  t.premium = price;
+  t.pricePerBtc = ZERO;
+  if (o.quantity.gt(ZERO)) t.pricePerBtc = price.div(o.quantity);
+  t.buyer = r.buyer;
+  t.seller = e.params.from;
+  t.byPool = false;
+  t.timestamp = e.block.timestamp;
+  t.blockNumber = e.block.number;
+  t.tx = e.transaction.hash;
+  t.save();
+
+  let buyer = account(e.params.to);
+  buyer.premiumPaid = buyer.premiumPaid.plus(price);
+  buyer.tradeCount = buyer.tradeCount + 1;
+  buyer.save();
+  let seller = account(e.params.from);
+  seller.payoutsReceived = seller.payoutsReceived.plus(price.minus(fee));
+  seller.save();
+
+  activity(e, "RESALE_BUY", e.params.to, o.id, price, ZERO);
+  activity(e, "RESALE_SELL", e.params.from, o.id, price.minus(fee), ZERO, "-seller"); // one event, two accounts
+  record(e, 1, o.quantity, price, ZERO, ZERO, ZERO);
 }

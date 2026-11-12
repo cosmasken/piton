@@ -5,7 +5,7 @@ import { useConnectModal } from '@rainbow-me/rainbowkit';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../store';
 import { useNow } from '../useNow';
-import { livePositions, realisedPnl, lpPosition } from '../portfolio.mjs';
+import { livePositions, holderCosts, realisedPnl, lpPosition } from '../portfolio.mjs';
 import { Flash } from './Live';
 
 const n = (v, d = 2) => (v == null || Number.isNaN(v) ? '—' : v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }));
@@ -64,8 +64,8 @@ export default function AccountSummary() {
   })));
   const now = useNow(15_000);
   const iv = poolParams?.iv || 0.8;
-  const { totals } = useMemo(() => livePositions(options, account, btcPrice, iv, now), [options, account, btcPrice, iv, now]);
-  const realised = useMemo(() => (history ? realisedPnl(history.ended, account) : null), [history, account]);
+  const { totals } = useMemo(() => livePositions(options, account, btcPrice, iv, now, holderCosts(history, account)), [options, account, btcPrice, iv, now, history]);
+  const realised = useMemo(() => (history ? realisedPnl(history.ended, account, history.resales) : null), [history, account]);
   const sv = parseFloat(poolShareValue), shares = parseFloat(ymusdRaw) || 0, musd = parseFloat(musdRaw) || 0;
   const lp = history?.account ? lpPosition(history.account, shares, sv, null) : null;
   const poolValue = Number.isFinite(sv) ? shares * sv : 0;

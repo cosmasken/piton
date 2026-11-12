@@ -42,6 +42,19 @@ test('realised P&L from ended options', () => {
   assert.equal(r.rows.length, 4);
 });
 
+test('realised P&L with resales: the new holder counts what they paid, the seller counts the resale', () => {
+  const r = realisedPnl([
+    // bought on resale for 6 (original premium 8), exercised for 20: +14
+    { id: '7', status: 'SETTLED', long: { id: ME }, short: POOL, premium: '8', holderCost: '6', payout: '20' },
+  ], ME, [
+    { option: { id: '8' }, seller: { id: ME }, price: '10', sellerCost: '7' },      // sold on for 10 (9.8 net): +2.8
+    { option: { id: '9' }, seller: { id: OTHER }, price: '50', sellerCost: '1' },  // someone else's resale: ignored
+  ]);
+  close(r.total, 14 + 2.8);
+  assert.equal(r.rows.length, 2);
+  assert.equal(r.rows[1].resale, true);
+});
+
 test('LP position: value, P&L and share of the pool', () => {
   const p = lpPosition({ deposited: '2500', withdrawn: '300.03' }, 2200, 1.0001, 2200);
   close(p.value, 2200.22); close(p.pnl, 2200.22 + 300.03 - 2500); close(p.sharePct, 100);

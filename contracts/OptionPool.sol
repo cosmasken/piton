@@ -921,6 +921,44 @@ contract OptionPool is Ownable2Step, ReentrancyGuard {
         emit Refunded(id, o.short);
     }
 
+    // ─── Resale: sell a live option to another trader on the book ────────────
+
+    /// @notice The holder of a live option (bought from the pool or from another trader) can list it at a price; a
+    ///         buyer pays that price and becomes the holder. The seller's collateral never moves, so the pool's risk
+    ///         is unchanged. Price 0 removes the listing; a listing ends by itself once the option is exercised,
+    ///         sold back or expired. The protocol fee applies to the price, as on any premium. The new holder
+    ///         decides about auto-exercise again.
+    mapping(uint256 => uint256) public listPrice;
+    event Listed(uint256 indexed id, address indexed long, uint256 price);
+    event Resold(uint256 indexed id, address indexed from, address indexed to, uint256 price);
+    error NotListed();
+    error PriceAboveMax();
+
+    function listLong(uint256 id, uint256 price) external {
+        Option storage o = options[id];
+        require(msg.sender == o.long && o.status == OrderStatus.FILLED && o.expiry > block.timestamp, NotYourOpenOption());
+        listPrice[id] = price;
+        emit Listed(id, msg.sender, price);
+    }
+
+    /// @param maxPrice the most the buyer will pay (protects against the seller raising the price before this lands)
+    function buyListed(uint256 id, uint256 maxPrice) external nonReentrant notPaused {
+        Option storage o = options[id];
+        uint256 price = listPrice[id];
+        require(price > 0 && o.status == OrderStatus.FILLED && o.expiry > block.timestamp, NotListed());
+        require(price <= maxPrice, PriceAboveMax());
+        address seller = o.long;
+        require(msg.sender != seller, CannotSelfFill());
+
+        listPrice[id] = 0;                 // effects before interactions
+        o.long = msg.sender;
+        if (autoExercise[id]) { autoExercise[id] = false; emit AutoExerciseSet(id, false); }
+
+        musd.safeTransferFrom(msg.sender, address(this), price);
+        musd.safeTransfer(seller, _takePremiumFee(price));
+        emit Resold(id, seller, msg.sender, price);
+    }
+
     // ─── Cancel open order ────────────────────────────────────────────────────
 
     function cancelOrder(uint256 id) external nonReentrant {

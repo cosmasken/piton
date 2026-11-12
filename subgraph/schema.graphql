@@ -6,7 +6,7 @@ enum OptionType { CALL, PUT }
 # CLOSED = sold back to the pool, CANCELLED = resting order withdrawn by its owner.
 enum OptionStatus { OPEN, FILLED, SETTLED, REFUNDED, CLOSED, CANCELLED }
 
-enum ActivityKind { ORDER, FILL, EXERCISE, REFUND, SELL_BACK, CANCEL, DEPOSIT, WITHDRAW }
+enum ActivityKind { ORDER, FILL, EXERCISE, REFUND, SELL_BACK, CANCEL, DEPOSIT, WITHDRAW, LIST, RESALE_BUY, RESALE_SELL }
 
 type Option @entity(immutable: false) {
   id: ID!                        # option id in the contract
@@ -24,11 +24,26 @@ type Option @entity(immutable: false) {
   filledByPool: Boolean!
   autoExercise: Boolean!
   payout: BigDecimal!            # MUSD paid to the long (exercise or sell-back)
+  holderCost: BigDecimal!        # MUSD the current long paid for it (the premium, or the resale price)
+  listPrice: BigDecimal!         # MUSD asked by the long for a resale (0 = not listed)
   createdAt: BigInt!
   filledAt: BigInt
   closedAt: BigInt
   createdTx: Bytes!
   trades: [Trade!]! @derivedFrom(field: "option")
+  resales: [Resale!]! @derivedFrom(field: "option")
+}
+
+"A live option sold by its holder to another trader (OptionPool.buyListed)."
+type Resale @entity(immutable: true) {
+  id: ID!                        # tx hash - log index
+  option: Option!
+  seller: Account!
+  buyer: Account!
+  price: BigDecimal!             # MUSD the buyer paid (the seller receives it less the protocol fee)
+  sellerCost: BigDecimal!        # what the seller had paid for it, for their realised P&L
+  timestamp: BigInt!
+  tx: Bytes!
 }
 
 type Trade @entity(immutable: true) {

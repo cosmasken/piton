@@ -260,6 +260,14 @@ export const POOL_ERRORS = {
  "0x89051165": {
   "name": "RenounceDisabled",
   "message": "renounce disabled"
+ },
+ "0x665c1c57": {
+  "name": "NotListed",
+  "message": "not listed"
+ },
+ "0xf2e3adf8": {
+  "name": "PriceAboveMax",
+  "message": "price above max"
  }
 };
 

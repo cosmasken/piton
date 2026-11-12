@@ -10,7 +10,7 @@ import { parseTxError } from '../txUtils';
 import { instrumentName } from '../instruments.mjs';
 import { bsPrice, greeks } from '../greeks';
 import { breakEven, maxGain, maxLoss, PROTOCOL_FEE_BPS } from '../payoff.mjs';
-import { livePositions, realisedPnl, toCsv } from '../portfolio.mjs';
+import { livePositions, holderCosts, realisedPnl, toCsv } from '../portfolio.mjs';
 import { sellBackMin } from '../orderForm.mjs';
 import { poolWontFill } from '../poolRules.mjs';
 import { collateralFor } from '../payoff.mjs';
@@ -35,7 +35,7 @@ function StatusBadge({ o, live }) {
   return live ? <span className={`${base} text-accent bg-accent/10`}>Live</span> : <span className={`${base} text-yellow-500 bg-yellow-500/10`}>Expired: refund</span>;
 }
 
-function OptionRow({ o, account, spot, iv, poolContract, refresh }) {
+function OptionRow({ o, cost, account, spot, iv, poolContract, refresh }) {
   const exp    = useCountdown(o.expiry);
   const times  = useTimes();
   const isCall = o.optionType === 0n;
@@ -43,12 +43,13 @@ function OptionRow({ o, account, spot, iv, poolContract, refresh }) {
   const now    = Math.floor(Date.now() / 1000);
   const live   = Number(o.expiry) > now;
   const strike = fmtE(o.strike), qty = fmtE(o.quantity), premium = fmtE(o.premium);
+  const paid = isLong && cost > 0 ? cost : premium;              // bought on resale: the price paid, not the original premium
   const filledLive = o.status === STATUS.FILLED && live;
 
   // mark-to-market with the same model the pool uses (mid IV); P&L if closed at that value
   const hours = Math.max(0, (Number(o.expiry) - now) / 3600);
   const mark = filledLive && spot ? bsPrice(isCall, spot, strike, hours, iv) * qty : null;
-  const pnl = mark == null ? null : isLong ? mark - premium : premium * (1 - PROTOCOL_FEE_BPS / 10000) - mark;
+  const pnl = mark == null ? null : isLong ? mark - paid : premium * (1 - PROTOCOL_FEE_BPS / 10000) - mark;
   const intrinsic = spot ? Math.max(0, isCall ? spot - strike : strike - spot) * qty : 0;
   const itm = intrinsic > 0;
   const canSettle = filledLive && isLong && itm;
@@ -93,6 +94,17 @@ function OptionRow({ o, account, spot, iv, poolContract, refresh }) {
     return (await poolContract.sellBack(o.id, minWei)).wait();
   }, `Sold back to the pool for about ${money(bid, 4)} MUSD.`);
 
+  // Resale: list this option on the book for another trader to buy (any live option you hold, from the pool or a trader)
+  const listed = o.listPrice != null && o.listPrice > 0n ? fmtE(o.listPrice) : 0;
+  const canList = filledLive && isLong;
+  const [askPx, setAskPx] = useState('');                      // MUSD per 1 BTC
+  const fairPx = mark != null && qty > 0 ? mark / qty : null;
+  const list = (perBtc) => act(async () => {
+    const total = perBtc * qty;
+    const wei = ethers.parseEther((Math.floor(total * 1e8) / 1e8).toFixed(8));
+    return (await poolContract.listLong(o.id, wei)).wait();
+  }, perBtc > 0 ? `Listed for ${money(perBtc * qty, 2)} MUSD. It shows in the order book; cancel or change the price any time.` : 'Listing removed.');
+
   const toggleAuto = () => act(async () => {
     const tx = await (await poolContract.setAutoExercise(o.id, !auto)).wait();
     setAuto(!auto);
@@ -110,6 +122,7 @@ function OptionRow({ o, account, spot, iv, poolContract, refresh }) {
         <div className="flex items-center gap-2">
           <span className={`font-mono text-[11px] ${isCall ? 'text-accent' : 'text-red'}`} title={`${times.title(Number(o.expiry))} (names use UTC)`}>{name.replace('BTC-', '')}</span>
           <span className="text-[10px] text-dim">{isLong ? 'Long' : 'Short'} {money(qty, 4)}</span>
+          {canList && listed > 0 && <span className="text-[10px] px-1 rounded border border-yellow-500/40 text-yellow-500" title="Listed for resale on the order book">Listed {money(listed, 2)}</span>}
           <span className="ml-auto flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
             {loading && <span className="w-3 h-3 border border-accent border-t-transparent rounded-full animate-spin inline-block" />}
             {!loading && canAuto && auto !== null && (
@@ -145,6 +158,21 @@ function OptionRow({ o, account, spot, iv, poolContract, refresh }) {
             <div className="flex justify-between"><span className="text-dim">Expires</span><span className="font-mono">{times.full(Number(o.expiry))}</span></div>
             <div className="flex justify-between"><span className="text-dim">Order #{String(o.id)}</span><span className="font-mono text-dim">{o.filledByPool ? 'sold by the pool' : 'peer to peer'}</span></div>
           </div>
+          {canList && (
+            <div className="rounded-md border border-border px-2 py-2 space-y-1.5 text-xs" onClick={e => e.stopPropagation()}>
+              <p className="text-[10px] uppercase tracking-wider text-dim">Sell to another trader</p>
+              {listed > 0 && <p className="text-dim">Listed for <span className="font-mono text-text">{money(listed, 2)} MUSD</span> ({money(listed / qty, 1)} per BTC). A buyer takes the option over; you receive the price less the 2% fee.</p>}
+              <div className="flex items-center gap-2">
+                <label className="sr-only" htmlFor={`ask-${o.id}`}>Asking price per BTC (MUSD)</label>
+                <input id={`ask-${o.id}`} type="number" step="any" min="0" className="input-field !py-1 text-xs flex-1"
+                  placeholder={fairPx != null ? `${money(fairPx, 1)} (fair value) per BTC` : 'MUSD per BTC'} value={askPx} onChange={e => setAskPx(e.target.value)} />
+                <button type="button" disabled={loading || !(parseFloat(askPx || fairPx) > 0)} onClick={() => list(parseFloat(askPx || fairPx))}
+                  className="px-2 py-1 rounded border border-accent/40 text-accent hover:bg-accent/10 disabled:opacity-40">{listed > 0 ? 'Change price' : 'List'}</button>
+                {listed > 0 && <button type="button" disabled={loading} onClick={() => list(0)} className="px-2 py-1 rounded border border-border text-dim hover:text-text">Delist</button>}
+              </div>
+              {!askPx && fairPx != null && <p className="text-[10px] text-dim">Empty uses the fair value now ({money(fairPx * qty, 2)} MUSD in total).</p>}
+            </div>
+          )}
           {leg.collateral > 0 && <PayoffChart leg={leg} spot={spot} height={120} />}
         </div>
       )}
@@ -198,7 +226,7 @@ function OrderRow({ o, account, spot, poolParams, poolContract, refresh }) {
   );
 }
 
-const KIND = { ORDER: 'Order placed', FILL: 'Bought / filled', EXERCISE: 'Exercised', REFUND: 'Expired / refunded', SELL_BACK: 'Sold back', CANCEL: 'Cancelled', DEPOSIT: 'Pool deposit', WITHDRAW: 'Pool withdrawal' };
+const KIND = { ORDER: 'Order placed', FILL: 'Bought / filled', EXERCISE: 'Exercised', REFUND: 'Expired / refunded', SELL_BACK: 'Sold back', CANCEL: 'Cancelled', DEPOSIT: 'Pool deposit', WITHDRAW: 'Pool withdrawal', LIST: 'Listed for resale', RESALE_BUY: 'Bought on resale', RESALE_SELL: 'Resold' };
 const optName = o => (o ? instrumentName({ isCall: o.optionType === 'CALL', strike: Number(o.strike), expiry: Number(o.expiry) }).replace('BTC-', '') : '');
 
 /** Portfolio greeks and money totals for live positions. */
@@ -219,14 +247,14 @@ function Totals({ t }) {
 
 /** Wallet activity from the subgraph: every order, fill, exercise, sell-back, refund, cancel, deposit and withdrawal. */
 function HistoryTab({ history, account, network, unrealised }) {
-  const realised = useMemo(() => realisedPnl(history.ended, account), [history, account]);
+  const realised = useMemo(() => realisedPnl(history.ended, account, history.resales), [history, account]);
   const times = useTimes();
   const pnlById = useMemo(() => Object.fromEntries(realised.rows.map(r => [r.id, r.pnl])), [realised]);
   const rows = history.activities;
   const exportCsv = () => {
     const csv = toCsv(['time_utc', 'action', 'option', 'amount_musd', 'shares_ymusd', 'realised_pnl_musd', 'tx'],
       rows.map(a => [new Date(Number(a.timestamp) * 1000).toISOString(), KIND[a.kind] || a.kind, optName(a.option), a.amount, a.shares ?? '',
-        ['EXERCISE', 'SELL_BACK', 'REFUND'].includes(a.kind) && a.option && pnlById[a.option.id] != null ? pnlById[a.option.id].toFixed(6) : '', a.tx]));
+        ['EXERCISE', 'SELL_BACK', 'REFUND', 'RESALE_SELL'].includes(a.kind) && a.option && pnlById[a.option.id] != null ? pnlById[a.option.id].toFixed(6) : '', a.tx]));
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
     const el = document.createElement('a');
     el.href = url; el.download = `piton-${account.slice(0, 8)}-history.csv`; el.click();
@@ -243,7 +271,7 @@ function HistoryTab({ history, account, network, unrealised }) {
       {!rows.length ? <div className="flex items-center justify-center h-16 text-dim text-xs">No activity yet</div> : (
         <ul aria-label="Activity">
           {rows.map(a => {
-            const pnl = ['EXERCISE', 'SELL_BACK', 'REFUND'].includes(a.kind) && a.option ? pnlById[a.option.id] : null;
+            const pnl = ['EXERCISE', 'SELL_BACK', 'REFUND', 'RESALE_SELL'].includes(a.kind) && a.option ? pnlById[a.option.id] : null;
             return (
               <li key={a.id} className="border-b border-border px-3 py-2 hover:bg-surface/50">
                 <div className="flex items-center gap-2 text-xs">
@@ -279,7 +307,8 @@ export default function YourOrders() {
   const orders = mine.filter(o => o.status === STATUS.OPEN);          // resting bids and asks: Cancel
   const closed = mine.filter(o => o.status === STATUS.SETTLED || o.status === STATUS.REFUNDED || o.status === STATUS.CLOSED);
   const iv = poolParams?.iv || 0.8;
-  const { totals } = useMemo(() => livePositions(options, account, btcPrice, iv, now), [options, account, btcPrice, iv, Math.floor(now / 15)]); // eslint-disable-line
+  const costs = useMemo(() => holderCosts(history, account), [history, account]);
+  const { totals } = useMemo(() => livePositions(options, account, btcPrice, iv, now, costs), [options, account, btcPrice, iv, Math.floor(now / 15), costs]); // eslint-disable-line
   // history comes from the subgraph; if it is unavailable, show ended options read from the chain instead
   const list = (tab === 'positions' ? held : tab === 'orders' ? orders : closed).slice().sort((a, b) => Number(b.id - a.id));
   const TABS = [['positions', 'Positions', held.length], ['orders', 'Open orders', orders.length], ['history', 'History', null]];
@@ -316,7 +345,7 @@ export default function YourOrders() {
           </ul>
         ) : (
           <ul aria-label={tab === 'positions' ? 'Positions' : 'Ended options'}>
-            {list.map(o => <OptionRow key={String(o.id)} o={o} account={account} spot={btcPrice} iv={iv} poolContract={poolContract} refresh={refresh} />)}
+            {list.map(o => <OptionRow key={String(o.id)} o={o} cost={costs[String(o.id)]} account={account} spot={btcPrice} iv={iv} poolContract={poolContract} refresh={refresh} />)}
           </ul>
         )}
       </div>

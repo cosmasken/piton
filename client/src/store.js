@@ -297,11 +297,23 @@ export const useStore = create((set, get) => ({
   loadOptions: async (ids) => {
     if (!ids.length) return [];
     const net = getNetwork(get().network);
-    const res = await multicall(roProvider(get().network), ids.map(id => ({ target: net.addresses.pool, iface: POOL_IFACE, fn: 'getOption', args: [id] })));
-    return res.filter(Boolean).map(o => ({
+    const provider = roProvider(get().network);
+    const res = await multicall(provider, ids.map(id => ({ target: net.addresses.pool, iface: POOL_IFACE, fn: 'getOption', args: [id] })));
+    const opts = res.filter(Boolean).map(o => ({
       id: o.id, optionType: o.optionType, status: o.status, long: o.long, short: o.short, filledByPool: o.filledByPool,
       marginType: o.marginType, strike: o.strike, premium: o.premium, quantity: o.quantity, expiry: o.expiry, collateral: o.collateral,
+      listPrice: 0n,
     }));
+    // resale listings (listLong): only live, filled options can be listed
+    const now = Math.floor(Date.now() / 1000);
+    const live = opts.filter(o => Number(o.status) === 1 && Number(o.expiry) > now);
+    if (live.length) {
+      try {
+        const lp = await multicall(provider, live.map(o => ({ target: net.addresses.pool, iface: POOL_IFACE, fn: 'listPrice', args: [o.id] })));
+        live.forEach((o, i) => { if (lp[i] != null) o.listPrice = BigInt(lp[i]); });
+      } catch { /* pools without resale: nothing listed */ }
+    }
+    return opts;
   },
 
   // ─── wallet history (subgraph), auto-exercise flags, settings ──────────────
@@ -312,17 +324,18 @@ export const useStore = create((set, get) => ({
     const me = get().account?.toLowerCase();
     if (!me) { set({ history: null }); return; }
     set({ historyLoading: true });
-    const opt = 'id optionType strike quantity premium payout status expiry short long { id }';
+    const opt = 'id optionType strike quantity premium payout holderCost status expiry short long { id }';
     const d = await get().querySubgraph(`{
       account(id: "${me}") { deposited withdrawn premiumPaid payoutsReceived tradeCount }
       activities(first: 500, orderBy: timestamp, orderDirection: desc, where: { account: "${me}" }) {
         id kind amount shares timestamp tx option { ${opt} } }
       asLong: options(first: 1000, where: { long: "${me}" }) { ${opt} }
       asShort: options(first: 1000, where: { short: "${me}" }) { ${opt} }
+      resales(first: 1000, where: { seller: "${me}" }) { price sellerCost seller { id } option { id } }
     }`);
     if (get().account?.toLowerCase() !== me) return;
     set({ historyLoading: false, history: d ? {
-      account: d.account, activities: d.activities || [], ended: [...(d.asLong || []), ...(d.asShort || [])], at: Date.now(),
+      account: d.account, activities: d.activities || [], ended: [...(d.asLong || []), ...(d.asShort || [])], resales: d.resales || [], at: Date.now(),
     } : null });
   },
 
@@ -427,7 +440,7 @@ export const useStore = create((set, get) => ({
     for (const l of logs) {
       let ev; try { ev = POOL_IFACE.parseLog(l); } catch { continue; }
       if (!ev) continue;
-      if (['OrderCreated', 'OrderFilled', 'Settled', 'Refunded', 'Cancelled', 'SoldBack', 'AutoExerciseSet'].includes(ev.name)) touched.add(ev.args[0]);
+      if (['OrderCreated', 'OrderFilled', 'Settled', 'Refunded', 'Cancelled', 'SoldBack', 'AutoExerciseSet', 'Listed', 'Resold'].includes(ev.name)) touched.add(ev.args[0]);
       if (ev.name === 'OrderFilled') fills.push({ id: ev.args[0], filler: ev.args[1], byPool: ev.args[2], tx: l.transactionHash, block: l.blockNumber });
     }
     if (touched.size) {

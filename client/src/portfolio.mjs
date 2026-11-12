@@ -10,7 +10,17 @@ const lc = a => (a ? String(a).toLowerCase() : '');
  * Live positions (filled, not expired) with mark value, P&L and greeks scaled by size and side.
  * Long = +, short = - for greeks and value. Returns { rows, totals }.
  */
-export function livePositions(options, me, spot, vol, nowSec) {
+/** option id -> what this wallet paid for it (subgraph holderCost), for options it bought on resale. */
+export function holderCosts(history, me) {
+  const m = lc(me), out = {};
+  for (const o of history?.ended || []) {
+    if (lc(o.long?.id ?? o.long) === m && Number(o.holderCost) > 0) out[String(o.id)] = Number(o.holderCost);
+  }
+  return out;
+}
+
+/** `costs` (optional, from holderCosts): the price this wallet paid when it differs from the premium (resale). */
+export function livePositions(options, me, spot, vol, nowSec, costs = {}) {
   const m = lc(me), rows = [];
   const totals = { pnl: 0, value: 0, premiumAtRisk: 0, collateralLocked: 0, delta: 0, gamma: 0, theta: 0, vega: 0 };
   if (!m || !(spot > 0)) return { rows, totals };
@@ -23,7 +33,8 @@ export function livePositions(options, me, spot, vol, nowSec) {
     const mark = bsPrice(isCall, spot, strike, hours, vol) * qty;
     const g = greeks(isCall, spot, strike, hours, vol);
     const sign = isLong ? 1 : -1;
-    const pnl = isLong ? mark - premium : premium * (1 - FEE) - mark;
+    const cost = isLong && costs[String(o.id)] > 0 ? costs[String(o.id)] : premium;
+    const pnl = isLong ? mark - cost : premium * (1 - FEE) - mark;
     const row = {
       id: o.id, isCall, strike, qty, premium, isLong, expiry: Number(o.expiry), mark, pnl,
       delta: sign * (g.delta || 0) * qty, gamma: sign * (g.gamma || 0) * qty, theta: sign * (g.theta || 0) * qty, vega: sign * (g.vega || 0) * qty,
@@ -32,7 +43,7 @@ export function livePositions(options, me, spot, vol, nowSec) {
     rows.push(row);
     totals.pnl += pnl; totals.value += sign * mark;
     totals.delta += row.delta; totals.gamma += row.gamma; totals.theta += row.theta; totals.vega += row.vega;
-    if (isLong) totals.premiumAtRisk += premium; else totals.collateralLocked += e18(o.collateral);
+    if (isLong) totals.premiumAtRisk += cost; else totals.collateralLocked += e18(o.collateral);
   }
   return { rows, totals };
 }
@@ -41,7 +52,7 @@ export function livePositions(options, me, spot, vol, nowSec) {
  * Realised P&L of options that have ended, from the subgraph's Option entities.
  * Long: payout - premium. Short (peer-to-peer seller): premium after fee - payout. Cancelled orders: 0.
  */
-export function realisedPnl(subOptions, me) {
+export function realisedPnl(subOptions, me, resales = []) {
   const m = lc(me);
   let total = 0;
   const rows = [];
@@ -50,9 +61,18 @@ export function realisedPnl(subOptions, me) {
     const isLong = lc(o.long?.id ?? o.long) === m, isShort = lc(o.short) === m;
     if (!isLong && !isShort) continue;
     const premium = Number(o.premium), payout = Number(o.payout);
-    const pnl = isLong ? payout - premium : premium * (1 - FEE) - payout;
+    // a holder who bought it on resale paid the resale price, not the original premium
+    const cost = Number(o.holderCost) > 0 ? Number(o.holderCost) : premium;
+    const pnl = isLong ? payout - cost : premium * (1 - FEE) - payout;
     total += pnl;
     rows.push({ id: o.id, pnl, isLong });
+  }
+  // options this wallet sold on to another trader: the price (less the fee) minus what it had paid
+  for (const r of resales) {
+    if (lc(r.seller?.id ?? r.seller) !== m) continue;
+    const pnl = Number(r.price) * (1 - FEE) - Number(r.sellerCost);
+    total += pnl;
+    rows.push({ id: r.option?.id ?? r.option, pnl, isLong: true, resale: true });
   }
   return { total, rows };
 }
