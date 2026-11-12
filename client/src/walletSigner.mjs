@@ -14,16 +14,18 @@ export class PassportSigner extends AbstractSigner {
   /**
    * @param walletClient the Passport (OrangeKit) wallet client from wagmi's useWalletClient()
    * @param provider     an ethers provider for reads and for looking up the relayed transaction
-   * @param opts         { pollMs, attempts } how long to wait for the relayed transaction to be visible
+   * @param opts         { pollMs, attempts } how long to wait for the relayed transaction to be visible;
+   *                     onSign(tx) is called just before each transaction asks the Bitcoin wallet to sign
    */
   constructor(walletClient, provider, opts = {}) {
     super(provider);
     this.walletClient = walletClient;
     this.pollMs = opts.pollMs ?? 1500;
     this.attempts = opts.attempts ?? 60;
+    this.onSign = opts.onSign;
   }
 
-  connect(provider) { return new PassportSigner(this.walletClient, provider, { pollMs: this.pollMs, attempts: this.attempts }); }
+  connect(provider) { return new PassportSigner(this.walletClient, provider, { pollMs: this.pollMs, attempts: this.attempts, onSign: this.onSign }); }
 
   async getAddress() { return this.walletClient.account.address; }
 
@@ -42,6 +44,7 @@ export class PassportSigner extends AbstractSigner {
   /** Send through the smart account and return ethers' TransactionResponse for the relayed transaction. */
   async sendTransaction(tx) {
     const call = await this.populateCall(tx);
+    this.onSign?.(call);
     const hash = await this.walletClient.sendTransaction({
       to: call.to,
       data: call.data ?? '0x',

@@ -270,13 +270,13 @@ export default function TradePanel() {
       const chk = troveMarginCheck({ coll: parseFloat(ethers.formatEther(collWei)),
         debt: parseFloat(ethers.formatEther(debtWei)) + borrow * 0.001, spot, margin: borrow }); // + Mezo's 0.1% borrowing fee
       if (!chk.ok) throw new Error(chk.reason);
-      toast.info(`Step 1 of 2: borrowing ${fmt(borrow)} MUSD from your Trove. Your Bitcoin wallet asks you to sign.`);
+      toast.info(`Step 1 of 2: borrowing ${fmt(borrow)} MUSD from your Trove.`);
       const bo = new ethers.Contract(a.borrowerOps, BORROWER_OPS_ABI, signer);
       const t1 = await (await bo.withdrawMUSD(E18(borrow), ethers.ZeroAddress, ethers.ZeroAddress)).wait();
       toast.success(<TxToast msg={`Step 1 done: ${fmt(borrow)} MUSD borrowed from your Trove.`} hash={t1?.hash} />);
     }
     try {
-      toast.info('Step 2 of 2: posting the sell order. Your Bitcoin wallet asks you to sign.');
+      toast.info('Step 2 of 2: posting the sell order.');
       await ensureAllowance(musdContract, poolAddr, E18(need));
       const tx = await (await poolContract.createShortOrder(typeId, strikeWei, qtyWei, inst.expiry, premiumWei)).wait();
       setMsg('Sell order posted with margin borrowed from your Trove. It rests on the book until a buyer takes it; cancelling returns the margin as MUSD to your wallet.');

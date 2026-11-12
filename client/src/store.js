@@ -9,6 +9,13 @@ import { toast } from 'react-toastify';
 import { NETWORKS, DEFAULT_NETWORK, NETWORK_STORAGE_KEY, getNetwork, isLive, networkByChainId, resolveInitialNetwork } from './network.mjs';
 import { PassportSigner, isBitcoinWalletClient } from './walletSigner.mjs';
 
+// Bitcoin wallets sign every Mezo transaction separately (no batching through the smart account), so say so each time.
+const bitcoinSignNote = call => toast.info(
+  call?.data?.startsWith?.('0x095ea7b3')
+    ? 'Sign in your Bitcoin wallet: allow Piton to use this much MUSD. The order itself is a second signature.'
+    : 'Sign in your Bitcoin wallet to send this transaction. Gas is paid in BTC from your Mezo account.',
+  { autoClose: 5000 });
+
 // Contract addresses by chain id, from the single network config (network.mjs).
 export const ADDRESSES = Object.fromEntries(Object.values(NETWORKS).map(n => [n.chain.id, n.addresses]));
 const SKIP_ORACLE_ABI  = [
@@ -155,7 +162,7 @@ export const useStore = create((set, get) => ({
     // has no accounts, so they get the PassportSigner and a read-only provider. EVM wallets work as before.
     const bitcoinWallet = isBitcoinWalletClient(walletClient);
     const provider = bitcoinWallet ? roProvider(net.key) : new ethers.BrowserProvider(walletClient.transport);
-    const signerP = bitcoinWallet ? Promise.resolve(new PassportSigner(walletClient, provider)) : provider.getSigner();
+    const signerP = bitcoinWallet ? Promise.resolve(new PassportSigner(walletClient, provider, { onSign: bitcoinSignNote })) : provider.getSigner();
     signerP.then(signer => {
       if (get().network !== net.key) return; // user switched network while the wallet was connecting
       const poolContract  = new ethers.Contract(addrs.pool,  OptionPoolABI.abi, signer);

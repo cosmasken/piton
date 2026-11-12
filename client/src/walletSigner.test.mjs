@@ -65,3 +65,12 @@ test('gives up with a clear error if the relayed transaction never appears', asy
   const s = new PassportSigner(walletClient, provider, { pollMs: 1, attempts: 3 });
   await assert.rejects(() => s.sendTransaction({ to: POOL, data: '0x' }), /not found on Mezo yet/);
 });
+
+test('onSign is told about each transaction before the Bitcoin wallet is asked, and survives connect()', async () => {
+  const { walletClient, provider } = setup({ visibleAfter: 1 });
+  const seen = [];
+  const s = new PassportSigner(walletClient, provider, { pollMs: 1, onSign: c => seen.push(c.data.slice(0, 10)) }).connect(provider);
+  const erc20 = new ethers.Interface(['function approve(address,uint256)']);
+  await s.sendTransaction({ to: POOL, data: erc20.encodeFunctionData('approve', [POOL, 1n]) });
+  assert.deepEqual(seen, ['0x095ea7b3']);                    // the app's "approve" note keys off this selector
+});

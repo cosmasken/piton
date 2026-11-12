@@ -2,7 +2,8 @@ import React, { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 // Each page loads only its own code: the landing page doesn't pull in the trading terminal or the wallet layer.
 // Pages that use a wallet load it with them (Mezo Passport + RainbowKit are large: Bitcoin-wallet libraries).
-const withWallet = load => lazy(() => Promise.all([import('./WalletProviders'), load()]).then(([w, page]) => {
+// The Buffer/process polyfills run first: both the wallet layer and the page (Passport hooks) need them.
+const withWallet = load => lazy(() => import('./polyfills').then(() => Promise.all([import('./WalletProviders'), load()])).then(([w, page]) => {
   const Wallet = w.default, Page = page.default;
   return { default: props => <Wallet><Page {...props} /></Wallet> };
 }));
